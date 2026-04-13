@@ -10,6 +10,9 @@ import Marketplace from "./pages/Marketplace";
 import AssistenteIA from "./pages/AssistenteIA";
 import Pagamentos from "./pages/Pagamentos";
 import NotFound from "./pages/NotFound";
+import CriarAula from "./pages/CriarAula";
+import CriarCurso from "./pages/CriarCurso";
+import CriarPagamento from "./pages/CriarPagamento";
 
 const queryClient = new QueryClient();
 
@@ -22,10 +25,13 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/aulas" element={<MinhasAulas />} />
+          <Route path="/aulas/nova" element={<CriarAula />} />
           <Route path="/calendario" element={<Calendario />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/cursos/novo" element={<CriarCurso />} />
           <Route path="/assistente-ia" element={<AssistenteIA />} />
           <Route path="/pagamentos" element={<Pagamentos />} />
+          <Route path="/pagamentos/novo" element={<CriarPagamento />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
