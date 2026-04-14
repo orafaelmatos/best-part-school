@@ -9,6 +9,7 @@ urlpatterns = [
     path('api/', include('lessons.urls')),
     path('api/', include('marketplace.urls')),
     path('api/', include('payments.urls')),
+    path('api/practice/', include('practice.urls')),
 ]
 
 if settings.DEBUG:

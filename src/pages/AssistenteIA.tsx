@@ -1,8 +1,10 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
-import { aiChatMessages, ChatMessage } from "@/data/mockData";
-import { Send, Mic, ArrowLeft } from "lucide-react";
+import { ChatMessage } from "@/data/mockData";
+import { Send, Mic, ArrowLeft, Loader2 } from "lucide-react";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 type PracticeType = "speaking" | "listening" | "writing";
 type Scenario = "travel" | "interview" | "daily" | "business" | "restaurant" | "custom";
@@ -22,35 +24,96 @@ const scenarios: { value: Scenario; label: string; emoji: string }[] = [
   { value: "custom", label: "Custom", emoji: "⚙️" },
 ];
 
-const aiResponses = [
-  "That's a great answer! Your use of vocabulary is improving. Let me ask you another question...",
-  "Interesting point! Try using more complex sentence structures. For example, you could say...",
-  "Well done! I noticed you used the present perfect correctly. Let's continue practicing.",
-];
-
 const AssistenteIA = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [practiceType, setPracticeType] = useState<PracticeType | null>(null);
   const [scenario, setScenario] = useState<Scenario | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>(aiChatMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
   const handleSelectType = (type: PracticeType) => {
     setPracticeType(type);
     setStep(2);
   };
 
-  const handleSelectScenario = (s: Scenario) => {
+  const handleSelectScenario = async (s: Scenario) => {
     setScenario(s);
     setStep(3);
+    setIsLoading(true);
+    setMessages([{ id: "sys-0", sender: "ai", text: "Hello! Let's start practicing. I will be your tutor. How can I help you today?", timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) }]);
+    try {
+      const response = await api.post('/practice/sessions/', {
+        mode: practiceType,
+        scenario: s
+      });
+      setSessionId(response.data.id);
+    } catch (error) {
+      toast({
+        title: "Erro ao criar sessão",
+        description: "Não foi possível iniciar a prática com o tutor.",
+        variant: "destructive"
+      });
+      setStep(2);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    const userMsg: ChatMessage = { id: Date.now().toString(), sender: "user", text: input, timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) };
-    const aiMsg: ChatMessage = { id: (Date.now() + 1).toString(), sender: "ai", text: aiResponses[Math.floor(Math.random() * aiResponses.length)], timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) };
-    setMessages((prev) => [...prev, userMsg, aiMsg]);
+  const handleSend = async () => {
+    if (!input.trim() || !sessionId || isLoading) return;
+    
+    const userMsg: ChatMessage = { 
+      id: Date.now().toString(), 
+      sender: "user", 
+      text: input, 
+      timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) 
+    };
+    
+    setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    setIsLoading(true);
+
+    try {
+      const response = await api.post(`/practice/sessions/${sessionId}/message/`, {
+        text: userMsg.text
+      });
+      
+      const aiData = response.data;
+      
+      let aiTextResponse = aiData.text;
+      
+      // Se houver correções, mostramos na mensagem
+      if (aiData.corrections && aiData.corrections.length > 0) {
+        aiTextResponse += "\n\n💡 Sugestões de melhoria:\n" + aiData.corrections.join("\n");
+      }
+
+      const aiMsg: ChatMessage = { 
+        id: aiData.id || (Date.now() + 1).toString(), 
+        sender: "ai", 
+        text: aiTextResponse, 
+        timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) 
+      };
+      
+      setMessages((prev) => [...prev, aiMsg]);
+      
+      if (aiData.audio_url) {
+         // Opcional: tocar o áudio automaticamente se for de speaking/listening
+         const audio = new Audio(aiData.audio_url);
+         audio.play().catch(e => console.log("Audio autoplay prevented", e));
+      }
+      
+    } catch (error) {
+      toast({
+        title: "Erro ao enviar mensagem",
+        description: "Não foi possível conectar com a IA.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const back = () => {
@@ -135,17 +198,22 @@ const AssistenteIA = () => {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSend()}
                 placeholder="Type your message..."
-                className="flex-1 px-4 py-3 rounded-xl border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                disabled={isLoading}
+                className="flex-1 px-4 py-3 rounded-xl border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />
               {practiceType === "speaking" && (
-                <button className="p-3 rounded-xl bg-secondary text-secondary-foreground hover:bg-accent sidebar-transition">
+                <button className="p-3 rounded-xl bg-secondary text-secondary-foreground hover:bg-accent sidebar-transition disabled:opacity-50" disabled={isLoading}>
                   <Mic size={18} />
                 </button>
               )}
-              <button onClick={handleSend} className="p-3 rounded-xl bg-primary text-primary-foreground hover:opacity-90 sidebar-transition">
-                <Send size={18} />
+              <button 
+                onClick={handleSend} 
+                disabled={isLoading}
+                className="p-3 rounded-xl bg-primary text-primary-foreground hover:opacity-90 sidebar-transition flex items-center justify-center min-w-[42px] disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
               </button>
             </div>
           </div>

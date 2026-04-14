@@ -14,6 +14,7 @@ class Lesson(models.Model):
         ('completed', 'Completed'),
         ('canceled', 'Canceled'),
         ('rescheduled', 'Rescheduled'),
+        ('missed', 'Missed'),
     )
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -24,6 +25,7 @@ class Lesson(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='lessons_attended')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
     notes = models.TextField(blank=True, null=True)
+    meeting_url = models.URLField(blank=True, null=True)
     recording_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -32,11 +34,18 @@ class Lesson(models.Model):
         return f"{self.title} - {self.date}"
 
 class NewWord(models.Model):
+    STATUS_CHOICES = (
+        ('hard', 'Difícil (Não lembrei)'),
+        ('medium', 'Médio (Mais ou menos)'),
+        ('easy', 'Fácil (Lembrei)'),
+    )
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     word = models.CharField(max_length=255)
     meaning = models.TextField()
     level = models.CharField(max_length=2, choices=Lesson.LEVEL_CHOICES)
     lesson = models.ForeignKey(Lesson, related_name='new_words', on_delete=models.CASCADE)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, blank=True, null=True)
 
     def __str__(self):
         return self.word

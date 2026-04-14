@@ -6,13 +6,15 @@ import { Plus } from "lucide-react";
 import { api } from "@/lib/api";
 
 const Marketplace = () => {
-  const { data: courses = [], isLoading } = useQuery({
+  const { data = [], isLoading } = useQuery({
     queryKey: ['courses'],
     queryFn: async () => {
       const res = await api.get('/courses/');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
     }
   });
+
+  const courses = Array.isArray(data) ? data : [];
 
   const CourseCard = ({ course }: { course: any }) => (
     <div className="border border-border rounded-xl bg-card p-6 flex flex-col sidebar-transition hover:shadow-sm">

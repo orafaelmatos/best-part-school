@@ -1,12 +1,30 @@
 from rest_framework import viewsets, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Lesson
-from .serializers import LessonSerializer
+from .models import Lesson, NewWord, Attachment
+from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
 from collections import defaultdict
 from rest_framework.views import APIView
 from django.utils import timezone
+
+class AttachmentViewSet(viewsets.ModelViewSet):
+    serializer_class = AttachmentSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = Attachment.objects.all()
+
+class NewWordViewSet(viewsets.ModelViewSet):
+    serializer_class = NewWordSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = NewWord.objects.all()
+
+    def perform_create(self, serializer):
+        lesson_id = self.request.data.get('lesson_id')
+        if lesson_id:
+            lesson = Lesson.objects.get(id=lesson_id)
+            serializer.save(lesson=lesson)
+        else:
+            serializer.save()
 
 class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer

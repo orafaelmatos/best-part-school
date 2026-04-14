@@ -2,16 +2,25 @@ import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { BookOpen, Calendar, Trophy, TrendingUp } from "lucide-react";
 import { lessons } from "@/data/mockData";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Dashboard = () => {
+  const { user } = useAuth();
+  
   const completedCount = lessons.filter((l) => l.status === "completed").length;
   const upcomingCount = lessons.filter((l) => l.status === "upcoming").length;
   const nextLesson = lessons.find((l) => l.status === "upcoming");
+  
+  // Try to use a name from the email
+  const name = user?.email?.split('@')[0] || "Usuário";
 
   return (
     <DashboardLayout>
-      <PageHeader title="Meu Painel" description="Bem-vindo de volta, Lucas! 👋" />
-
+      <PageHeader 
+        title="Meu Painel" 
+        description={`Bem-vindo de volta, ${name}! 👋 Role: ${user?.role === "teacher" ? "Professor" : "Aluno"}`} 
+      />
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[
           { label: "Aulas concluídas", value: completedCount, icon: BookOpen },

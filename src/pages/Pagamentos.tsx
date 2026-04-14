@@ -7,13 +7,15 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 const Pagamentos = () => {
-  const { data: payments = [], isLoading } = useQuery({
+  const { data = [], isLoading } = useQuery({
     queryKey: ['payments'],
     queryFn: async () => {
       const res = await api.get('/payments/');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
     }
   });
+
+  const payments = Array.isArray(data) ? data : [];
 
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
   const nextPayment = payments.find((p: any) => p.status === "pending");

@@ -12,13 +12,15 @@ const Calendario = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
 
-  const { data: lessons = [], isLoading } = useQuery({
+  const { data = [], isLoading } = useQuery({
     queryKey: ['lessons'],
     queryFn: async () => {
       const res = await api.get('/lessons/');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
     }
   });
+
+  const lessons = Array.isArray(data) ? data : [];
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -38,10 +40,26 @@ const Calendario = () => {
     scheduled: "bg-primary",
     rescheduled: "bg-warning",
     canceled: "bg-destructive",
+    missed: "bg-purple-500",
   };
 
   const completedCount = lessons.filter((l: any) => l.status === "completed").length;
-  const upcomingCount = lessons.filter((l: any) => l.status === "scheduled").length;
+  const upcomingCount = lessons.filter((l: any) => l.status === "scheduled" || l.status === "rescheduled").length;
+  const missedCount = lessons.filter((l: any) => l.status === "missed").length;
+
+  const upcomingLessons = lessons
+    .filter((l: any) => l.status === "scheduled" || l.status === "rescheduled")
+    .map((l: any) => new Date(l.date))
+    .sort((a: any, b: any) => a - b);
+
+  let periodText = "Nenhuma aula pendente.";
+  if (upcomingLessons.length === 1) {
+    periodText = upcomingLessons[0].toLocaleDateString("pt-BR");
+  } else if (upcomingLessons.length > 1) {
+    const first = upcomingLessons[0].toLocaleDateString("pt-BR");
+    const last = upcomingLessons[upcomingLessons.length - 1].toLocaleDateString("pt-BR");
+    periodText = `${first} até ${last}`;
+  }
 
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(<div key={`empty-${i}`} />);
@@ -69,22 +87,27 @@ const Calendario = () => {
     <DashboardLayout>
       <PageHeader title="Calendário" description="Visualize suas aulas no calendário." />
 
-      <div className="grid grid-cols-2 gap-4 mb-8 max-w-md">
-        <div className="border border-border rounded-xl p-4 bg-card">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="border border-border rounded-xl p-4 bg-card shadow-sm">
           <p className="text-2xl font-bold text-foreground">{completedCount}</p>
           <p className="text-sm text-muted-foreground">Aulas concluídas</p>
         </div>
-        <div className="border border-border rounded-xl p-4 bg-card">
+        <div className="border border-border rounded-xl p-4 bg-card shadow-sm">
           <p className="text-2xl font-bold text-foreground">{upcomingCount}</p>
           <p className="text-sm text-muted-foreground">Aulas restantes</p>
         </div>
+        <div className="border border-border rounded-xl p-4 bg-card shadow-sm col-span-1 md:col-span-1">
+          <p className="text-lg font-bold text-foreground mt-1 text-primary">{periodText}</p>
+          <p className="text-sm text-muted-foreground mt-1">Período das Próximas Aulas</p>
+        </div>
       </div>
 
-      <div className="flex gap-4 mb-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-success" /> Concluída</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-warning" /> Reagendada</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-destructive" /> Cancelada</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-primary" /> Agendada</span>
+      <div className="flex flex-wrap gap-4 mb-6 px-2 text-xs font-medium text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-success shadow-sm" /> Concluída</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-primary shadow-sm" /> Agendada</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-warning shadow-sm" /> Reagendada</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-destructive shadow-sm" /> Cancelada</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-purple-500 shadow-sm" /> Falta</span>
       </div>
 
       {isLoading ? <p>Carregando calendário...</p> : (
