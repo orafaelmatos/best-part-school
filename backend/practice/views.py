@@ -31,8 +31,12 @@ class PracticeSessionViewSet(viewsets.ModelViewSet):
         ai_response = AIService.generate_tutor_response(session, text)
         
         audio_url = None
-        if session.mode in ['listening', 'speaking']:
+        if session.mode == 'listening':
             audio_url = TextToSpeechService.generate_audio(ai_response['text'])
+        elif session.mode == 'speaking':
+            audio_text = ai_response.get('audio_text')
+            if audio_text:
+                audio_url = TextToSpeechService.generate_audio(audio_text)
 
         ai_msg = Message.objects.create(
             session=session, 

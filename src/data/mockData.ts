@@ -206,6 +206,7 @@ export interface ChatMessage {
   sender: "user" | "ai";
   text: string;
   timestamp: string;
+  audio_url?: string;
 }
 
 export const aiChatMessages: ChatMessage[] = [

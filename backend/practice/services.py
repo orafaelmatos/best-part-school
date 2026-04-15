@@ -49,12 +49,30 @@ class AIService:
             level = session.user.level
             
         sys_prompt = f"""
-        You are an English tutor. The student is Level {level}. 
-        Scenario: {session.scenario}.
-        Correct any mistakes and continue the conversation naturally.
-        You MUST respond strictly in valid JSON format matching this schema:
-        {{"text": "Your conversational response", "corrections": ["Detailed Mistake -> Explanation"]}}
+        You are an English tutor. Student Level: {level}. 
+        Scenario: {session.scenario}. Practice mode: {session.mode}.
+        Correct mistakes and continue the conversation naturally. Keep responses concise to save tokens.
+        CRITICAL RULE: ALL YOUR RESPONSES (both text and audio) MUST BE IN ENGLISH ONLY! Do not reply in Portuguese or any other language, even if the student speaks in another language.
+        DO NOT invent corrections if the user's message is correct. If the user's message is grammatically fine and completely understandable, you MUST return an empty list for "corrections".
         """
+        
+        if session.mode == 'speaking':
+            sys_prompt += """
+            For speaking mode, focus on pronunciation or vocabulary mistakes. Provide the correction in the "corrections" array (like "Mistake -> Fix") AND set 'audio_text' to the exact phrase the user should practice. If NO corrections are needed, set "corrections": [] and leave 'audio_text' empty ("").
+            You MUST respond strictly in valid JSON format matching this schema:
+            {"text": "Your conversational response", "corrections": ["Mistake -> Fix"], "audio_text": "Text for audio correction or empty string"}
+            """
+        elif session.mode == 'listening':
+            sys_prompt += """
+            For listening mode, your "text" response will be converted to audio. Give a short, natural response.
+            You MUST respond strictly in valid JSON format matching this schema:
+            {"text": "The response to be spoken and transcribed", "corrections": ["Mistake -> Fix"]}
+            """
+        else:
+            sys_prompt += """
+            You MUST respond strictly in valid JSON format matching this schema:
+            {"text": "Your conversational response", "corrections": ["Mistake -> Fix"]}
+            """
         
         messages = [{"role": "system", "content": sys_prompt}]
         for msg in history:

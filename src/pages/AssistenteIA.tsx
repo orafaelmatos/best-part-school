@@ -90,18 +90,25 @@ const AssistenteIA = () => {
         aiTextResponse += "\n\n💡 Sugestões de melhoria:\n" + aiData.corrections.join("\n");
       }
 
+      let audioUrl = aiData.audio_url;
+      if (audioUrl && audioUrl.startsWith("/")) {
+        // Assume localhost:8000 for backend media
+        audioUrl = `http://localhost:8000${audioUrl}`;
+      }
+
       const aiMsg: ChatMessage = { 
         id: aiData.id || (Date.now() + 1).toString(), 
         sender: "ai", 
         text: aiTextResponse, 
-        timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) 
+        timestamp: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        audio_url: audioUrl 
       };
       
       setMessages((prev) => [...prev, aiMsg]);
       
-      if (aiData.audio_url) {
+      if (audioUrl) {
          // Opcional: tocar o áudio automaticamente se for de speaking/listening
-         const audio = new Audio(aiData.audio_url);
+         const audio = new Audio(audioUrl);
          audio.play().catch(e => console.log("Audio autoplay prevented", e));
       }
       
@@ -183,6 +190,13 @@ const AssistenteIA = () => {
                     ? "bg-primary text-primary-foreground rounded-br-md"
                     : "bg-secondary text-secondary-foreground rounded-bl-md"
                 }`}>
+                  {msg.audio_url && (
+                    <audio 
+                      controls 
+                      src={msg.audio_url} 
+                      className="w-full h-8 mb-2 outline-none" 
+                    />
+                  )}
                   <p className="whitespace-pre-line">{msg.text}</p>
                   <p className={`text-[10px] mt-1 ${msg.sender === "user" ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                     {msg.timestamp}
