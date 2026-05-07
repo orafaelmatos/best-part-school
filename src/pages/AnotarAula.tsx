@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -9,10 +9,12 @@ import { useToast } from "@/components/ui/use-toast";
 import { Save, Link as LinkIcon, CheckCircle, Paperclip } from "lucide-react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
+import { FlashcardEditor } from "@/components/FlashcardEditor";
 
 const AnotarAula = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -32,6 +34,8 @@ const AnotarAula = () => {
       return res.data;
     },
   });
+
+  const lockedCalendarFlow = searchParams.get("from") === "calendar" || lesson?.status === "in_progress" || lesson?.status === "completed";
 
   useEffect(() => {
     const fetchStudents = async () => {
@@ -68,14 +72,16 @@ const AnotarAula = () => {
         datetime = new Date(`${date}T${time}`).toISOString();
       }
 
-      const payload = {
+      const payload: any = {
         title,
-        student: studentId,
-        date: datetime,
         notes,
         meeting_url: meetingUrl,
         status,
       };
+      if (!lockedCalendarFlow) {
+        payload.student = studentId;
+        payload.date = datetime;
+      }
       
       // Upload file if exists
       if (file) {
@@ -111,7 +117,7 @@ const AnotarAula = () => {
     <DashboardLayout>
       <PageHeader 
         title="Anotar Aula" 
-        description="Edite os dados da aula, faça anotações e anexe materiais." 
+        description={lockedCalendarFlow ? "Faça anotações e finalize a aula iniciada pelo calendário." : "Edite os dados da aula, faça anotações e anexe materiais."}
       />
 
       <div className="max-w-4xl space-y-6">
@@ -125,43 +131,62 @@ const AnotarAula = () => {
                 className="w-full p-2 border border-border rounded-lg bg-background text-sm"
                 value={title} 
                 onChange={(e) => setTitle(e.target.value)} 
+                readOnly={lockedCalendarFlow}
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1">Aluno</label>
-              <select 
-                className="w-full p-2 border border-border rounded-lg bg-background text-sm" 
-                value={studentId} 
-                onChange={(e) => setStudentId(e.target.value)}
-              >
-                <option value="" disabled>Selecione um aluno</option>
-                {students.map((student: any) => (
-                  <option key={student.id} value={student.id}>
-                    {student.name || student.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-sm font-semibold mb-1">Data</label>
-                <input 
-                  type="date" 
-                  className="w-full p-2 border border-border rounded-lg bg-background text-sm"
-                  value={date} 
-                  onChange={(e) => setDate(e.target.value)} 
-                />
+            {lockedCalendarFlow ? (
+              <div className="md:col-span-2 rounded-lg border border-border bg-muted p-3 text-sm">
+                <p className="font-medium">{lesson.student_name}</p>
+                <p className="text-muted-foreground">
+                  {lesson.date && new Date(lesson.date).toLocaleDateString("pt-BR", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1">Hora</label>
-                <input 
-                  type="time" 
-                  className="w-full p-2 border border-border rounded-lg bg-background text-sm"
-                  value={time} 
-                  onChange={(e) => setTime(e.target.value)} 
-                />
-              </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">Aluno</label>
+                  <select 
+                    className="w-full p-2 border border-border rounded-lg bg-background text-sm" 
+                    value={studentId} 
+                    onChange={(e) => setStudentId(e.target.value)}
+                  >
+                    <option value="" disabled>Selecione um aluno</option>
+                    {students.map((student: any) => (
+                      <option key={student.id} value={student.id}>
+                        {student.name || student.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Data</label>
+                    <input 
+                      type="date" 
+                      className="w-full p-2 border border-border rounded-lg bg-background text-sm"
+                      value={date} 
+                      onChange={(e) => setDate(e.target.value)} 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Hora</label>
+                    <input 
+                      type="time" 
+                      className="w-full p-2 border border-border rounded-lg bg-background text-sm"
+                      value={time} 
+                      onChange={(e) => setTime(e.target.value)} 
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -185,6 +210,11 @@ const AnotarAula = () => {
               }}
             />
           </div>
+        </div>
+
+        {/* Dynamic Vocabulary Field */}
+        <div className="bg-card p-6 border border-border rounded-xl shadow-sm">
+          <FlashcardEditor lesson={lesson} refetch={() => queryClient.invalidateQueries({ queryKey: ["lesson", id] })} />
         </div>
 
         {/* Links and Attachments */}
@@ -217,7 +247,7 @@ const AnotarAula = () => {
         <div className="flex gap-4 justify-end mt-8 border-t border-border pt-6">
           <Button 
             variant="outline" 
-            onClick={() => handleSave("scheduled")}
+            onClick={() => handleSave(lockedCalendarFlow ? "in_progress" : "scheduled")}
             disabled={updateMutation.isPending}
           >
             <Save className="mr-2 h-4 w-4" /> Salvar como Rascunho

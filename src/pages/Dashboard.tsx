@@ -1,15 +1,25 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { BookOpen, Calendar, Trophy, TrendingUp } from "lucide-react";
-import { lessons } from "@/data/mockData";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 const Dashboard = () => {
   const { user } = useAuth();
   
-  const completedCount = lessons.filter((l) => l.status === "completed").length;
-  const upcomingCount = lessons.filter((l) => l.status === "upcoming").length;
-  const nextLesson = lessons.find((l) => l.status === "upcoming");
+  const { data: lessons = [] } = useQuery({
+    queryKey: ['lessons'],
+    queryFn: async () => {
+      const res = await api.get('/lessons/');
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
+    }
+  });
+
+  const completedCount = lessons.filter((l: any) => l.status === "completed").length;
+  const upcomingLessons = lessons.filter((l: any) => l.status === "scheduled" || l.status === "rescheduled");
+  const upcomingCount = upcomingLessons.length;
+  const nextLesson = upcomingLessons.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())[0];
   
   // Try to use a name from the email
   const name = user?.email?.split('@')[0] || "Usuário";

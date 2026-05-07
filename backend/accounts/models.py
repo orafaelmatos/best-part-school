@@ -39,6 +39,11 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
     level = models.CharField(max_length=10, choices=LEVEL_CHOICES, blank=True, null=True)
 
+    listening = models.IntegerField(default=1)
+    speaking = models.IntegerField(default=1)
+    reading = models.IntegerField(default=1)
+    writing = models.IntegerField(default=1)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['name']
 

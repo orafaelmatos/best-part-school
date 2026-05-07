@@ -17,6 +17,9 @@ import CriarAula from "./pages/CriarAula";
 import AnotarAula from "./pages/AnotarAula";
 import CriarCurso from "./pages/CriarCurso";
 import CriarPagamento from "./pages/CriarPagamento";
+import Alunos from "./pages/Alunos";
+import CriarAluno from "./pages/CriarAluno";
+import CRM from "./pages/CRM";
 
 const queryClient = new QueryClient();
 
@@ -32,7 +35,10 @@ const App = () => (
             
             <Route element={<PrivateRoute />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/alunos" element={<Alunos />} />
+              <Route path="/alunos/novo" element={<CriarAluno />} />
               <Route path="/aulas" element={<MinhasAulas />} />
+              <Route path="/crm" element={<CRM />} />
               <Route path="/aulas/nova" element={<CriarAula />} />
               <Route path="/aulas/:id/anotar" element={<AnotarAula />} />
               <Route path="/calendario" element={<Calendario />} />

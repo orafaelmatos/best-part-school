@@ -9,6 +9,7 @@ interface UserPayload {
   email: string;
   name: string;
   role: Role;
+  level?: string;
   exp: number;
 }
 

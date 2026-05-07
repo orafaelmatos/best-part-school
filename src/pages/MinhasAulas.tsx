@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -213,9 +213,18 @@ const MinhasAulas = () => {
 
   const lessons = Array.isArray(data) ? data : [];
 
+  useEffect(() => {
+    if (user?.role === 'student' && user?.level) {
+      setSelectedLevel(user.level as Level);
+    } else if (lessons.length > 0 && user?.role === 'student') {
+      setSelectedLevel(lessons[0].level as Level);
+    }
+  }, [user, lessons.length]);
+
   const filtered = lessons.filter((l: any) => {
     if (filter === "past") return l.status === "completed" || l.status === "canceled";
-    if (filter === "upcoming") return l.status === "scheduled" || l.status === "rescheduled";
+    if (filter === "upcoming") return l.status === "scheduled" || l.status === "rescheduled" || l.status === "in_progress";
+    if (filter === "all") return l.status !== "pending"; // exclude pending from "all scheduled"
     return true;
   });
 
@@ -267,10 +276,11 @@ const MinhasAulas = () => {
         <div className="animate-fade-in space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <h2 className="text-xl font-semibold text-foreground">Sua Trilha de Aprendizado</h2>
-            <select 
-              value={selectedLevel} 
+            <select
+              value={selectedLevel}
               onChange={(e) => setSelectedLevel(e.target.value as Level)}
-              className="bg-card border border-border text-foreground text-sm rounded-lg px-3 py-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary"
+              disabled={user?.role === 'student'}
+              className="bg-card border border-border text-foreground text-sm rounded-lg px-3 py-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <optgroup label="Selecione seu Nível">
                 {levels.map(lvl => (
@@ -287,20 +297,39 @@ const MinhasAulas = () => {
                 <h3 className="text-lg font-semibold">Tópicos das Aulas ({selectedLevel})</h3>
               </div>
               <div className="bg-card border border-border rounded-xl p-0 overflow-hidden shadow-sm">
-                {currentCurriculum.lessons.length > 0 ? currentCurriculum.lessons.map((lessonTitle, index) => {
-                  const status = getLessonStatus(lessonTitle);
-                  return (
-                    <div key={index} className={`flex items-center justify-between p-4 border-b border-border last:border-0 hover:bg-accent/50 sidebar-transition ${status === 'completed' ? 'opacity-70' : ''}`}>
-                      <div className="flex items-center gap-3">
-                        {status === 'completed' ? <CheckCircle2 className="text-green-500" size={20} /> : <Circle className="text-muted-foreground" size={20} />}
-                        <span className={`font-medium ${status === 'completed' ? 'text-muted-foreground line-through' : 'text-card-foreground'}`}>
-                          {lessonTitle}
-                        </span>
+                {currentCurriculum.lessons.length > 0 ? (
+                  <>
+                    {Object.entries(
+                      currentCurriculum.lessons.reduce((acc: Record<string, string[]>, lessonTitle: string) => {
+                         const status = getLessonStatus(lessonTitle);
+                         if (status === 'completed') acc['Concluídas'] = [...(acc['Concluídas']||[]), lessonTitle];
+                         else if (status === 'scheduled' || status === 'rescheduled' || status === 'in_progress') acc['Agendadas'] = [...(acc['Agendadas']||[]), lessonTitle];
+                         else acc['Pendentes a Estudar'] = [...(acc['Pendentes a Estudar']||[]), lessonTitle];
+                         return acc;
+                      }, {})
+                    ).map(([groupName, groupLessons]: [string, string[]]) => (
+                      <div key={groupName}>
+                        <div className="px-4 py-2 bg-secondary/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          {groupName} ({groupLessons.length})
+                        </div>
+                        {groupLessons.map((lessonTitle) => {
+                          const status = getLessonStatus(lessonTitle);
+                          return (
+                            <div key={lessonTitle} className={`flex items-center justify-between p-4 border-b border-border last:border-0 hover:bg-accent/50 sidebar-transition ${status === 'completed' ? 'opacity-70' : ''}`}>
+                              <div className="flex items-center gap-3">
+                                {status === 'completed' ? <CheckCircle2 className="text-green-500" size={20} /> : <Circle className="text-muted-foreground/50" size={20} />}
+                                <span className={`font-medium ${status === 'completed' ? 'text-muted-foreground line-through' : 'text-card-foreground'}`}>
+                                  {lessonTitle}
+                                </span>
+                              </div>
+                              {status !== 'pending' && <StatusBadge status={status} />}
+                            </div>
+                          );
+                        })}
                       </div>
-                      {status !== 'pending' && <StatusBadge status={status} />}
-                    </div>
-                  );
-                }) : (
+                    ))}
+                  </>
+                ) : (
                   <div className="p-6 text-center text-muted-foreground">Nenhuma aula predefinida específica para este nível.</div>
                 )}
               </div>
@@ -327,20 +356,35 @@ const MinhasAulas = () => {
                   <h3 className="text-lg font-semibold">Tópicos Transversais (Todos os Níveis)</h3>
                 </div>
                 <div className="bg-card border border-border rounded-xl p-0 overflow-hidden shadow-sm">
-                  {allLevelsCurriculum.lessons.map((lessonTitle, index) => {
-                    const status = getLessonStatus(lessonTitle);
-                    return (
-                      <div key={index} className={`flex items-center justify-between p-4 border-b border-border last:border-0 hover:bg-accent/50 sidebar-transition ${status === 'completed' ? 'opacity-70' : ''}`}>
-                        <div className="flex items-center gap-3">
-                          {status === 'completed' ? <CheckCircle2 className="text-green-500" size={20} /> : <Circle className="text-muted-foreground" size={20} />}
-                          <span className={`font-medium ${status === 'completed' ? 'text-muted-foreground line-through' : 'text-card-foreground'}`}>
-                            {lessonTitle}
-                          </span>
-                        </div>
-                        {status !== 'pending' && <StatusBadge status={status} />}
+                  {Object.entries(
+                    allLevelsCurriculum.lessons.reduce((acc: Record<string, string[]>, lessonTitle: string) => {
+                        const status = getLessonStatus(lessonTitle);
+                        if (status === 'completed') acc['Concluídas'] = [...(acc['Concluídas']||[]), lessonTitle];
+                        else if (status === 'scheduled' || status === 'rescheduled' || status === 'in_progress') acc['Agendadas'] = [...(acc['Agendadas']||[]), lessonTitle];
+                        else acc['Pendentes a Estudar'] = [...(acc['Pendentes a Estudar']||[]), lessonTitle];
+                        return acc;
+                    }, {})
+                  ).map(([groupName, groupLessons]: [string, string[]]) => (
+                    <div key={groupName}>
+                      <div className="px-4 py-2 bg-secondary/50 border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {groupName} ({groupLessons.length})
                       </div>
-                    );
-                  })}
+                      {groupLessons.map((lessonTitle) => {
+                        const status = getLessonStatus(lessonTitle);
+                        return (
+                          <div key={lessonTitle} className={`flex items-center justify-between p-4 border-b border-border last:border-0 hover:bg-accent/50 sidebar-transition ${status === 'completed' ? 'opacity-70' : ''}`}>
+                            <div className="flex items-center gap-3">
+                              {status === 'completed' ? <CheckCircle2 className="text-green-500" size={20} /> : <Circle className="text-muted-foreground/50" size={20} />}
+                              <span className={`font-medium ${status === 'completed' ? 'text-muted-foreground line-through' : 'text-card-foreground'}`}>
+                                {lessonTitle}
+                              </span>
+                            </div>
+                            {status !== 'pending' && <StatusBadge status={status} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

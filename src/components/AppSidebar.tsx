@@ -11,23 +11,34 @@ import {
   FileText,
   CreditCard,
   LogOut,
+  Users,
+  Target,
+  MessageSquare
 } from "lucide-react";
-
-const menuItems = [
-  { label: "Meu Painel", icon: LayoutDashboard, path: "/" },
-  { label: "Minhas Aulas", icon: BookOpen, path: "/aulas" },
-  { label: "Calendário", icon: Calendar, path: "/calendario" },
-  { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
-  { label: "Treinar com IA", icon: Bot, path: "/treinar-ia" },
-  { label: "Conquistas", icon: Trophy, path: "/conquistas" },
-  { label: "Documentos", icon: FileText, path: "/documentos" },
-  { label: "Pagamentos", icon: CreditCard, path: "/pagamentos" },
-];
 
 const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  const adminTeacherMenuItems = [
+    { label: "Painel Geral", icon: LayoutDashboard, path: "/" },
+    { label: "Alunos", icon: Users, path: "/alunos" },
+    { label: "Aulas", icon: BookOpen, path: "/aulas" },
+    { label: "Calendário", icon: Calendar, path: "/calendario" },
+    { label: "CRM", icon: Target, path: "/crm" },
+    { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
+  ];
+
+  const studentMenuItems = [
+    { label: "Meu Painel", icon: LayoutDashboard, path: "/" },
+    { label: "Minhas Aulas", icon: BookOpen, path: "/aulas" },
+    { label: "Calendário", icon: Calendar, path: "/calendario" },
+    { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
+    { label: "Praticar com IA", icon: MessageSquare, path: "/treinar-ia" },
+  ];
+
+  const menuItems = user?.role === 'student' ? studentMenuItems : adminTeacherMenuItems;
 
   const handleLogout = () => {
     logout();
