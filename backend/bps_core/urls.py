@@ -10,6 +10,7 @@ urlpatterns = [
     path('api/', include('marketplace.urls')),
     path('api/', include('payments.urls')),
     path('api/practice/', include('practice.urls')),
+    path('api/ai-study/', include('ai_study.urls')),
 ]
 
 if settings.DEBUG:

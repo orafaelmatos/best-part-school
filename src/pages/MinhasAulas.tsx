@@ -5,9 +5,14 @@ import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
-import { ChevronDown, ChevronUp, Download, Play, FileText, Plus, Book, CheckCircle2, Circle, Video, Trash2, Edit2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Play, FileText, Plus, Book, CheckCircle2, Circle, Video, Trash2, Edit2, CalendarClock, X } from "lucide-react";
 import { curriculumData } from "@/data/curriculum";
 import { useAuth } from "@/contexts/AuthContext";
+import { HomeworkPanel } from "@/components/HomeworkPanel";
+import PastLessonSummary from "@/components/PastLessonSummary";
+import LessonSummarySection from "@/components/LessonSummarySection";
+import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
+import { useToast } from "@/hooks/use-toast";
 
 type Filter = "all" | "past" | "upcoming" | "curriculum";
 type Level = keyof typeof curriculumData;
@@ -198,9 +203,12 @@ const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () => void
 
 const MinhasAulas = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [filter, setFilter] = useState<Filter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState<Level>("A1/A2");
+  const [reschedulingLesson, setReschedulingLesson] = useState<any | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
   const queryClient = useQueryClient();
 
   const { data = [], isLoading, refetch } = useQuery({
@@ -243,6 +251,40 @@ const MinhasAulas = () => {
     const found = lessons.find((l: any) => l.title?.toLowerCase() === title.toLowerCase());
     return found ? found.status : "pending";
   };
+
+  const canStudentReschedule = (lesson: any) => (
+    user?.role === "student" &&
+    ["scheduled", "rescheduled"].includes(lesson.status) &&
+    lesson.date &&
+    new Date(lesson.date).getTime() > Date.now()
+  );
+
+  const isSameLessonDate = (nextDate: string, currentDate: string) => (
+    !!nextDate &&
+    !!currentDate &&
+    new Date(nextDate).getTime() === new Date(currentDate).getTime()
+  );
+
+  const rescheduleMutation = useMutation({
+    mutationFn: async ({ id, date }: { id: string; date: string }) => {
+      return api.patch(`/lessons/${id}/reschedule/`, { date });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["lessons"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      queryClient.invalidateQueries({ queryKey: ["teacher-day-slots"] });
+      toast({ title: "Aula reagendada", description: "O novo horário foi salvo na agenda." });
+      setReschedulingLesson(null);
+      setRescheduleDate("");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Erro ao reagendar",
+        description: err.response?.data?.error || "Não foi possível reagendar esta aula.",
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <DashboardLayout>
@@ -400,6 +442,7 @@ const MinhasAulas = () => {
               {filtered.map((lesson: any) => {
                 const isExpanded = expandedId === lesson.id;
                 const dateObj = new Date(lesson.date);
+                const showReschedule = canStudentReschedule(lesson);
 
                 return (
                   <div key={lesson.id} className="border border-border rounded-xl bg-card p-5 sidebar-transition hover:shadow-sm">
@@ -420,6 +463,9 @@ const MinhasAulas = () => {
                       <div className="mt-4 pt-4 border-t border-border space-y-6 animate-fade-in">
                         {/* Links section */}
                         <div className="flex flex-wrap gap-2">
+                          {(user?.role === 'teacher' || user?.role === 'admin') && (
+                            <PastLessonSummary currentLesson={lesson} compact />
+                          )}
                           {lesson.meeting_url && (
                             <a href={lesson.meeting_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">
                               <Video size={16} /> Entrar no Zoom/Meet
@@ -430,10 +476,28 @@ const MinhasAulas = () => {
                               <Play size={16} /> Ver Gravação
                             </a>
                           )}
+                          {showReschedule && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReschedulingLesson(lesson);
+                                setRescheduleDate(lesson.date || "");
+                              }}
+                              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                            >
+                              <CalendarClock size={16} /> Reagendar aula
+                            </button>
+                          )}
                         </div>
 
-                        {/* Flashcards & Resumo */}
-                        <FlashcardEditor lesson={lesson} refetch={refetch} />
+                        {/* Resumo da Aula e Flashcards SRS */}
+                        <LessonSummarySection lesson={lesson} notes={lesson.notes || ""} />
+
+                        {lesson.new_words?.length > 0 && (
+                           <FlashcardEditor lesson={lesson} refetch={refetch} />
+                        )}
+
+                        <HomeworkPanel lesson={lesson} />
 
                         {/* Attachments */}
                         {lesson.attachments?.length > 0 && (
@@ -478,6 +542,73 @@ const MinhasAulas = () => {
             </div>
           )}
         </>
+      )}
+
+      {reschedulingLesson && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4" onClick={() => {
+          setReschedulingLesson(null);
+          setRescheduleDate("");
+        }}>
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-card p-6 shadow-lg animate-fade-in" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-card-foreground">Reagendar aula</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Escolha um dia e horário livre dentro da disponibilidade do professor.
+                </p>
+                <p className="mt-2 text-sm font-medium text-foreground">{reschedulingLesson.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  Horário atual: {new Date(reschedulingLesson.date).toLocaleDateString("pt-BR", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setReschedulingLesson(null);
+                  setRescheduleDate("");
+                }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <ScheduleSlotPicker
+              teacherId={reschedulingLesson.teacher}
+              excludeLessonId={reschedulingLesson.id}
+              value={rescheduleDate}
+              onChange={setRescheduleDate}
+            />
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setReschedulingLesson(null);
+                  setRescheduleDate("");
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-accent"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!rescheduleDate || isSameLessonDate(rescheduleDate, reschedulingLesson.date) || rescheduleMutation.isPending}
+                onClick={() => rescheduleMutation.mutate({ id: reschedulingLesson.id, date: rescheduleDate })}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {rescheduleMutation.isPending ? "Reagendando..." : "Confirmar reagendamento"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </DashboardLayout>
   );

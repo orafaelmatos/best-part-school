@@ -22,3 +22,7 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+.env
+*.env
+backend/.env

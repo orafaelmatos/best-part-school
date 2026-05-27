@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { curriculumData } from "@/data/curriculum";
 import { Search, Trash2, Edit2 } from "lucide-react";
+import PastLessonSummary from "@/components/PastLessonSummary";
 
 const getInitials = (name: string) => {
   if (!name) return "A";
@@ -208,6 +209,12 @@ const Alunos = () => {
                   </div>
 
                   <div className="flex gap-2 text-muted-foreground opacity-100 transition-opacity">
+                    <PastLessonSummary
+                      student={student}
+                      compact
+                      buttonVariant="ghost"
+                      buttonClassName="h-auto p-1 text-muted-foreground hover:text-primary hover:bg-muted"
+                    />
                     <button 
                       onClick={() => openEditModal(student)} 
                       className="p-1 hover:text-primary hover:bg-muted rounded transition-colors"

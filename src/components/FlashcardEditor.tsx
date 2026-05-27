@@ -138,9 +138,16 @@ export const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () 
   return (
     <div className="bg-muted p-4 rounded-xl space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="font-semibold flex items-center gap-2 text-sm text-foreground">
-          <Book size={16} /> Flashcards (Anki) & Palavras Aprendidas (Vocabulário)
-        </h4>
+        <div>
+          <h4 className="font-semibold flex items-center gap-2 text-sm text-foreground">
+            <Book size={16} /> Flashcards (Anki) & Palavras Aprendidas (Vocabulário)
+          </h4>
+          {isTeacher && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cada palavra adicionada aqui já cria automaticamente o card correspondente para o aluno.
+            </p>
+          )}
+        </div>
       </div>
 
       {lesson?.new_words?.length > 0 ? (

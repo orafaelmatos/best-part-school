@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @layer base {
   :root {
@@ -64,8 +64,26 @@
 }
 
 @layer utilities {
+  .ql-editor img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.75rem;
+    margin: 0.75rem 0;
+  }
+
   .sidebar-transition {
     @apply transition-all duration-200 ease-in-out;
+  }
+
+  .landing-reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 700ms ease, transform 700ms ease;
+  }
+
+  .landing-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
   }
   
   .hide-scrollbar::-webkit-scrollbar {
@@ -74,5 +92,13 @@
   .hide-scrollbar {
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }

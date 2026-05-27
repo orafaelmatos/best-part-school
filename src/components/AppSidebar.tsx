@@ -1,39 +1,44 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import SidebarBadge, { useSidebarBadges } from "./SidebarBadges";
 import {
   LayoutDashboard,
   BookOpen,
   Calendar,
+  ClipboardList,
   ShoppingBag,
   Bot,
-  Mic,
-  Trophy,
-  FileText,
   CreditCard,
   LogOut,
   Users,
   Target,
-  MessageSquare
+  MessageSquare,
+  NotebookText
 } from "lucide-react";
 
 const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { data: badges } = useSidebarBadges(user?.role === "student");
 
   const adminTeacherMenuItems = [
     { label: "Painel Geral", icon: LayoutDashboard, path: "/" },
     { label: "Alunos", icon: Users, path: "/alunos" },
     { label: "Aulas", icon: BookOpen, path: "/aulas" },
+    { label: "Homework", icon: ClipboardList, path: "/corrigir-homework" },
     { label: "Calendário", icon: Calendar, path: "/calendario" },
     { label: "CRM", icon: Target, path: "/crm" },
+    { label: "Financeiro", icon: CreditCard, path: "/financeiro" },
     { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
   ];
 
   const studentMenuItems = [
     { label: "Meu Painel", icon: LayoutDashboard, path: "/" },
     { label: "Minhas Aulas", icon: BookOpen, path: "/aulas" },
+    { label: "Homework", icon: ClipboardList, path: "/homework" },
     { label: "Calendário", icon: Calendar, path: "/calendario" },
+    { label: "Financeiro", icon: CreditCard, path: "/financeiro" },
     { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
     { label: "Praticar com IA", icon: MessageSquare, path: "/treinar-ia" },
   ];
@@ -80,7 +85,9 @@ const AppSidebar = () => {
               }`}
             >
               <item.icon size={18} strokeWidth={1.8} />
-              {item.label}
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.label === "Homework" && <SidebarBadge count={badges?.homework.count} state={badges?.homework.state} />}
+              {item.label === "Financeiro" && <SidebarBadge count={badges?.finance.count} state={badges?.finance.state} />}
             </NavLink>
           );
         })}

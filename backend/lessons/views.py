@@ -1,8 +1,9 @@
-from rest_framework import viewsets, permissions, filters, status
+from rest_framework import viewsets, permissions, filters, status, exceptions
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule
-from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer
+from django.db.models import Q
+from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
+from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
 from collections import defaultdict
@@ -10,6 +11,16 @@ from rest_framework.views import APIView
 from django.utils import timezone
 import datetime
 from .scheduling import parse_lesson_datetime, validate_lesson_schedule, get_day_time_slots
+from .vocabulary import (
+    delete_new_word_cards,
+    ensure_default_categories,
+    notification_badges,
+    review_queue,
+    schedule_card,
+    sync_new_word_card,
+    vocabulary_stats,
+)
+from ai_study.services import LessonSummaryWorkflowService
 
 class AttachmentViewSet(viewsets.ModelViewSet):
     serializer_class = AttachmentSerializer
@@ -24,10 +35,318 @@ class NewWordViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         lesson_id = self.request.data.get('lesson_id')
         if lesson_id:
-            lesson = Lesson.objects.get(id=lesson_id)
-            serializer.save(lesson=lesson)
+            lesson = Lesson.objects.filter(id=lesson_id).first()
+            if not lesson:
+                raise exceptions.ValidationError({'lesson_id': 'Aula não encontrada.'})
+            instance = serializer.save(lesson=lesson)
         else:
-            serializer.save()
+            instance = serializer.save()
+        sync_new_word_card(
+            instance,
+            teacher=self.request.user if getattr(self.request.user, 'is_authenticated', False) else None,
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        sync_new_word_card(
+            instance,
+            teacher=self.request.user if getattr(self.request.user, 'is_authenticated', False) else None,
+        )
+
+    def perform_destroy(self, instance):
+        delete_new_word_cards(instance)
+        super().perform_destroy(instance)
+
+class LessonSummaryViewSet(viewsets.ModelViewSet):
+    serializer_class = LessonSummarySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['lesson', 'student', 'teacher']
+    search_fields = ['summary', 'homework', 'observations', 'words__word', 'words__meaning', 'mistakes__mistake', 'mistakes__correction']
+    ordering_fields = ['created_at', 'updated_at', 'lesson__date']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = LessonSummary.objects.select_related('lesson', 'student', 'teacher').prefetch_related(
+            'words',
+            'mistakes',
+            'next_topics',
+            'lesson__vocabulary_cards',
+            'lesson__vocabulary_cards__student',
+            'lesson__vocabulary_cards__teacher',
+            'lesson__vocabulary_cards__lesson',
+            'lesson__vocabulary_cards__category',
+        )
+        if user.role == 'admin':
+            return qs
+        if user.role == 'teacher':
+            return qs.filter(teacher=user)
+        return qs.filter(student=user)
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role == 'student':
+            raise exceptions.PermissionDenied('Alunos podem apenas visualizar resumos.')
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if request.user.role == 'student':
+            raise exceptions.PermissionDenied('Alunos podem apenas visualizar resumos.')
+        return super().partial_update(request, *args, **kwargs)
+
+class VocabularyCategoryViewSet(viewsets.ModelViewSet):
+    serializer_class = VocabularyCategorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['name', 'slug']
+
+    def get_queryset(self):
+        ensure_default_categories()
+        user = self.request.user
+        return VocabularyCategory.objects.filter(Q(is_default=True) | Q(owner=user)).order_by('-is_default', 'name')
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user, is_default=False)
+
+class VocabularyCardViewSet(viewsets.ModelViewSet):
+    serializer_class = VocabularyCardSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['student', 'teacher', 'lesson', 'source_type', 'favorite', 'archived', 'mastered', 'difficulty_level', 'category']
+    search_fields = ['word', 'translation', 'explanation', 'example_sentence', 'custom_category']
+    ordering_fields = ['next_review_at', 'last_reviewed_at', 'created_at', 'word', 'confidence_level', 'failure_count']
+    ordering = ['next_review_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = VocabularyCard.objects.select_related('student', 'teacher', 'lesson', 'category', 'source_new_word')
+        if user.role == 'admin':
+            return qs
+        if user.role == 'teacher':
+            return qs.filter(Q(teacher=user) | Q(lesson__teacher=user))
+        return qs.filter(student=user)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        student = serializer.validated_data.get('student') or user
+        teacher = serializer.validated_data.get('teacher')
+        source_type = serializer.validated_data.get('source_type')
+        if user.role == 'student':
+            student = user
+            source_type = 'student'
+        elif user.role == 'teacher':
+            teacher = teacher or user
+            source_type = source_type or 'teacher'
+        serializer.save(student=student, teacher=teacher, source_type=source_type or 'student', next_review_at=timezone.now())
+
+    def perform_update(self, serializer):
+        card = self.get_object()
+        user = self.request.user
+        if user.role == 'student' and card.source_type != 'student':
+            allowed = {'favorite', 'archived'}
+            changed = set(serializer.validated_data.keys())
+            if changed - allowed:
+                raise exceptions.PermissionDenied('Cards criados pelo professor só podem ser favoritados ou arquivados pelo aluno.')
+        serializer.save()
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        card = self.get_object()
+        rating = request.data.get('rating')
+        if rating not in ['very_hard', 'hard', 'easy']:
+            return Response({'error': 'Use rating: very_hard, hard ou easy.'}, status=status.HTTP_400_BAD_REQUEST)
+        result = schedule_card(card, rating)
+        return Response({
+            'card': self.get_serializer(result.card).data,
+            'log': VocabularyReviewLogSerializer(result.log).data,
+            'stats': vocabulary_stats(result.card.student),
+        })
+
+    @action(detail=True, methods=['post'])
+    def copy(self, request, pk=None):
+        source = self.get_object()
+        card = VocabularyCard.objects.create(
+            student=request.user,
+            teacher=source.teacher,
+            lesson=source.lesson,
+            source_new_word=source.source_new_word,
+            source_type='student',
+            word=source.word,
+            translation=source.translation,
+            explanation=source.explanation,
+            example_sentence=source.example_sentence,
+            pronunciation=source.pronunciation,
+            tags=source.tags,
+            category=source.category,
+            custom_category=source.custom_category,
+            audio_url=source.audio_url,
+            next_review_at=timezone.now(),
+        )
+        return Response(self.get_serializer(card).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'])
+    def queue(self, request):
+        limit = int(request.query_params.get('limit', 50))
+        cards = review_queue(request.user, limit=min(limit, 100))
+        return Response(self.get_serializer(cards, many=True).data)
+
+    @action(detail=False, methods=['get'])
+    def dashboard(self, request):
+        return Response(vocabulary_stats(request.user))
+
+    @action(detail=False, methods=['post'])
+    def import_lesson_words(self, request):
+        lesson_id = request.data.get('lesson')
+        lesson = Lesson.objects.filter(id=lesson_id).prefetch_related('new_words').first()
+        if not lesson:
+            return Response({'error': 'Aula não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+        student = lesson.student or request.user
+        category, _ = VocabularyCategory.objects.get_or_create(
+            owner=None,
+            slug='vocabulary',
+            defaults={'name': 'Vocabulary', 'is_default': True},
+        )
+        created = []
+        for word in lesson.new_words.all():
+            card, was_created = VocabularyCard.objects.get_or_create(
+                student=student,
+                source_new_word=word,
+                defaults={
+                    'teacher': lesson.teacher,
+                    'lesson': lesson,
+                    'source_type': 'lesson',
+                    'word': word.word,
+                    'translation': word.meaning,
+                    'category': category,
+                    'tags': [lesson.title],
+                    'next_review_at': timezone.now(),
+                },
+            )
+            if was_created:
+                created.append(card)
+        return Response(self.get_serializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+class HomeworkViewSet(viewsets.ModelViewSet):
+    serializer_class = HomeworkSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['teacher', 'student', 'lesson', 'status', 'classification']
+    ordering_fields = ['due_date', 'created_at', 'updated_at']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Homework.objects.select_related('teacher', 'student', 'lesson', 'template').prefetch_related('questions', 'answers')
+        if user.role == 'admin':
+            return qs
+        if user.role == 'teacher':
+            return qs.filter(teacher=user)
+        return qs.filter(student=user).exclude(status='draft')
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        source = self.get_object()
+        payload = {
+            'title': f"{source.title} (copia)",
+            'description': source.description,
+            'classification': source.classification,
+            'status': 'draft',
+            'due_date': source.due_date,
+            'teacher': source.teacher_id,
+            'student': source.student_id,
+            'lesson': source.lesson_id,
+            'template': source.template_id,
+            'questions': [
+                {
+                    'type': question.type,
+                    'prompt': question.prompt,
+                    'options': question.options,
+                    'correct_option_index': question.correct_option_index,
+                    'order': question.order,
+                }
+                for question in source.questions.all()
+            ],
+        }
+        serializer = self.get_serializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def save_template(self, request, pk=None):
+        homework = self.get_object()
+        template = HomeworkTemplate.objects.create(
+            title=homework.title,
+            description=homework.description,
+            classification=homework.classification,
+            teacher=homework.teacher,
+            source_homework=homework,
+            questions=[
+                {
+                    'type': question.type,
+                    'prompt': question.prompt,
+                    'options': question.options,
+                    'correct_option_index': question.correct_option_index,
+                    'order': question.order,
+                }
+                for question in homework.questions.all()
+            ],
+        )
+        return Response(HomeworkTemplateSerializer(template).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def submit_answers(self, request, pk=None):
+        homework = self.get_object()
+        answers = request.data.get('answers', [])
+        student = homework.student or request.user
+        for answer in answers:
+            question = homework.questions.filter(id=answer.get('question')).first()
+            if not question:
+                continue
+            HomeworkAnswer.objects.update_or_create(
+                homework=homework,
+                question=question,
+                student=student,
+                defaults={
+                    'answer_text': answer.get('answer_text', ''),
+                    'selected_option_index': answer.get('selected_option_index'),
+                },
+            )
+        homework.status = 'sent'
+        homework.save()
+        return Response(self.get_serializer(homework).data)
+
+class HomeworkAnswerViewSet(viewsets.ModelViewSet):
+    serializer_class = HomeworkAnswerSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = HomeworkAnswer.objects.select_related('homework', 'question', 'student')
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user.role == 'admin':
+            return qs
+        if user.role == 'teacher':
+            return qs.filter(homework__teacher=user)
+        return qs.filter(student=user)
+
+class HomeworkTemplateViewSet(viewsets.ModelViewSet):
+    serializer_class = HomeworkTemplateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['teacher', 'classification']
+    ordering_fields = ['created_at', 'updated_at', 'title']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = HomeworkTemplate.objects.all()
+        if user.role == 'admin':
+            return qs
+        return qs.filter(teacher=user)
 
 class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
@@ -79,6 +398,23 @@ class LessonViewSet(viewsets.ModelViewSet):
         lesson.save()
         return Response(self.get_serializer(lesson).data)
 
+    @action(detail=True, methods=['post'], url_path='generate-summary')
+    def generate_summary(self, request, pk=None):
+        lesson = self.get_object()
+        user = request.user
+        if not getattr(user, 'is_authenticated', False):
+            raise exceptions.NotAuthenticated()
+        if user.role == 'student':
+            raise exceptions.PermissionDenied('Alunos podem apenas visualizar resumos.')
+        if user.role == 'teacher' and lesson.teacher_id != user.id:
+            raise exceptions.PermissionDenied('Somente o professor da aula pode gerar o resumo.')
+        try:
+            summary = LessonSummaryWorkflowService.create_or_update_from_ai(lesson, user, request.data)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = LessonSummarySerializer(summary, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['patch'])
     def mark_missed(self, request, pk=None):
         lesson = self.get_object()
@@ -97,8 +433,28 @@ class LessonViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['patch'])
     def reschedule(self, request, pk=None):
+        user = request.user
+        if not getattr(user, 'is_authenticated', False):
+            raise exceptions.NotAuthenticated()
+
         lesson = self.get_object()
         new_date_str = request.data.get('date')
+
+        if lesson.is_template or not lesson.teacher or not lesson.student:
+            return Response({'error': 'Só é possível reagendar uma aula agendada.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if user.role == 'student' and lesson.student_id != user.id:
+            raise exceptions.PermissionDenied('Alunos podem reagendar apenas as próprias aulas.')
+        if user.role == 'teacher' and lesson.teacher_id != user.id:
+            raise exceptions.PermissionDenied('Professores podem reagendar apenas as próprias aulas.')
+        if user.role not in ['admin', 'teacher', 'student']:
+            raise exceptions.PermissionDenied('Você não tem permissão para reagendar aulas.')
+
+        if lesson.status not in ['scheduled', 'rescheduled']:
+            return Response({'error': 'Só é possível reagendar aulas que ainda estão agendadas.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not lesson.date or lesson.date <= timezone.now():
+            return Response({'error': 'Não é possível reagendar uma aula que já passou.'}, status=status.HTTP_400_BAD_REQUEST)
         
         if not new_date_str:
             return Response({'error': 'A nova data e hora são obrigatórias.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -111,7 +467,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         lesson.date = new_date
         lesson.status = 'rescheduled'
-        lesson.save()
+        lesson.save(update_fields=['date', 'status', 'updated_at'])
         return Response(self.get_serializer(lesson).data)
 
     @action(detail=False, methods=['get'])
@@ -195,7 +551,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Lesson.objects.all().prefetch_related('new_words', 'attachments')
+        qs = Lesson.objects.all().select_related('teacher', 'student', 'template', 'summary').prefetch_related('new_words', 'attachments')
         
         # Filtering logic
         past = self.request.query_params.get('past', None)
@@ -313,6 +669,60 @@ class TeacherAvailabilityAPIView(APIView):
         TeacherAvailability.objects.filter(teacher_id=teacher_id).delete()
         TeacherAvailability.objects.bulk_create(new_availabilities)
         return Response({'status': 'Availabilities updated'})
+
+class SidebarBadgesAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'student':
+            return Response({
+                'homework': {'count': 0, 'pending_homework': 0, 'overdue_reviews': 0, 'difficult_cards': 0, 'state': 'none'},
+                'finance': {'count': 0, 'state': 'none'},
+            })
+        return Response(notification_badges(request.user))
+
+class StudentLessonSummariesAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, student_id):
+        user = request.user
+        if user.role == 'student' and str(user.id) != str(student_id):
+            raise exceptions.PermissionDenied('Alunos podem visualizar apenas o próprio histórico.')
+        qs = LessonSummary.objects.filter(student_id=student_id).select_related('lesson', 'student', 'teacher').prefetch_related(
+            'words',
+            'mistakes',
+            'next_topics',
+            'lesson__vocabulary_cards',
+            'lesson__vocabulary_cards__category',
+        )
+        if user.role == 'teacher':
+            qs = qs.filter(teacher=user)
+        if user.role not in ['admin', 'teacher', 'student']:
+            qs = qs.none()
+
+        search = request.query_params.get('search')
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        if search:
+            qs = qs.filter(
+                Q(summary__icontains=search) |
+                Q(homework__icontains=search) |
+                Q(observations__icontains=search) |
+                Q(words__word__icontains=search) |
+                Q(mistakes__mistake__icontains=search) |
+                Q(next_topics__topic__icontains=search)
+            ).distinct()
+        if date_from:
+            qs = qs.filter(lesson__date__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(lesson__date__date__lte=date_to)
+        qs = qs.order_by('-lesson__date', '-created_at')
+        paginator = self.pagination_class() if hasattr(self, 'pagination_class') else None
+        from rest_framework.pagination import PageNumberPagination
+        paginator = paginator or PageNumberPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = LessonSummarySerializer(page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
 class TeacherBlockedDateViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherBlockedDateSerializer

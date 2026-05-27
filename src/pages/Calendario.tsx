@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import TeacherAvailabilityModal from "./TeacherAvailabilityModal";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import CreatableSelect from "react-select/creatable";
+import PastLessonSummary from "@/components/PastLessonSummary";
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -214,7 +215,7 @@ const Calendario = () => {
 
   const getLessonColor = (status: string) => {
     switch (status) {
-      case 'completed': return "bg-success/10 text-success-foreground border-success/20";
+      case 'completed': return "bg-green-500/10 text-green-700 border-green-500/20";
       case 'in_progress': return "bg-blue-500/10 text-blue-700 border-blue-500/20";
       case 'scheduled': return "bg-primary/10 text-primary border-primary/20";
       case 'rescheduled': return "bg-warning/10 text-warning-foreground border-warning/30";
@@ -226,7 +227,7 @@ const Calendario = () => {
 
   const getLessonHoverColor = (status: string) => {
     switch (status) {
-      case 'completed': return "hover:bg-success/20 hover:border-success/40";
+      case 'completed': return "hover:bg-green-500/20 hover:border-green-500/40";
       case 'in_progress': return "hover:bg-blue-500/20 hover:border-blue-500/40";
       case 'scheduled': return "hover:bg-primary/20 hover:border-primary/40";
       case 'rescheduled': return "hover:bg-warning/20 hover:border-warning/50";
@@ -290,7 +291,7 @@ const Calendario = () => {
 
     if (reschedulingLesson) {
       if (isPastDate) cellClasses += "opacity-50 cursor-not-allowed bg-muted ";
-      else if (isVerde) cellClasses += "bg-green-100/50 border-green-500 cursor-pointer hover:bg-green-200/60 text-green-900 shadow-sm ";
+      else if (isVerde) cellClasses += "bg-green-100/50 border-green-500 cursor-pointer hover:bg-green-200/60 text-emerald-900 shadow-sm ";
       else if (isVermelho) cellClasses += "bg-red-50/50 border-red-200 cursor-not-allowed text-red-500 opacity-70 ";
     } else {
       cellClasses += "cursor-pointer hover:bg-accent/50 focus:bg-accent text-card-foreground ";
@@ -542,8 +543,24 @@ const Calendario = () => {
                   </div>
                 )}
 
+                {selectedLesson.status === 'completed' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                   <button
+                        onClick={() => navigate(`/aulas/${selectedLesson.id}/anotar`)}
+                        className="col-span-1 sm:col-span-2 flex items-center justify-center gap-2 w-full py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg text-sm font-medium transition"
+                      >
+                        <PlayCircle size={16} /> Ver Resumo da Aula
+                      </button>
+                    </div>
+                )}
+
                 {user?.role === 'teacher' && ['scheduled', 'rescheduled', 'in_progress'].includes(selectedLesson.status) && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+                    <PastLessonSummary
+                      currentLesson={selectedLesson}
+                      buttonClassName="col-span-1 sm:col-span-2 w-full justify-center"
+                    />
+
                     <button
                       onClick={() => {
                         if (selectedLesson.status === 'in_progress') {
@@ -676,6 +693,11 @@ const Calendario = () => {
                 })}
               </p>
             </div>
+
+            <PastLessonSummary
+              currentLesson={startingLesson}
+              buttonClassName="mb-4 w-full justify-center"
+            />
 
             <label className="block text-sm font-medium mb-1">Título da Aula</label>
             <CreatableSelect

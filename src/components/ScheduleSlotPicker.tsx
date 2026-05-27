@@ -28,6 +28,8 @@ const reasonLabel: Record<string, string> = {
 const toLocalDateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
+const toPythonWeekday = (date: Date) => (date.getDay() + 6) % 7;
+
 const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }: ScheduleSlotPickerProps) => {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => value ? new Date(value) : new Date());
   const selectedDateKey = useMemo(() => selectedDate ? toLocalDateKey(selectedDate) : "", [selectedDate]);
@@ -48,6 +50,12 @@ const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }
   });
 
   const slots: TimeSlot[] = data?.time_slots || [];
+  const availableWeekdays = useMemo(() => new Set((data?.slots || []).map((slot: any) => slot.day_of_week)), [data?.slots]);
+  const blockedDates = data?.blocked || [];
+  const isUnavailableDate = (date: Date) => {
+    if (!data?.slots) return false;
+    return !availableWeekdays.has(toPythonWeekday(date)) || blockedDates.includes(toLocalDateKey(date));
+  };
   const selectedTime = value ? new Date(value).toTimeString().slice(0, 5) : "";
 
   return (
@@ -58,7 +66,7 @@ const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }
             mode="single"
             selected={selectedDate}
             onSelect={setSelectedDate}
-            disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+            disabled={[{ before: new Date(new Date().setHours(0, 0, 0, 0)) }, isUnavailableDate]}
             className="w-full"
           />
         </div>

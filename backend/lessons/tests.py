@@ -5,7 +5,8 @@ from rest_framework.test import APIClient
 from django.utils import timezone
 import datetime
 from accounts.models import User
-from .models import Lesson, TeacherAvailability
+from .models import Lesson, NewWord, TeacherAvailability, VocabularyCard
+from .vocabulary import schedule_card, vocabulary_stats
 
 class LessonVisibilityTests(TestCase):
     def setUp(self):
@@ -122,9 +123,197 @@ class LessonSchedulingValidationTests(TestCase):
             status='scheduled',
         )
 
+        self.client.force_authenticate(user=self.student2)
         response = self.client.patch(f'/api/lessons/{lesson_to_move.id}/reschedule/', {
             'date': self.lesson_date.isoformat(),
         })
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('horário', response.data['error'])
+
+    def test_student_can_reschedule_own_future_lesson_to_available_slot(self):
+        lesson = Lesson.objects.create(
+            title='Own future lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=self.lesson_date,
+            status='scheduled',
+        )
+        new_date = self.lesson_date + datetime.timedelta(days=7)
+
+        self.client.force_authenticate(user=self.student1)
+        response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
+            'date': new_date.isoformat(),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'rescheduled')
+        lesson.refresh_from_db()
+        self.assertEqual(lesson.date, new_date)
+
+    def test_student_cannot_reschedule_past_lesson(self):
+        past_date = timezone.now().replace(minute=0, second=0, microsecond=0) - datetime.timedelta(days=1)
+        lesson = Lesson.objects.create(
+            title='Past lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=past_date,
+            status='scheduled',
+        )
+
+        self.client.force_authenticate(user=self.student1)
+        response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
+            'date': self.lesson_date.isoformat(),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('já passou', response.data['error'])
+
+    def test_student_cannot_reschedule_another_students_lesson(self):
+        lesson = Lesson.objects.create(
+            title='Other student lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=self.lesson_date,
+            status='scheduled',
+        )
+
+        self.client.force_authenticate(user=self.student2)
+        response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
+            'date': (self.lesson_date + datetime.timedelta(hours=1)).isoformat(),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class VocabularySpacedRepetitionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.student = User.objects.create_user(email='vocab-student@test.com', password='123', role='student', name='Vocab Student')
+        self.card = VocabularyCard.objects.create(
+            student=self.student,
+            word='take off',
+            translation='decolar; tirar',
+            explanation='Phrasal verb with multiple meanings.',
+            next_review_at=timezone.now(),
+        )
+
+    def test_easy_review_grows_interval_and_confidence(self):
+        result = schedule_card(self.card, 'easy')
+        self.card.refresh_from_db()
+
+        self.assertEqual(result.log.rating, 'easy')
+        self.assertGreaterEqual(self.card.interval_days, 4)
+        self.assertGreater(self.card.repetition_count, 0)
+        self.assertGreater(self.card.confidence_level, 0)
+        self.assertGreater(self.card.next_review_at, timezone.now())
+
+    def test_very_hard_review_resets_learning_state(self):
+        schedule_card(self.card, 'easy')
+        self.card.refresh_from_db()
+        schedule_card(self.card, 'very_hard')
+        self.card.refresh_from_db()
+
+        self.assertEqual(self.card.repetition_count, 0)
+        self.assertEqual(self.card.difficulty_level, 'weak')
+        self.assertGreater(self.card.failure_count, 0)
+
+    def test_dashboard_counts_due_and_difficult_cards(self):
+        self.card.difficulty_level = 'weak'
+        self.card.confidence_level = 10
+        self.card.next_review_at = timezone.now() - datetime.timedelta(days=1)
+        self.card.save()
+
+        stats = vocabulary_stats(self.student)
+        self.assertEqual(stats['overdue'], 1)
+        self.assertEqual(stats['difficult'], 1)
+
+
+class LessonWordSyncTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(email='word-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(email='word-student@test.com', password='123', role='student', name='Student', level='B1')
+        self.lesson = Lesson.objects.create(
+            title='Lesson with vocabulary',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            status='completed',
+            date=timezone.now(),
+        )
+
+    def test_creating_new_word_also_creates_student_vocabulary_card(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/new-words/', {
+            'word': 'turn down',
+            'meaning': 'recusar; abaixar o volume',
+            'level': 'B1',
+            'lesson_id': str(self.lesson.id),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_word = NewWord.objects.get(id=response.data['id'])
+        card = VocabularyCard.objects.get(source_new_word=new_word, source_type='lesson')
+        self.assertEqual(card.student, self.student)
+        self.assertEqual(card.lesson, self.lesson)
+        self.assertEqual(card.word, 'turn down')
+        self.assertEqual(card.translation, 'recusar; abaixar o volume')
+
+    def test_updating_new_word_keeps_student_card_in_sync(self):
+        new_word = NewWord.objects.create(
+            word='look up',
+            meaning='procurar',
+            level='B1',
+            lesson=self.lesson,
+        )
+        card = VocabularyCard.objects.create(
+            student=self.student,
+            teacher=self.teacher,
+            lesson=self.lesson,
+            source_new_word=new_word,
+            source_type='lesson',
+            word='look up',
+            translation='procurar',
+            next_review_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/new-words/{new_word.id}/', {
+            'word': 'look up',
+            'meaning': 'consultar; procurar informacao',
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        card.refresh_from_db()
+        self.assertEqual(card.translation, 'consultar; procurar informacao')
+
+    def test_deleting_new_word_removes_auto_created_student_card(self):
+        new_word = NewWord.objects.create(
+            word='set up',
+            meaning='configurar',
+            level='B1',
+            lesson=self.lesson,
+        )
+        VocabularyCard.objects.create(
+            student=self.student,
+            teacher=self.teacher,
+            lesson=self.lesson,
+            source_new_word=new_word,
+            source_type='lesson',
+            word='set up',
+            translation='configurar',
+            next_review_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.delete(f'/api/new-words/{new_word.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(VocabularyCard.objects.filter(source_new_word=new_word, source_type='lesson').exists())

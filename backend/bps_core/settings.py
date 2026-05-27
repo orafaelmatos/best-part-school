@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'marketplace',
     'payments',
     'practice',
+    'ai_study',
 ]
 
 MIDDLEWARE = [

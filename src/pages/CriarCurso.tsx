@@ -13,14 +13,19 @@ const CriarCurso = () => {
     title: "",
     description: "",
     price: 0,
-    isFree: false,
+    is_free: false,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post("/courses/", { ...formData, created_by: 1 });
+      await api.post("/courses/", {
+        title: formData.title,
+        description: formData.description,
+        price: formData.is_free ? 0 : formData.price,
+        is_free: formData.is_free,
+      });
       queryClient.invalidateQueries({ queryKey: ["courses"] });
       navigate("/marketplace");
     } catch (err) {
@@ -45,10 +50,10 @@ const CriarCurso = () => {
             <textarea required className="w-full p-2 border border-border bg-background rounded-lg" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
           </div>
           <div className="flex items-center gap-2 mt-4 mb-2">
-            <input type="checkbox" id="isFree" checked={formData.isFree} onChange={e => setFormData({...formData, isFree: e.target.checked})} />
-            <label htmlFor="isFree" className="text-sm">É gratuito?</label>
+            <input type="checkbox" id="is_free" checked={formData.is_free} onChange={e => setFormData({...formData, is_free: e.target.checked})} />
+            <label htmlFor="is_free" className="text-sm">É gratuito?</label>
           </div>
-          {!formData.isFree && (
+          {!formData.is_free && (
             <div>
               <label className="block text-sm font-medium mb-1">Preço (R$)</label>
               <input required type="number" step="0.01" className="w-full p-2 border border-border bg-background rounded-lg" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} />
