@@ -1,7 +1,7 @@
 from rest_framework import viewsets, permissions, filters, status, exceptions
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q
+from django.db.models import Max, Q
 from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .permissions import IsStudentOrTeacher
@@ -10,7 +10,14 @@ from collections import defaultdict
 from rest_framework.views import APIView
 from django.utils import timezone
 import datetime
-from .scheduling import parse_lesson_datetime, validate_lesson_schedule, get_day_time_slots
+from .scheduling import (
+    insert_custom_lesson_into_student_sequence,
+    parse_lesson_datetime,
+    reorder_student_lessons as reorder_student_lessons_service,
+    get_day_time_slots,
+    swap_student_lesson_slot,
+    validate_lesson_schedule,
+)
 from .vocabulary import (
     delete_new_word_cards,
     ensure_default_categories,
@@ -353,8 +360,28 @@ class LessonViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['teacher', 'student', 'status', 'level', 'is_template']
-    ordering_fields = ['date', 'created_at']
+    ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
+
+    def _ensure_teacher_lesson_access(self, lesson):
+        user = self.request.user
+        if not getattr(user, 'is_authenticated', False):
+            raise exceptions.NotAuthenticated()
+        if user.role == 'admin':
+            return
+        if user.role != 'teacher' or lesson.teacher_id != user.id:
+            raise exceptions.PermissionDenied('Somente o professor responsável pode alterar esta aula.')
+
+    def _ensure_teacher_student_scope(self, student_id):
+        user = self.request.user
+        if not getattr(user, 'is_authenticated', False):
+            raise exceptions.NotAuthenticated()
+        if user.role == 'admin':
+            return
+        if user.role != 'teacher':
+            raise exceptions.PermissionDenied('Somente professores podem alterar a trilha do aluno.')
+        if not Lesson.objects.filter(student_id=student_id, teacher=user, is_template=False).exists():
+            raise exceptions.PermissionDenied('Você não tem acesso à trilha deste aluno.')
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -374,10 +401,45 @@ class LessonViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def start_lesson(self, request, pk=None):
         lesson = self.get_object()
+        self._ensure_teacher_lesson_access(lesson)
         if lesson.is_template or not lesson.student or not lesson.teacher or not lesson.date:
             return Response({'error': 'Só é possível iniciar uma aula a partir de um evento agendado.'}, status=status.HTTP_400_BAD_REQUEST)
         if lesson.status not in ['scheduled', 'rescheduled', 'in_progress']:
             return Response({'error': 'Esta aula não está disponível para início.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        custom_lesson_title = (request.data.get('custom_lesson_title') or '').strip()
+        selected_lesson_id = request.data.get('selected_lesson')
+        if custom_lesson_title and selected_lesson_id:
+            return Response({'error': 'Escolha uma aula da trilha ou crie uma nova, mas não envie os dois ao mesmo tempo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if custom_lesson_title:
+            try:
+                active_lesson = insert_custom_lesson_into_student_sequence(lesson, custom_lesson_title)
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(self.get_serializer(active_lesson).data)
+
+        if selected_lesson_id:
+            selected_lesson = Lesson.objects.filter(id=selected_lesson_id, is_template=False).first()
+            if not selected_lesson:
+                return Response({'error': 'Aula da trilha inválida.'}, status=status.HTTP_400_BAD_REQUEST)
+            if selected_lesson.student_id != lesson.student_id:
+                return Response({'error': 'A aula escolhida não pertence à trilha deste aluno.'}, status=status.HTTP_400_BAD_REQUEST)
+            if selected_lesson.teacher_id not in [None, lesson.teacher_id]:
+                return Response({'error': 'A aula escolhida está vinculada a outro professor.'}, status=status.HTTP_400_BAD_REQUEST)
+            if selected_lesson.status in ['completed', 'canceled', 'missed']:
+                return Response({'error': 'A aula escolhida já foi encerrada e não pode ser iniciada novamente.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            active_lesson = selected_lesson
+            if selected_lesson.id != lesson.id:
+                try:
+                    active_lesson = swap_student_lesson_slot(lesson, selected_lesson)
+                except ValueError as exc:
+                    return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+            active_lesson.status = 'in_progress'
+            active_lesson.save()
+            return Response(self.get_serializer(active_lesson).data)
 
         template_id = request.data.get('template') or lesson.template_id
         if not template_id:
@@ -396,6 +458,17 @@ class LessonViewSet(viewsets.ModelViewSet):
         lesson.level = template.level
         lesson.status = 'in_progress'
         lesson.save()
+        return Response(self.get_serializer(lesson).data)
+
+    @action(detail=True, methods=['patch'])
+    def complete_lesson(self, request, pk=None):
+        lesson = self.get_object()
+        self._ensure_teacher_lesson_access(lesson)
+        if lesson.is_template:
+            return Response({'error': 'Templates não podem ser concluídos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lesson.status = 'completed'
+        lesson.save(update_fields=['status', 'updated_at'])
         return Response(self.get_serializer(lesson).data)
 
     @action(detail=True, methods=['post'], url_path='generate-summary')
@@ -476,6 +549,35 @@ class LessonViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['patch'])
+    def reorder_student_lessons(self, request):
+        student_id = request.data.get('student')
+        lesson_ids = request.data.get('lesson_ids') or []
+
+        if not student_id:
+            return Response({'error': 'Aluno obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(lesson_ids, list) or not lesson_ids:
+            return Response({'error': 'Envie a nova ordem das aulas futuras.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._ensure_teacher_student_scope(student_id)
+
+        from django.contrib.auth import get_user_model
+        student = get_user_model().objects.filter(id=student_id).first()
+        if not student:
+            return Response({'error': 'Aluno não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            reordered = reorder_student_lessons_service(
+                student,
+                lesson_ids,
+                teacher=self.request.user if self.request.user.role == 'teacher' else None,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(reordered, many=True)
+        return Response(serializer.data)
+
     def create(self, request, *args, **kwargs):
         student_id = request.data.get('student')
         template_id = request.data.get('template')
@@ -519,6 +621,10 @@ class LessonViewSet(viewsets.ModelViewSet):
                 serializer.is_valid(raise_exception=True)
                 self.perform_update(serializer)
                 return Response(serializer.data)
+
+        if student_id and not mutable_data.get('order'):
+            max_order = Lesson.objects.filter(student_id=student_id, is_template=False).aggregate(value=Max('order'))['value'] or 0
+            mutable_data['order'] = max_order + 1
 
         serializer = self.get_serializer(data=mutable_data)
         serializer.is_valid(raise_exception=True)
@@ -566,7 +672,6 @@ class LessonViewSet(viewsets.ModelViewSet):
         if getattr(user, 'is_authenticated', False):
             if user.role == 'admin':
                 return qs
-            from django.db.models import Q
             if user.role == 'teacher':
                 return qs.filter(Q(teacher=user) | Q(is_template=True))
             return qs.filter(student=user)

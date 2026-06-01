@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import CreatableSelect from "react-select/creatable";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
+import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
 
 const CriarAula = () => {
   const navigate = useNavigate();
@@ -15,13 +16,14 @@ const CriarAula = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [students, setStudents] = useState<any[]>([]);
-  const [templateOptions, setTemplateOptions] = useState<{label: string, value: string, title: string, level: string}[]>([]);
+  const [lessonOptions, setLessonOptions] = useState<{label: string, value: string, title: string, level?: string}[]>([]);
   const [calendarEvent, setCalendarEvent] = useState<any | null>(null);
   const eventId = searchParams.get("event");
   
   const [formData, setFormData] = useState({
     title: "",
     templateId: "",
+    customLessonTitle: "",
     level: "A1",
     date: "",
     time: "",
@@ -44,25 +46,8 @@ const CriarAula = () => {
         console.error("Failed to fetch students", err);
       }
     };
-    
-    const fetchLessons = async () => {
-      try {
-        const response = await api.get("/lessons/templates/");
-        const lessonsData = Array.isArray(response.data) ? response.data : (response.data.results || []);
-        
-        // Map templates
-        const tOpts = lessonsData
-           .filter((l: any) => l.is_template)
-           .map((l: any) => ({ label: `[${l.level}] ${l.title}`, value: l.id, title: l.title, level: l.level }));
-           
-        setTemplateOptions(tOpts);
-      } catch (err) {
-        console.error("Failed to fetch lessons for autocomplete", err);
-      }
-    };
 
     fetchStudents();
-    fetchLessons();
   }, []);
 
   useEffect(() => {
@@ -75,7 +60,8 @@ const CriarAula = () => {
         setFormData(prev => ({
           ...prev,
           title: lesson.title || "",
-          templateId: lesson.template || "",
+          templateId: lesson.id || "",
+          customLessonTitle: "",
           level: lesson.level || prev.level,
           studentId: lesson.student || "",
         }));
@@ -86,6 +72,55 @@ const CriarAula = () => {
     };
     fetchEvent();
   }, [eventId, navigate]);
+
+  useEffect(() => {
+    const fetchLessonOptions = async () => {
+      try {
+        if (eventId) {
+          if (!calendarEvent?.student) return;
+          const response = await api.get("/lessons/", {
+            params: {
+              all: true,
+              student: calendarEvent.student,
+              is_template: false,
+              ordering: "order",
+            },
+          });
+          const lessonsData = sortLessonsBySequence(
+            Array.isArray(response.data) ? response.data : response.data.results || [],
+          );
+          setLessonOptions(
+            lessonsData
+              .filter((lesson: any) => !["completed", "canceled", "missed"].includes(lesson.status))
+              .map((lesson: any) => ({
+                label: formatSequenceOptionLabel(lesson),
+                value: lesson.id,
+                title: lesson.title,
+                level: lesson.level,
+              })),
+          );
+          return;
+        }
+
+        const response = await api.get("/lessons/templates/");
+        const lessonsData = Array.isArray(response.data) ? response.data : response.data.results || [];
+        setLessonOptions(
+          lessonsData
+            .filter((lesson: any) => lesson.is_template)
+            .map((lesson: any) => ({
+              label: `[${lesson.level}] ${lesson.title}`,
+              value: lesson.id,
+              title: lesson.title,
+              level: lesson.level,
+            })),
+        );
+      } catch (err) {
+        console.error("Failed to fetch lesson options", err);
+      }
+    };
+
+    fetchLessonOptions();
+  }, [calendarEvent?.student, eventId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,7 +133,7 @@ const CriarAula = () => {
       alert("Selecione um título/template para a aula.");
       return;
     }
-    if (!formData.templateId) {
+    if (!eventId && !formData.templateId) {
       alert("A aula precisa estar conectada a um template.");
       return;
     }
@@ -111,7 +146,9 @@ const CriarAula = () => {
     try {
       if (eventId) {
         const response = await api.patch(`/lessons/${eventId}/start_lesson/`, {
-          template: formData.templateId,
+          ...(formData.customLessonTitle
+            ? { custom_lesson_title: formData.customLessonTitle }
+            : { selected_lesson: formData.templateId }),
         });
         queryClient.invalidateQueries({ queryKey: ["lessons"] });
         queryClient.invalidateQueries({ queryKey: ["calendar"] });
@@ -145,7 +182,7 @@ const CriarAula = () => {
     <DashboardLayout>
       <PageHeader
         title={eventId ? "Iniciar Aula" : "Criar Nova Aula"}
-        description={eventId ? "Confirme o template da aula agendada." : "Adicione uma nova aula ao sistema."}
+        description={eventId ? "Escolha uma aula da trilha ou crie uma nova para usar neste horário." : "Adicione uma nova aula ao sistema."}
       />
       <div className="max-w-md bg-card p-6 border border-border rounded-xl">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -164,18 +201,40 @@ const CriarAula = () => {
             </div>
           )}
           <div className="relative">
-            <label className="block text-sm font-medium mb-1">Título da Aula</label>
+            <label className="block text-sm font-medium mb-1">{eventId ? "Aula da Trilha ou Nova Aula" : "Título da Aula"}</label>
             <CreatableSelect 
-              options={templateOptions}
+              options={lessonOptions}
               placeholder="Pesquise a aula..."
               isClearable
-              isValidNewOption={() => false}
-              value={templateOptions.find(option => option.value === formData.templateId) || null}
+              isValidNewOption={(inputValue) => Boolean(eventId && inputValue.trim())}
+              formatCreateLabel={(inputValue) => `Adicionar nova aula: ${inputValue}`}
+              value={
+                formData.customLessonTitle
+                  ? { label: formData.customLessonTitle, value: "__custom__", title: formData.customLessonTitle, level: formData.level }
+                  : lessonOptions.find(option => option.value === formData.templateId) || null
+              }
+              onCreateOption={(inputValue) => {
+                const title = inputValue.trim();
+                if (!title) return;
+                setFormData({
+                  ...formData,
+                  title,
+                  templateId: "",
+                  customLessonTitle: title,
+                  level: calendarEvent?.level || formData.level,
+                });
+              }}
               onChange={(option: any) => {
                 if (option) {
-                  setFormData({...formData, title: option.title, templateId: option.value, level: option.level || formData.level});
+                  setFormData({
+                    ...formData,
+                    title: option.title,
+                    templateId: option.value,
+                    customLessonTitle: "",
+                    level: option.level || formData.level,
+                  });
                 } else {
-                  setFormData({...formData, title: "", templateId: ""});
+                  setFormData({...formData, title: "", templateId: "", customLessonTitle: ""});
                 }
               }}
               styles={{

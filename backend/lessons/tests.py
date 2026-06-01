@@ -192,6 +192,144 @@ class LessonSchedulingValidationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class StudentLessonSequenceTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(email='sequence-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(email='sequence-student@test.com', password='123', role='student', name='Student', level='B1')
+        self.template_a = Lesson.objects.create(title='Lesson A', level='B1', is_template=True, status='pending')
+        self.template_b = Lesson.objects.create(title='Lesson B', level='B1', is_template=True, status='pending')
+        self.template_c = Lesson.objects.create(title='Lesson C', level='B1', is_template=True, status='pending')
+
+        base_date = timezone.now().replace(minute=0, second=0, microsecond=0) + datetime.timedelta(days=2)
+        self.lesson_a = Lesson.objects.create(
+            title='Lesson A',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            template=self.template_a,
+            date=base_date,
+            status='scheduled',
+            order=1,
+        )
+        self.lesson_b = Lesson.objects.create(
+            title='Lesson B',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            template=self.template_b,
+            date=base_date + datetime.timedelta(days=7),
+            status='scheduled',
+            order=2,
+        )
+        self.lesson_c = Lesson.objects.create(
+            title='Lesson C',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            template=self.template_c,
+            date=base_date + datetime.timedelta(days=14),
+            status='rescheduled',
+            order=3,
+        )
+
+    def test_start_lesson_can_swap_with_another_future_trail_lesson(self):
+        original_first_date = self.lesson_a.date
+        original_second_date = self.lesson_b.date
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{self.lesson_a.id}/start_lesson/', {
+            'selected_lesson': str(self.lesson_b.id),
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(str(response.data['id']), str(self.lesson_b.id))
+        self.assertEqual(response.data['status'], 'in_progress')
+
+        self.lesson_a.refresh_from_db()
+        self.lesson_b.refresh_from_db()
+
+        self.assertEqual(self.lesson_b.order, 1)
+        self.assertEqual(self.lesson_b.date, original_first_date)
+        self.assertEqual(self.lesson_b.status, 'in_progress')
+        self.assertEqual(self.lesson_a.order, 2)
+        self.assertEqual(self.lesson_a.date, original_second_date)
+
+    def test_start_lesson_can_insert_custom_lesson_and_push_remaining_sequence(self):
+        original_first_date = self.lesson_a.date
+        original_second_date = self.lesson_b.date
+        original_third_date = self.lesson_c.date
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{self.lesson_a.id}/start_lesson/', {
+            'custom_lesson_title': 'Lesson ABC',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['title'], 'Lesson ABC')
+        self.assertEqual(response.data['status'], 'in_progress')
+        self.assertIsNone(response.data['template'])
+
+        inserted_lesson = Lesson.objects.get(id=response.data['id'])
+        self.lesson_a.refresh_from_db()
+        self.lesson_b.refresh_from_db()
+        self.lesson_c.refresh_from_db()
+
+        self.assertEqual(inserted_lesson.date, original_first_date)
+        self.assertEqual(inserted_lesson.order, 1)
+        self.assertEqual(inserted_lesson.student, self.student)
+        self.assertEqual(inserted_lesson.teacher, self.teacher)
+
+        self.assertEqual(self.lesson_a.date, original_second_date)
+        self.assertEqual(self.lesson_a.order, 2)
+        self.assertEqual(self.lesson_a.status, 'scheduled')
+
+        self.assertEqual(self.lesson_b.date, original_third_date)
+        self.assertEqual(self.lesson_b.order, 3)
+        self.assertEqual(self.lesson_b.status, 'rescheduled')
+
+        self.assertEqual(self.lesson_c.order, 4)
+        self.assertEqual(self.lesson_c.status, 'rescheduled')
+        self.assertEqual(self.lesson_c.date, original_third_date + datetime.timedelta(days=7))
+
+    def test_reorder_student_lessons_updates_future_sequence_dates(self):
+        original_first_date = self.lesson_a.date
+        original_second_date = self.lesson_b.date
+        original_third_date = self.lesson_c.date
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch('/api/lessons/reorder_student_lessons/', {
+            'student': str(self.student.id),
+            'lesson_ids': [str(self.lesson_c.id), str(self.lesson_a.id), str(self.lesson_b.id)],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.lesson_a.refresh_from_db()
+        self.lesson_b.refresh_from_db()
+        self.lesson_c.refresh_from_db()
+
+        self.assertEqual(self.lesson_c.order, 1)
+        self.assertEqual(self.lesson_c.date, original_first_date)
+        self.assertEqual(self.lesson_c.status, 'scheduled')
+
+        self.assertEqual(self.lesson_a.order, 2)
+        self.assertEqual(self.lesson_a.date, original_second_date)
+        self.assertEqual(self.lesson_a.status, 'scheduled')
+
+        self.assertEqual(self.lesson_b.order, 3)
+        self.assertEqual(self.lesson_b.date, original_third_date)
+        self.assertEqual(self.lesson_b.status, 'rescheduled')
+
+    def test_teacher_can_mark_lesson_completed_from_curriculum(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{self.lesson_a.id}/complete_lesson/', {}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.lesson_a.refresh_from_db()
+        self.assertEqual(self.lesson_a.status, 'completed')
+
+
 class VocabularySpacedRepetitionTests(TestCase):
     def setUp(self):
         self.client = APIClient()

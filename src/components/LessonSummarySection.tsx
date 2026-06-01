@@ -37,7 +37,15 @@ const emptySummary: LessonSummary = {
 
 const normalizeList = (data: any) => (Array.isArray(data) ? data : data?.results || []);
 
-const LessonSummarySection = ({ lesson, notes }: { lesson: any; notes: string }) => {
+const LessonSummarySection = ({
+  lesson,
+  notes,
+  onUpdated,
+}: {
+  lesson: any;
+  notes: string;
+  onUpdated?: () => void;
+}) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<LessonSummary>(emptySummary);
@@ -91,6 +99,7 @@ const LessonSummarySection = ({ lesson, notes }: { lesson: any; notes: string })
       setForm(data);
       queryClient.invalidateQueries({ queryKey: ["lesson-summary", lesson.id] });
       queryClient.invalidateQueries({ queryKey: ["lesson", lesson.id] });
+      onUpdated?.();
     },
   });
 
@@ -111,6 +120,7 @@ const LessonSummarySection = ({ lesson, notes }: { lesson: any; notes: string })
     onSuccess: (data) => {
       if (data) setForm(data);
       queryClient.invalidateQueries({ queryKey: ["lesson-summary", lesson.id] });
+      onUpdated?.();
     },
   });
 
@@ -119,17 +129,17 @@ const LessonSummarySection = ({ lesson, notes }: { lesson: any; notes: string })
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-base font-semibold">
-            <Sparkles className="h-4 w-4 text-primary" /> Complemento do Contexto para IA
+            <Sparkles className="h-4 w-4 text-primary" /> Resumo Automatico da Aula
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            As anotações acima já entram automaticamente no contexto da IA. Este campo fica só com o complemento mais fácil para o professor revisar.
+            Sintese da aula, palavras aprendidas e proximos focos. O professor pode gerar e ajustar este resumo sempre que precisar.
           </p>
         </div>
         {isTeacher && (
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
               {generateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Brain className="mr-2 h-4 w-4" />}
-              {generateMutation.isPending ? "Gerando contexto..." : "Gerar contexto automático"}
+              {generateMutation.isPending ? "Gerando resumo..." : "Gerar resumo automatico"}
             </Button>
             {form.id && (
               <Button variant="outline" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
@@ -168,12 +178,12 @@ const LessonSummarySection = ({ lesson, notes }: { lesson: any; notes: string })
           value={form.summary}
           readOnly={!isTeacher}
           onChange={(event) => setForm((current) => ({ ...current, summary: event.target.value }))}
-          placeholder="Clique em gerar para preencher apenas o complemento: palavras aprendidas, referências anexadas e observações."
+          placeholder="Gere ou edite o resumo da aula, destacando evolucao, dificuldades e proximos passos."
           className="min-h-[320px] resize-y"
         />
       ) : (
         <div className="rounded-lg border border-dashed border-border bg-muted/40 p-6 text-sm text-muted-foreground">
-          O contexto desta aula ainda não foi sintetizado.
+          O resumo desta aula ainda nao foi gerado.
         </div>
       )}
 

@@ -18,6 +18,7 @@ import CriarAula from "./pages/CriarAula";
 import AnotarAula from "./pages/AnotarAula";
 import CriarCurso from "./pages/CriarCurso";
 import Alunos from "./pages/Alunos";
+import AlunoTrilha from "./pages/AlunoTrilha";
 import CriarAluno from "./pages/CriarAluno";
 import CRM from "./pages/CRM";
 import Homework from "./pages/Homework";
@@ -50,6 +51,8 @@ const App = () => (
             <Route element={<PrivateRoute />}>
               <Route path="/alunos" element={<Alunos />} />
               <Route path="/alunos/novo" element={<CriarAluno />} />
+              <Route path="/alunos/:id/aulas" element={<AlunoTrilha />} />
+              <Route path="/alunos/:id/trilha" element={<AlunoTrilha />} />
               <Route path="/aulas" element={<MinhasAulas />} />
               <Route path="/homework" element={<Homework />} />
               <Route path="/corrigir-homework" element={<CorrigirHomework />} />

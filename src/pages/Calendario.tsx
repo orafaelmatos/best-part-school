@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -13,6 +13,7 @@ import TeacherAvailabilityModal from "./TeacherAvailabilityModal";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import CreatableSelect from "react-select/creatable";
 import PastLessonSummary from "@/components/PastLessonSummary";
+import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -32,7 +33,8 @@ const Calendario = () => {
   const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<Date | null>(null);
   const [selectedRescheduleDateTime, setSelectedRescheduleDateTime] = useState("");
   const [startingLesson, setStartingLesson] = useState<any | null>(null);
-  const [startingTemplateId, setStartingTemplateId] = useState("");
+  const [startingSequenceLessonId, setStartingSequenceLessonId] = useState("");
+  const [startingCustomLessonTitle, setStartingCustomLessonTitle] = useState("");
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [selectedDayOptions, setSelectedDayOptions] = useState<Date | null>(null);
 
@@ -51,18 +53,32 @@ const Calendario = () => {
 
   const lessons = Array.isArray(data) ? data : [];
 
-  const { data: templateOptions = [] } = useQuery({
-    queryKey: ["lesson-templates"],
+  if (user?.role === "student") {
+    return <Navigate to="/aulas" replace />;
+  }
+
+  const { data: startingLessonOptions = [] } = useQuery({
+    queryKey: ["student-start-options", startingLesson?.student],
+    enabled: !!startingLesson?.student,
     queryFn: async () => {
-      const res = await api.get("/lessons/templates/");
-      const templates = Array.isArray(res.data) ? res.data : (res.data.results || []);
-      return templates
-        .filter((lesson: any) => lesson.is_template)
+      const res = await api.get("/lessons/", {
+        params: {
+          all: true,
+          student: startingLesson?.student,
+          is_template: false,
+          ordering: "order",
+        },
+      });
+      const studentLessons = sortLessonsBySequence(
+        Array.isArray(res.data) ? res.data : res.data.results || [],
+      );
+      return studentLessons
+        .filter((lesson: any) => !["completed", "canceled", "missed"].includes(lesson.status))
         .map((lesson: any) => ({
-          label: `[${lesson.level}] ${lesson.title}`,
+          label: formatSequenceOptionLabel(lesson),
           value: lesson.id,
           title: lesson.title,
-          level: lesson.level,
+          status: lesson.status,
         }));
     },
   });
@@ -180,14 +196,25 @@ const Calendario = () => {
   });
 
   const startLessonMutation = useMutation({
-    mutationFn: async ({ lessonId, templateId }: { lessonId: string; templateId: string }) => {
-      return api.patch(`/lessons/${lessonId}/start_lesson/`, { template: templateId });
+    mutationFn: async ({
+      lessonId,
+      selectedLessonId,
+      customLessonTitle,
+    }: {
+      lessonId: string;
+      selectedLessonId?: string;
+      customLessonTitle?: string;
+    }) => {
+      return api.patch(`/lessons/${lessonId}/start_lesson/`, customLessonTitle
+        ? { custom_lesson_title: customLessonTitle }
+        : { selected_lesson: selectedLessonId });
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["lessons"] });
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
       setStartingLesson(null);
-      setStartingTemplateId("");
+      setStartingSequenceLessonId("");
+      setStartingCustomLessonTitle("");
       setSelectedLesson(null);
       navigate(`/aulas/${res.data.id}/anotar?from=calendar`);
     },
@@ -567,7 +594,8 @@ const Calendario = () => {
                           navigate(`/aulas/${selectedLesson.id}/anotar?from=calendar`);
                         } else {
                           setStartingLesson(selectedLesson);
-                          setStartingTemplateId(selectedLesson.template || "");
+                          setStartingSequenceLessonId(selectedLesson.id);
+                          setStartingCustomLessonTitle("");
                           setSelectedLesson(null);
                         }
                       }}
@@ -663,17 +691,25 @@ const Calendario = () => {
       )}
 
       {startingLesson && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={() => setStartingLesson(null)}>
+        <div
+          className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4"
+          onClick={() => {
+            setStartingLesson(null);
+            setStartingSequenceLessonId("");
+            setStartingCustomLessonTitle("");
+          }}
+        >
           <div className="bg-card rounded-2xl shadow-lg p-6 max-w-md w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">Iniciar Aula</h3>
-                <p className="text-sm text-muted-foreground mt-1">Confirme o template desta aula.</p>
+                <p className="text-sm text-muted-foreground mt-1">Escolha uma aula da trilha ou crie uma nova para dar neste horário.</p>
               </div>
               <button
                 onClick={() => {
                   setStartingLesson(null);
-                  setStartingTemplateId("");
+                  setStartingSequenceLessonId("");
+                  setStartingCustomLessonTitle("");
                 }}
                 className="p-1 rounded-lg hover:bg-accent sidebar-transition"
               >
@@ -699,14 +735,28 @@ const Calendario = () => {
               buttonClassName="mb-4 w-full justify-center"
             />
 
-            <label className="block text-sm font-medium mb-1">Título da Aula</label>
+            <label className="block text-sm font-medium mb-1">Aula da Trilha ou Nova Aula</label>
             <CreatableSelect
-              options={templateOptions}
+              options={startingLessonOptions}
               placeholder="Pesquise a aula..."
               isClearable
-              isValidNewOption={() => false}
-              value={templateOptions.find((option: any) => option.value === startingTemplateId) || null}
-              onChange={(option: any) => setStartingTemplateId(option?.value || "")}
+              isValidNewOption={(inputValue) => Boolean(inputValue.trim())}
+              formatCreateLabel={(inputValue) => `Adicionar nova aula: ${inputValue}`}
+              value={
+                startingCustomLessonTitle
+                  ? { label: startingCustomLessonTitle, value: "__custom__", title: startingCustomLessonTitle }
+                  : startingLessonOptions.find((option: any) => option.value === startingSequenceLessonId) || null
+              }
+              onCreateOption={(inputValue) => {
+                const title = inputValue.trim();
+                if (!title) return;
+                setStartingCustomLessonTitle(title);
+                setStartingSequenceLessonId("");
+              }}
+              onChange={(option: any) => {
+                setStartingCustomLessonTitle("");
+                setStartingSequenceLessonId(option?.value || "");
+              }}
               styles={{
                 control: (baseStyles) => ({
                   ...baseStyles,
@@ -736,8 +786,12 @@ const Calendario = () => {
             />
 
             <button
-              disabled={!startingTemplateId || startLessonMutation.isPending}
-              onClick={() => startLessonMutation.mutate({ lessonId: startingLesson.id, templateId: startingTemplateId })}
+              disabled={(!startingSequenceLessonId && !startingCustomLessonTitle) || startLessonMutation.isPending}
+              onClick={() => startLessonMutation.mutate({
+                lessonId: startingLesson.id,
+                selectedLessonId: startingSequenceLessonId || undefined,
+                customLessonTitle: startingCustomLessonTitle || undefined,
+              })}
               className="mt-5 w-full py-3 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {startLessonMutation.isPending ? "Iniciando..." : "Iniciar Aula"}

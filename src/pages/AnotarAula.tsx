@@ -13,6 +13,7 @@ import { FlashcardEditor } from "@/components/FlashcardEditor";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import LessonSummarySection from "@/components/LessonSummarySection";
+import { useAuth } from "@/contexts/AuthContext";
 
 const AnotarAula = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,7 @@ const AnotarAula = () => {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
   const quillRef = useRef<ReactQuill | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const populatedLessonIdRef = useRef<string | null>(null);
@@ -157,7 +159,14 @@ const AnotarAula = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lessons"] });
       queryClient.invalidateQueries({ queryKey: ["lesson", id] });
+      queryClient.invalidateQueries({ queryKey: ["student-lesson-feed", lesson?.student] });
+      queryClient.invalidateQueries({ queryKey: ["student-lesson-summaries-feed", lesson?.student] });
+      queryClient.invalidateQueries({ queryKey: ["student-lesson-homework-feed", lesson?.student] });
       toast({ title: "Aula salva com sucesso!" });
+      if ((user?.role === "teacher" || user?.role === "admin") && lesson?.student) {
+        navigate(`/alunos/${lesson.student}/aulas`);
+        return;
+      }
       navigate("/aulas");
     },
     onError: () => {

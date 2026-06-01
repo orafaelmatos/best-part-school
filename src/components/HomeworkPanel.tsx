@@ -100,7 +100,7 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
   })),
 });
 
-export const HomeworkPanel = ({ lesson }: { lesson: any }) => {
+export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: () => void }) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isTeacher = user?.role === "teacher" || user?.role === "admin";
@@ -133,6 +133,7 @@ export const HomeworkPanel = ({ lesson }: { lesson: any }) => {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["homework", lesson.id] });
     queryClient.invalidateQueries({ queryKey: ["homework-templates"] });
+    onUpdated?.();
   };
 
   const saveMutation = useMutation({

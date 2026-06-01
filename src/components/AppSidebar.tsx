@@ -12,8 +12,7 @@ import {
   LogOut,
   Users,
   Target,
-  MessageSquare,
-  NotebookText
+  MessageSquare
 } from "lucide-react";
 
 const AppSidebar = () => {
@@ -25,7 +24,6 @@ const AppSidebar = () => {
   const adminTeacherMenuItems = [
     { label: "Painel Geral", icon: LayoutDashboard, path: "/" },
     { label: "Alunos", icon: Users, path: "/alunos" },
-    { label: "Aulas", icon: BookOpen, path: "/aulas" },
     { label: "Homework", icon: ClipboardList, path: "/corrigir-homework" },
     { label: "Calendário", icon: Calendar, path: "/calendario" },
     { label: "CRM", icon: Target, path: "/crm" },
@@ -37,7 +35,6 @@ const AppSidebar = () => {
     { label: "Meu Painel", icon: LayoutDashboard, path: "/" },
     { label: "Minhas Aulas", icon: BookOpen, path: "/aulas" },
     { label: "Homework", icon: ClipboardList, path: "/homework" },
-    { label: "Calendário", icon: Calendar, path: "/calendario" },
     { label: "Financeiro", icon: CreditCard, path: "/financeiro" },
     { label: "Marketplace", icon: ShoppingBag, path: "/marketplace" },
     { label: "Praticar com IA", icon: MessageSquare, path: "/treinar-ia" },
@@ -62,6 +59,14 @@ const AppSidebar = () => {
     return "Usuário";
   };
 
+  const isItemActive = (path: string) => {
+    if (path === "/") {
+      return location.pathname === "/";
+    }
+
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 flex flex-col border-r border-border bg-sidebar z-50">
       {/* Logo */}
@@ -73,7 +78,7 @@ const AppSidebar = () => {
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
         {menuItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isActive = isItemActive(item.path);
           return (
             <NavLink
               key={item.path}

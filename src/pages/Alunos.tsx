@@ -8,7 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { curriculumData } from "@/data/curriculum";
-import { Search, Trash2, Edit2 } from "lucide-react";
+import { BookOpenCheck, Edit2, Search, Trash2 } from "lucide-react";
 import PastLessonSummary from "@/components/PastLessonSummary";
 
 const getInitials = (name: string) => {
@@ -215,6 +215,14 @@ const Alunos = () => {
                       buttonVariant="ghost"
                       buttonClassName="h-auto p-1 text-muted-foreground hover:text-primary hover:bg-muted"
                     />
+                    <Link
+                      to={`/alunos/${student.id}/aulas`}
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
+                      title="Abrir histórico do aluno"
+                    >
+                      <BookOpenCheck size={16} />
+                      Histórico
+                    </Link>
                     <button 
                       onClick={() => openEditModal(student)} 
                       className="p-1 hover:text-primary hover:bg-muted rounded transition-colors"
