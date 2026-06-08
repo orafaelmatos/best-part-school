@@ -121,16 +121,26 @@ const MicRecorder = ({
   const isBusy = state === "processing" || state === "uploading";
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="rounded-[24px] border border-border/70 bg-background/95 p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">Speaking recorder</p>
-          <p className="text-xs text-muted-foreground">{state === "recording" ? "Gravando..." : state === "paused" ? "Pausado" : state === "uploading" ? "Enviando para análise..." : "Grave sua resposta em inglês."}</p>
+          <p className="text-sm font-semibold text-foreground">Speaking recorder</p>
+          <p className="text-xs text-muted-foreground">
+            {state === "recording"
+              ? "Gravando sua resposta..."
+              : state === "paused"
+                ? "Gravação pausada"
+                : state === "uploading"
+                  ? "Enviando para análise..."
+                  : "Grave sua resposta em inglês."}
+          </p>
         </div>
-        <div className="text-lg font-semibold tabular-nums">{formatTime(elapsed)}</div>
+        <div className="rounded-full bg-muted px-3 py-1 text-sm font-semibold tabular-nums text-foreground">
+          {formatTime(elapsed)}
+        </div>
       </div>
 
-      <div className="mb-4 flex h-12 items-center gap-1 overflow-hidden rounded-xl bg-muted px-3">
+      <div className="mb-3 flex h-10 items-center gap-1 overflow-hidden rounded-2xl bg-muted/70 px-3">
         {Array.from({ length: 36 }).map((_, index) => (
           <span
             key={index}
@@ -142,39 +152,39 @@ const MicRecorder = ({
 
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {state === "idle" || state === "completed" || state === "error" ? (
-          <button type="button" onClick={start} disabled={disabled} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          <button type="button" onClick={start} disabled={disabled} className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
             <Mic className="h-4 w-4" /> Gravar
           </button>
         ) : null}
         {state === "recording" && (
           <>
-            <button type="button" onClick={pause} className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium">
+            <button type="button" onClick={pause} className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium">
               <Pause className="h-4 w-4" /> Pausar
             </button>
-            <button type="button" onClick={stop} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button type="button" onClick={stop} className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               <Square className="h-4 w-4" /> Enviar
             </button>
           </>
         )}
         {state === "paused" && (
           <>
-            <button type="button" onClick={resume} className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium">
+            <button type="button" onClick={resume} className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium">
               <Play className="h-4 w-4" /> Continuar
             </button>
-            <button type="button" onClick={stop} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button type="button" onClick={stop} className="flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               <Square className="h-4 w-4" /> Enviar
             </button>
           </>
         )}
         {(state === "recording" || state === "paused") && (
-          <button type="button" onClick={cancel} className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground">
+          <button type="button" onClick={cancel} className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted-foreground">
             <Trash2 className="h-4 w-4" /> Cancelar
           </button>
         )}
         {state === "completed" && (
-          <button type="button" onClick={start} className="flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium">
+          <button type="button" onClick={start} className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium">
             <RotateCcw className="h-4 w-4" /> Regravar
           </button>
         )}

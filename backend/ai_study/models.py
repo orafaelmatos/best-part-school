@@ -1,6 +1,7 @@
 import uuid
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from lessons.models import Lesson
 
 User = settings.AUTH_USER_MODEL
@@ -29,23 +30,31 @@ class AIStudySession(models.Model):
         ('completed', 'Completed'),
         ('archived', 'Archived'),
     )
+    TITLE_SOURCE_CHOICES = (
+        ('auto', 'Auto'),
+        ('manual', 'Manual'),
+    )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_study_sessions')
+    lesson = models.ForeignKey(Lesson, null=True, blank=True, on_delete=models.SET_NULL, related_name='ai_study_sessions')
     mode = models.CharField(max_length=30, choices=MODE_CHOICES)
     theme = models.CharField(max_length=40, choices=THEME_CHOICES, default='casual')
     custom_topic = models.CharField(max_length=255, blank=True, null=True)
+    title = models.CharField(max_length=255, blank=True)
+    title_source = models.CharField(max_length=20, choices=TITLE_SOURCE_CHOICES, default='auto')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     auto_context = models.JSONField(default=dict, blank=True)
     streaming_ready = models.BooleanField(default=True)
+    last_interaction_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-last_interaction_at', '-created_at']
 
     def __str__(self):
-        return f"{self.student_id} - {self.mode} - {self.theme}"
+        return self.title or f"{self.student_id} - {self.mode} - {self.theme}"
 
 
 class AIContextLesson(models.Model):

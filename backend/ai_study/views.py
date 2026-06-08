@@ -1,4 +1,6 @@
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -9,8 +11,11 @@ from .models import AIConversationMessage, AIStudySession, SpeakingFeedback
 from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student
 from .serializers import (
     AIConversationMessageSerializer,
-    AIStudySessionSerializer,
+    AIStudySessionCreateSerializer,
+    AIStudySessionDetailSerializer,
+    AIStudySessionListSerializer,
     LessonContextOptionSerializer,
+    RenameConversationSerializer,
     SetContextLessonsSerializer,
     SpeakingAudioUploadSerializer,
     SpeakingFeedbackSerializer,
@@ -20,42 +25,111 @@ from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkfl
 
 
 class AIStudySessionViewSet(viewsets.ModelViewSet):
-    serializer_class = AIStudySessionSerializer
     permission_classes = [permissions.IsAuthenticated, CanAccessAIStudySession]
 
     def get_queryset(self):
-        user = self.request.user
-        qs = AIStudySession.objects.select_related('student').prefetch_related('context_lessons__lesson', 'messages')
-        if user.role == 'admin':
-            return qs
-        if user.role == 'teacher':
-            return qs.filter(student__lessons_attended__teacher=user).distinct()
-        return qs.filter(student=user)
+        base_qs = AIStudySession.objects.select_related(
+            'student',
+            'lesson',
+            'lesson__teacher',
+        ).prefetch_related(
+            'context_lessons__lesson__teacher',
+        ).annotate(
+            message_count=Count('messages', distinct=True),
+        )
 
-    def perform_create(self, serializer):
-        session = serializer.save(student=self.request.user)
-        session.auto_context = AIStudyContextService.build_auto_context(session)
-        session.save(update_fields=['auto_context'])
+        if self.action in ['retrieve', 'history', 'audio', 'message', 'contexts']:
+            base_qs = base_qs.prefetch_related(
+                'messages__audio',
+                'messages__feedback__reviews',
+                'messages__feedback__audio',
+            )
+
+        user = self.request.user
+        if user.role == 'admin':
+            qs = base_qs
+        elif user.role == 'teacher':
+            qs = base_qs.filter(student__lessons_attended__teacher=user).distinct()
+        else:
+            qs = base_qs.filter(student=user)
+
+        search = self.request.query_params.get('search')
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) |
+                Q(lesson__title__icontains=search) |
+                Q(context_lessons__lesson__title__icontains=search)
+            ).distinct()
+        return qs.order_by('-last_interaction_at', '-created_at')
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return AIStudySessionListSerializer
+        if self.action == 'create':
+            return AIStudySessionCreateSerializer
+        return AIStudySessionDetailSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        lesson = get_object_or_404(
+            AIStudyContextService.accessible_lessons(request.user),
+            id=serializer.validated_data['lesson_id'],
+        )
+        session = AIStudySession.objects.create(
+            student=request.user,
+            lesson=lesson,
+            mode='speaking',
+            theme='minhas_aulas',
+            title=AIStudyContextService.default_session_title(lesson),
+            title_source='auto',
+            last_interaction_at=timezone.now(),
+        )
+        AIStudyContextService.sync_session_lesson(session, lesson)
         AIConversationMessage.objects.create(
             session=session,
             role='assistant',
             content_type='text',
-            text="Hi! I'm ready to practice with you. Choose your lesson context or start speaking when you're ready.",
+            text=f"Aula atual: {lesson.title}. Vou usar esta aula como contexto principal. O que você quer praticar agora?",
             metadata={'initial': True, 'supports_streaming': True},
         )
+        detail_serializer = AIStudySessionDetailSerializer(session, context={'request': request})
+        return Response(detail_serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def contexts(self, request, pk=None):
         session = self.get_object()
         serializer = SetContextLessonsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        AIStudyContextService.set_context_lessons(session, serializer.validated_data['lesson_ids'])
-        return Response(AIStudySessionSerializer(session, context={'request': request}).data)
+        lesson = get_object_or_404(
+            AIStudyContextService.accessible_lessons(session.student),
+            id=serializer.validated_data['selected_lesson_id'],
+        )
+        AIStudyContextService.sync_session_lesson(session, lesson)
+        AIConversationMessage.objects.create(
+            session=session,
+            role='assistant',
+            content_type='text',
+            text=f"Aula atual atualizada para {lesson.title}. Vou continuar usando esse conteúdo como referência principal.",
+            metadata={'lesson_changed': True},
+        )
+        return Response(AIStudySessionDetailSerializer(session, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def rename(self, request, pk=None):
+        session = self.get_object()
+        serializer = RenameConversationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session.title = serializer.validated_data['title']
+        session.title_source = 'manual'
+        session.updated_at = timezone.now()
+        session.save(update_fields=['title', 'title_source', 'updated_at'])
+        return Response(AIStudySessionListSerializer(session, context={'request': request}).data)
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
         session = self.get_object()
-        messages = session.messages.select_related('audio', 'feedback').order_by('created_at')
+        messages = session.messages.select_related('audio', 'feedback__audio').order_by('created_at')
         return Response(AIConversationMessageSerializer(messages, many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
@@ -68,10 +142,13 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             serializer.validated_data['audio'],
             serializer.validated_data.get('duration_seconds'),
         )
-        latest_message = session.messages.filter(feedback=feedback, role='assistant').last()
+        user_message = session.messages.filter(audio=feedback.audio, role='user').select_related('audio', 'feedback__audio').last()
+        assistant_message = session.messages.filter(feedback=feedback, role='assistant').select_related('feedback__audio').last()
         return Response({
             'feedback': SpeakingFeedbackSerializer(feedback, context={'request': request}).data,
-            'message': AIConversationMessageSerializer(latest_message, context={'request': request}).data if latest_message else None,
+            'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data if user_message else None,
+            'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data if assistant_message else None,
+            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
@@ -82,16 +159,22 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         text = serializer.validated_data.get('text', '').strip()
         if not text:
             return Response({'error': 'text is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        AIConversationMessage.objects.create(session=session, role='user', content_type='text', text=text)
+        user_message = AIConversationMessage.objects.create(session=session, role='user', content_type='text', text=text)
         ai_text = AIStudyOpenAIService.generate_chat_response(session, text)
-        message = AIConversationMessage.objects.create(
+        assistant_message = AIConversationMessage.objects.create(
             session=session,
             role='assistant',
             content_type='text',
             text=ai_text,
             metadata={'supports_streaming': True},
         )
-        return Response(AIConversationMessageSerializer(message, context={'request': request}).data)
+        AIStudyContextService.touch_session(session)
+        AIStudyOpenAIService.maybe_generate_session_title(session)
+        return Response({
+            'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data,
+            'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
+            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
+        })
 
 
 class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
@@ -134,4 +217,10 @@ class ContextLessonsAPIView(APIView):
         qs = AIStudyContextService.filter_lessons(request.user, request.query_params)
         if student:
             qs = qs.filter(student=student)
-        return Response(LessonContextOptionSerializer(qs[:100], many=True).data)
+        recent_lesson = qs.first()
+        serializer = LessonContextOptionSerializer(
+            qs[:100],
+            many=True,
+            context={'recent_lesson_id': recent_lesson.id if recent_lesson else None},
+        )
+        return Response(serializer.data)

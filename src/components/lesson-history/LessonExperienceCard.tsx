@@ -88,6 +88,7 @@ const LessonExperienceCard = ({
   const summaryPreview = getSummaryPreview(summary);
   const notesPreview = stripHtml(lesson.notes);
   const canReschedule =
+    isTeacher &&
     !!onRequestReschedule &&
     ["scheduled", "rescheduled"].includes(lesson.status) &&
     !!lesson.date &&

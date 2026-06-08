@@ -30,10 +30,16 @@ class AIStudyAPITests(TestCase):
 
     def test_student_can_create_own_ai_study_session(self):
         self.client.force_authenticate(user=self.student)
-        response = self.client.post('/api/ai-study/sessions/', {'mode': 'speaking', 'theme': 'travel'})
+        response = self.client.post('/api/ai-study/sessions/', {'lesson_id': str(self.lesson.id)})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(str(response.data['student']), str(self.student.id))
+        self.assertEqual(str(response.data['lesson']), str(self.lesson.id))
         self.assertTrue(AIConversationMessage.objects.filter(session_id=response.data['id'], role='assistant').exists())
+
+    def test_student_cannot_create_ai_study_session_without_lesson(self):
+        self.client.force_authenticate(user=self.student)
+        response = self.client.post('/api/ai-study/sessions/', {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_student_cannot_access_other_student_session(self):
         session = AIStudySession.objects.create(student=self.other_student, mode='speaking', theme='travel')

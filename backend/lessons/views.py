@@ -516,11 +516,11 @@ class LessonViewSet(viewsets.ModelViewSet):
         if lesson.is_template or not lesson.teacher or not lesson.student:
             return Response({'error': 'Só é possível reagendar uma aula agendada.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user.role == 'student' and lesson.student_id != user.id:
-            raise exceptions.PermissionDenied('Alunos podem reagendar apenas as próprias aulas.')
+        if user.role == 'student':
+            raise exceptions.PermissionDenied('Somente professores podem reagendar aulas.')
         if user.role == 'teacher' and lesson.teacher_id != user.id:
             raise exceptions.PermissionDenied('Professores podem reagendar apenas as próprias aulas.')
-        if user.role not in ['admin', 'teacher', 'student']:
+        if user.role not in ['admin', 'teacher']:
             raise exceptions.PermissionDenied('Você não tem permissão para reagendar aulas.')
 
         if lesson.status not in ['scheduled', 'rescheduled']:

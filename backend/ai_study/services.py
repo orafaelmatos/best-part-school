@@ -5,9 +5,9 @@ import os
 import uuid
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
-from django.utils.html import strip_tags
+from django.db.models import Count, Max, Q
 from django.utils import timezone
+from django.utils.html import strip_tags
 from openai import OpenAI
 from lessons.models import (
     Homework,
@@ -178,6 +178,7 @@ class AIStudyContextService:
             'summary__words',
             'summary__mistakes',
             'summary__next_topics',
+            'homework_items',
             'homework_items__answers__question',
         )
         if user.role == 'admin':
@@ -189,7 +190,16 @@ class AIStudyContextService:
 
     @staticmethod
     def filter_lessons(user, params):
-        qs = AIStudyContextService.accessible_lessons(user)
+        qs = AIStudyContextService.accessible_lessons(user).annotate(
+            new_words_count=Count('new_words', distinct=True),
+            flashcard_count=Count('vocabulary_cards', distinct=True),
+            pending_homework_count=Count(
+                'homework_items',
+                filter=Q(homework_items__status__in=['pending', 'sent']),
+                distinct=True,
+            ),
+            last_ai_interaction_at=Max('ai_study_sessions__last_interaction_at'),
+        )
         teacher = params.get('teacher')
         date_from = params.get('date_from')
         date_to = params.get('date_to')
@@ -206,6 +216,25 @@ class AIStudyContextService:
         if tag:
             qs = qs.filter(Q(level__icontains=tag) | Q(title__icontains=tag) | Q(notes__icontains=tag))
         return qs.order_by('-date')
+
+    @staticmethod
+    def primary_lesson(session):
+        if session.lesson_id:
+            return session.lesson
+        first_context = session.context_lessons.select_related('lesson').first()
+        return first_context.lesson if first_context else None
+
+    @staticmethod
+    def default_session_title(lesson):
+        return clean_context_text(f"{lesson.title} Practice", limit=80) if lesson else 'AI Practice'
+
+    @staticmethod
+    def touch_session(session, timestamp=None):
+        now = timestamp or timezone.now()
+        session.last_interaction_at = now
+        session.updated_at = now
+        session.save(update_fields=['last_interaction_at', 'updated_at'])
+        return session
 
     @staticmethod
     def lesson_snapshot(lesson):
@@ -254,17 +283,29 @@ class AIStudyContextService:
         }
 
     @staticmethod
-    def set_context_lessons(session, lesson_ids):
-        allowed = AIStudyContextService.accessible_lessons(session.student).filter(id__in=lesson_ids)
-        AIContextLesson.objects.filter(session=session).exclude(lesson__in=allowed).delete()
-        for lesson in allowed:
-            AIContextLesson.objects.update_or_create(
-                session=session,
-                lesson=lesson,
-                defaults={'snapshot': AIStudyContextService.lesson_snapshot(lesson)},
-            )
+    def sync_session_lesson(session, lesson):
+        AIContextLesson.objects.filter(session=session).exclude(lesson=lesson).delete()
+        AIContextLesson.objects.update_or_create(
+            session=session,
+            lesson=lesson,
+            defaults={'snapshot': AIStudyContextService.lesson_snapshot(lesson)},
+        )
+        now = timezone.now()
+        session.lesson = lesson
         session.auto_context = AIStudyContextService.build_auto_context(session)
-        session.save(update_fields=['auto_context', 'updated_at'])
+        session.last_interaction_at = now
+        session.updated_at = now
+        session.save(update_fields=['lesson', 'auto_context', 'last_interaction_at', 'updated_at'])
+        return session
+
+    @staticmethod
+    def set_context_lessons(session, lesson_ids):
+        if len(lesson_ids) != 1:
+            raise ValueError('Exactly one lesson must be selected.')
+        lesson = AIStudyContextService.accessible_lessons(session.student).filter(id=lesson_ids[0]).first()
+        if not lesson:
+            raise ValueError('Selected lesson is not available.')
+        AIStudyContextService.sync_session_lesson(session, lesson)
         return session
 
     @staticmethod
@@ -292,7 +333,7 @@ class AIStudyContextService:
             hardest_vocabulary.extend([
                 {'word': word.word, 'meaning': word.meaning, 'status': word.status, 'lesson': lesson.title}
                 for word in lesson.new_words.all()
-                if word.status in ['hard', 'medium'] or session.mode == 'weak_points'
+                if word.status in ['hard', 'medium']
             ])
             hardest_vocabulary.extend([
                 {
@@ -302,10 +343,7 @@ class AIStudyContextService:
                     'lesson': lesson.title,
                 }
                 for card in lesson.vocabulary_cards.all()
-                if card.word and (
-                    card.difficulty_level in ['new', 'weak', 'learning']
-                    or session.mode == 'weak_points'
-                )
+                if card.word and card.difficulty_level in ['new', 'weak', 'learning']
             ])
         homework_gaps = []
         for item in homework:
@@ -365,9 +403,14 @@ class AIStudyContextService:
         selected = []
         image_blocks = []
         remaining_images = 6
-        contexts = session.context_lessons.select_related('lesson').all()
+        contexts = list(session.context_lessons.select_related('lesson').all())
+        if not contexts:
+            lesson = AIStudyContextService.primary_lesson(session)
+            contexts = [type('ContextWrapper', (), {'lesson': lesson})] if lesson else []
         for context in contexts:
             lesson = context.lesson
+            if not lesson:
+                continue
             snapshot = AIStudyContextService.lesson_snapshot(lesson)
             selected.append(AIStudyContextService._compact_snapshot(snapshot))
             if not include_images or remaining_images <= 0:
@@ -384,12 +427,14 @@ class AIStudyContextService:
         selected_titles = [item.get('title') for item in selected if item.get('title')]
         priority_rules = [
             'Use selected_lessons as the primary source of truth whenever they exist.',
-            'If the student asks about "this lesson", assume they mean the selected lesson context.',
+            'Use the current lesson as the primary source of truth whenever it exists.',
+            'If the student asks about "this lesson", assume they mean the linked lesson context.',
             'Use these lesson materials in this order: ai_context_summary, teacher_summary, lesson notes, flashcards/new words, attached images, homework and corrections.',
             'Do not mix unrelated topics from auto_context when a selected lesson already answers the question.',
             'If the selected lesson does not contain enough evidence, say that clearly instead of inventing details.',
         ]
         payload = {
+            'current_lesson': selected[0] if selected else None,
             'selected_lessons_present': bool(selected),
             'selected_lesson_titles': selected_titles,
             'selected_lessons_priority': 'primary' if selected else 'none',
@@ -403,18 +448,17 @@ class AIStudyContextService:
 
     @staticmethod
     def tutor_system_prompt(session):
-        has_selected_lessons = session.context_lessons.exists()
-        selected_rule = (
-            'Selected lesson context is primary. Ground your answer in the chosen lessons and use broader student history only as fallback.'
-            if has_selected_lessons else
-            'No lesson is currently selected, so use the broader student history as fallback context.'
-        )
+        lesson = AIStudyContextService.primary_lesson(session)
+        lesson_title = lesson.title if lesson else 'Unknown lesson'
         return (
             'You are an English tutor inside an English school SaaS. '
             'This product is different from a generic chatbot because you must teach with precision from the school lesson context. '
-            f'Student level: {session.student.level or "A2"}. Practice mode: {session.mode}. Theme: {session.theme}. '
-            f'{selected_rule} '
-            'When selected lessons exist, answer based on their notes, summaries, flashcards, attached images, homework and corrections. '
+            f'Student level: {session.student.level or "A2"}. Current lesson: {lesson_title}. '
+            'The student does not choose a practice mode upfront. Infer intent from the message itself: '
+            'text may require writing help, grammar correction, free conversation or exercises; audio transcripts may require speaking feedback, pronunciation guidance and a natural conversational reply. '
+            'Selected lesson context is primary. '
+            'Ground every answer in the linked lesson first and use broader student history only as fallback. '
+            'When lesson context exists, answer based on its notes, summaries, flashcards, attached images, homework and corrections. '
             'Do not invent what happened in class. If the context is incomplete, say so explicitly. '
             'Keep answers concise, helpful and pedagogical, and end with one natural follow-up question when it fits.'
         )
@@ -516,6 +560,7 @@ class AIStudyOpenAIService:
     def analyze_speaking(session, transcript):
         context_text = AIStudyContextService.prompt_context(session)
         _, image_blocks = AIStudyContextService.selected_context_payload(session, include_images=True)
+        lesson = AIStudyContextService.primary_lesson(session)
         messages = [
             {
                 'role': 'system',
@@ -533,7 +578,7 @@ class AIStudyOpenAIService:
                         'type': 'text',
                         'text': (
                             f"Student level: {session.student.level or 'A2'}\n"
-                            f"Practice mode: {session.mode}\nTheme: {session.theme}\n"
+                            f"Current lesson: {lesson.title if lesson else 'Unknown lesson'}\n"
                             f"Context:\n{context_text}\n\n"
                             f"Transcript:\n{transcript}"
                         ),
@@ -573,6 +618,65 @@ class AIStudyOpenAIService:
         messages.append({'role': 'user', 'content': text})
         response = client.chat.completions.create(model='gpt-4o', messages=messages)
         return response.choices[0].message.content or ''
+
+    @staticmethod
+    def fallback_session_title(session):
+        lesson = AIStudyContextService.primary_lesson(session)
+        lesson_title = clean_context_text(lesson.title if lesson else 'AI Practice', limit=48)
+        first_user_message = session.messages.filter(role='user').order_by('created_at').values_list('text', flat=True).first() or ''
+        snippet = ' '.join(clean_context_text(first_user_message, limit=80).split()[:5])
+        if snippet:
+            return clean_context_text(f"{lesson_title}: {snippet}", limit=70)
+        if lesson_title:
+            return clean_context_text(f"{lesson_title} Practice", limit=70)
+        return 'AI Practice'
+
+    @staticmethod
+    def maybe_generate_session_title(session):
+        if session.title_source == 'manual':
+            return session.title
+        user_count = session.messages.filter(role='user').count()
+        if user_count == 0:
+            return session.title or AIStudyOpenAIService.fallback_session_title(session)
+        if user_count > 2 and session.title:
+            return session.title
+
+        lesson = AIStudyContextService.primary_lesson(session)
+        user_messages = list(
+            session.messages.filter(role='user').order_by('created_at').values_list('text', flat=True)[:3]
+        )
+        prompt = {
+            'lesson_title': lesson.title if lesson else '',
+            'student_level': session.student.level or 'A2',
+            'recent_user_messages': [message for message in user_messages if message],
+        }
+        title = ''
+        try:
+            response = client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': (
+                            'Generate a short conversation title for an English-learning chat. '
+                            'Return only the title, with 2 to 5 words, no quotes, no punctuation at the end.'
+                        ),
+                    },
+                    {'role': 'user', 'content': json.dumps(prompt, ensure_ascii=False)},
+                ],
+            )
+            title = clean_context_text(response.choices[0].message.content, limit=70).strip(' "\'')
+        except Exception:
+            title = ''
+
+        if not title:
+            title = AIStudyOpenAIService.fallback_session_title(session)
+
+        session.title = title
+        session.title_source = 'auto'
+        session.updated_at = timezone.now()
+        session.save(update_fields=['title', 'title_source', 'updated_at'])
+        return title
 
     @staticmethod
     def generate_tts(text):
@@ -977,6 +1081,8 @@ class AIStudyWorkflowService:
                 feedback=feedback,
                 metadata={'supports_streaming': True},
             )
+            AIStudyContextService.touch_session(session)
+            AIStudyOpenAIService.maybe_generate_session_title(session)
             return feedback
         except Exception as exc:
             speaking_audio.status = 'failed'

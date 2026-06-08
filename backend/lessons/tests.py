@@ -123,7 +123,7 @@ class LessonSchedulingValidationTests(TestCase):
             status='scheduled',
         )
 
-        self.client.force_authenticate(user=self.student2)
+        self.client.force_authenticate(user=self.teacher)
         response = self.client.patch(f'/api/lessons/{lesson_to_move.id}/reschedule/', {
             'date': self.lesson_date.isoformat(),
         })
@@ -131,7 +131,7 @@ class LessonSchedulingValidationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('horário', response.data['error'])
 
-    def test_student_can_reschedule_own_future_lesson_to_available_slot(self):
+    def test_teacher_can_reschedule_own_future_lesson_to_available_slot(self):
         lesson = Lesson.objects.create(
             title='Own future lesson',
             level='B1',
@@ -143,7 +143,7 @@ class LessonSchedulingValidationTests(TestCase):
         )
         new_date = self.lesson_date + datetime.timedelta(days=7)
 
-        self.client.force_authenticate(user=self.student1)
+        self.client.force_authenticate(user=self.teacher)
         response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
             'date': new_date.isoformat(),
         })
@@ -153,7 +153,7 @@ class LessonSchedulingValidationTests(TestCase):
         lesson.refresh_from_db()
         self.assertEqual(lesson.date, new_date)
 
-    def test_student_cannot_reschedule_past_lesson(self):
+    def test_teacher_cannot_reschedule_past_lesson(self):
         past_date = timezone.now().replace(minute=0, second=0, microsecond=0) - datetime.timedelta(days=1)
         lesson = Lesson.objects.create(
             title='Past lesson',
@@ -165,13 +165,32 @@ class LessonSchedulingValidationTests(TestCase):
             status='scheduled',
         )
 
-        self.client.force_authenticate(user=self.student1)
+        self.client.force_authenticate(user=self.teacher)
         response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
             'date': self.lesson_date.isoformat(),
         })
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('já passou', response.data['error'])
+
+    def test_student_cannot_reschedule_own_future_lesson(self):
+        lesson = Lesson.objects.create(
+            title='Own future lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=self.lesson_date,
+            status='scheduled',
+        )
+
+        self.client.force_authenticate(user=self.student1)
+        response = self.client.patch(f'/api/lessons/{lesson.id}/reschedule/', {
+            'date': (self.lesson_date + datetime.timedelta(days=7)).isoformat(),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('Somente professores', str(response.data))
 
     def test_student_cannot_reschedule_another_students_lesson(self):
         lesson = Lesson.objects.create(
