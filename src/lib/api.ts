@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { API_BASE_URL } from "@/lib/config";
 
 export const api = axios.create({
-  baseURL: 'http://localhost:8000/api/',
+  baseURL: API_BASE_URL,
 });
 
 // Interceptor for JWT later on when Auth is enabled again

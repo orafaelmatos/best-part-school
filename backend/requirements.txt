@@ -8,6 +8,7 @@ django-cors-headers==4.9.0
 django-filter==25.1
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
+gunicorn==23.0.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -25,3 +26,4 @@ sqlparse==0.5.5
 tqdm==4.67.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+whitenoise==6.11.0

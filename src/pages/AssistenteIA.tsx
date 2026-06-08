@@ -7,6 +7,7 @@ import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { absoluteMediaUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -97,12 +98,6 @@ type AudioResponse = {
 };
 
 type PickerMode = "new" | "change" | null;
-
-const absoluteMediaUrl = (url?: string | null) => {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `http://localhost:8000${url}`;
-};
 
 const formatShortDate = (value?: string | null) => {
   if (!value) return "Sem data";

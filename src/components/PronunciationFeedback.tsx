@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, Loader2, Volume2 } from "lucide-react";
 import { api } from "@/lib/api";
 import AudioPlayer from "@/components/AudioPlayer";
+import { absoluteMediaUrl } from "@/lib/config";
 
 export type SpeakingFeedback = {
   id: string;
@@ -18,12 +19,6 @@ export type SpeakingFeedback = {
   vocabulary_suggestions: string[];
   native_alternative_sentence: string;
   tts_audio_url?: string | null;
-};
-
-const absoluteMediaUrl = (url?: string | null) => {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `http://localhost:8000${url}`;
 };
 
 const Score = ({ label, value }: { label: string; value: number }) => (

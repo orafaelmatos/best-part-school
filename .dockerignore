@@ -1,0 +1,16 @@
+.git
+.gitignore
+.pytest_cache
+.vscode
+.idea
+node_modules
+dist
+backend/__pycache__
+backend/.venv
+backend/venv
+backend/media
+backend/staticfiles
+*.log
+*.env
+vite-dev.err.log
+vite-dev.out.log
