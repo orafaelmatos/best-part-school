@@ -9,6 +9,7 @@ User = settings.AUTH_USER_MODEL
 
 class AIStudySession(models.Model):
     MODE_CHOICES = (
+        ('review', 'Lesson Review'),
         ('speaking', 'Speaking'),
         ('listening', 'Listening'),
         ('writing', 'Writing'),
@@ -96,18 +97,61 @@ class SpeakingFeedback(models.Model):
     session = models.ForeignKey(AIStudySession, on_delete=models.CASCADE, related_name='speaking_feedbacks')
     audio = models.OneToOneField(SpeakingAudio, on_delete=models.CASCADE, related_name='feedback')
     transcript = models.TextField()
+    overall_score = models.PositiveSmallIntegerField(default=0)
+    estimated_level = models.CharField(max_length=10, blank=True)
     pronunciation_score = models.PositiveSmallIntegerField(default=0)
     fluency_score = models.PositiveSmallIntegerField(default=0)
+    intonation_score = models.PositiveSmallIntegerField(default=0)
+    clarity_score = models.PositiveSmallIntegerField(default=0)
     grammar_score = models.PositiveSmallIntegerField(default=0)
     vocabulary_score = models.PositiveSmallIntegerField(default=0)
     ai_feedback = models.TextField()
     corrected_sentence = models.TextField(blank=True)
     natural_sentence = models.TextField(blank=True)
+    correct_words = models.JSONField(default=list, blank=True)
+    problem_words = models.JSONField(default=list, blank=True)
     pronunciation_mistakes = models.JSONField(default=list, blank=True)
+    error_details = models.JSONField(default=list, blank=True)
     grammar_explanation = models.TextField(blank=True)
+    improvement_tips = models.JSONField(default=list, blank=True)
+    practice_exercises = models.JSONField(default=list, blank=True)
     vocabulary_suggestions = models.JSONField(default=list, blank=True)
     native_alternative_sentence = models.TextField(blank=True)
     tts_audio_url = models.URLField(blank=True, null=True)
+    raw_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+
+class WritingFeedback(models.Model):
+    TEXT_TYPE_CHOICES = (
+        ('free', 'Livre'),
+        ('essay', 'Redação'),
+        ('email', 'Email'),
+        ('self_intro', 'Apresentação pessoal'),
+        ('storytelling', 'Storytelling'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(AIStudySession, on_delete=models.CASCADE, related_name='writing_feedbacks')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_study_writing_feedbacks')
+    text_type = models.CharField(max_length=30, choices=TEXT_TYPE_CHOICES, default='free')
+    original_text = models.TextField()
+    corrected_text = models.TextField(blank=True)
+    estimated_level = models.CharField(max_length=10, blank=True)
+    writing_score = models.PositiveSmallIntegerField(default=0)
+    sub_scores = models.JSONField(default=dict, blank=True)
+    general_feedback = models.TextField(blank=True)
+    level_progress_feedback = models.TextField(blank=True)
+    strengths = models.JSONField(default=list, blank=True)
+    error_explanations = models.JSONField(default=list, blank=True)
+    improvement_tips = models.JSONField(default=list, blank=True)
+    rewrites = models.JSONField(default=dict, blank=True)
+    exercises = models.JSONField(default=list, blank=True)
+    grammar_breakdown = models.JSONField(default=list, blank=True)
+    vocabulary_flashcards = models.JSONField(default=list, blank=True)
     raw_response = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -144,6 +188,7 @@ class AIConversationMessage(models.Model):
         ('text', 'Text'),
         ('audio', 'Audio'),
         ('feedback', 'Feedback'),
+        ('writing_feedback', 'Writing feedback'),
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -153,9 +198,30 @@ class AIConversationMessage(models.Model):
     text = models.TextField(blank=True)
     audio = models.ForeignKey(SpeakingAudio, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversation_messages')
     feedback = models.ForeignKey(SpeakingFeedback, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversation_messages')
+    writing_feedback = models.ForeignKey(WritingFeedback, null=True, blank=True, on_delete=models.SET_NULL, related_name='conversation_messages')
     metadata = models.JSONField(default=dict, blank=True)
     stream_state = models.CharField(max_length=30, default='complete')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['created_at']
+
+
+class AIStudyRecommendation(models.Model):
+    MODE_CHOICES = (
+        ('review', 'Lesson Review'),
+        ('speaking', 'Speaking'),
+        ('writing', 'Writing'),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.OneToOneField(User, on_delete=models.CASCADE, related_name='ai_study_recommendation')
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_study_recommendations_made')
+    mode = models.CharField(max_length=20, choices=MODE_CHOICES)
+    lesson = models.ForeignKey(Lesson, null=True, blank=True, on_delete=models.SET_NULL, related_name='ai_study_recommendations')
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']

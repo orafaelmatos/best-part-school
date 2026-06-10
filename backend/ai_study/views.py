@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -7,10 +8,11 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from lessons.models import Lesson
-from .models import AIConversationMessage, AIStudySession, SpeakingFeedback
+from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback
 from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student
 from .serializers import (
     AIConversationMessageSerializer,
+    AIStudyRecommendationSerializer,
     AIStudySessionCreateSerializer,
     AIStudySessionDetailSerializer,
     AIStudySessionListSerializer,
@@ -43,6 +45,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
                 'messages__audio',
                 'messages__feedback__reviews',
                 'messages__feedback__audio',
+                'messages__writing_feedback',
             )
 
         user = self.request.user
@@ -72,27 +75,26 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        lesson = get_object_or_404(
-            AIStudyContextService.accessible_lessons(request.user),
-            id=serializer.validated_data['lesson_id'],
-        )
+        mode = serializer.validated_data.get('mode', 'review')
+        lesson = None
+        lesson_id = serializer.validated_data.get('lesson_id')
+        if lesson_id:
+            lesson = get_object_or_404(
+                AIStudyContextService.accessible_lessons(request.user),
+                id=lesson_id,
+            )
         session = AIStudySession.objects.create(
             student=request.user,
             lesson=lesson,
-            mode='speaking',
-            theme='minhas_aulas',
-            title=AIStudyContextService.default_session_title(lesson),
+            mode=mode,
+            theme='minhas_aulas' if mode == 'review' else 'custom',
+            title=AIStudyContextService.default_session_title(lesson) if lesson else AIStudyWorkflowService.default_title_for_mode(mode),
             title_source='auto',
             last_interaction_at=timezone.now(),
         )
-        AIStudyContextService.sync_session_lesson(session, lesson)
-        AIConversationMessage.objects.create(
-            session=session,
-            role='assistant',
-            content_type='text',
-            text=f"Aula atual: {lesson.title}. Vou usar esta aula como contexto principal. O que você quer praticar agora?",
-            metadata={'initial': True, 'supports_streaming': True},
-        )
+        if lesson:
+            AIStudyContextService.sync_session_lesson(session, lesson)
+        AIConversationMessage.objects.create(**AIStudyWorkflowService.initial_message_payload(session, lesson))
         detail_serializer = AIStudySessionDetailSerializer(session, context={'request': request})
         return Response(detail_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -159,17 +161,24 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         text = serializer.validated_data.get('text', '').strip()
         if not text:
             return Response({'error': 'text is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        user_message = AIConversationMessage.objects.create(session=session, role='user', content_type='text', text=text)
-        ai_text = AIStudyOpenAIService.generate_chat_response(session, text)
-        assistant_message = AIConversationMessage.objects.create(
-            session=session,
-            role='assistant',
-            content_type='text',
-            text=ai_text,
-            metadata={'supports_streaming': True},
-        )
-        AIStudyContextService.touch_session(session)
-        AIStudyOpenAIService.maybe_generate_session_title(session)
+        if session.mode == 'writing':
+            user_message, assistant_message = AIStudyWorkflowService.handle_writing_submission(
+                session,
+                text=text,
+                text_type=serializer.validated_data.get('text_type', 'free'),
+            )
+        else:
+            user_message = AIConversationMessage.objects.create(session=session, role='user', content_type='text', text=text)
+            ai_text = AIStudyOpenAIService.generate_chat_response(session, text)
+            assistant_message = AIConversationMessage.objects.create(
+                session=session,
+                role='assistant',
+                content_type='text',
+                text=ai_text,
+                metadata={'supports_streaming': True},
+            )
+            AIStudyContextService.touch_session(session)
+            AIStudyOpenAIService.maybe_generate_session_title(session)
         return Response({
             'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data,
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
@@ -224,3 +233,110 @@ class ContextLessonsAPIView(APIView):
             context={'recent_lesson_id': recent_lesson.id if recent_lesson else None},
         )
         return Response(serializer.data)
+
+
+class AIStudyRecommendationAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _resolve_student(self, request, source):
+        User = get_user_model()
+        student_id = source.get('student') or source.get('student_id')
+        if request.user.role == 'student':
+            return request.user
+        if not student_id:
+            return None
+        student = get_object_or_404(User, id=student_id, role='student')
+        if not can_access_student(request.user, student):
+            return None
+        return student
+
+    def get(self, request):
+        student = self._resolve_student(request, request.query_params)
+        if not student:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        recommendation = AIStudyRecommendation.objects.filter(student=student).select_related('teacher', 'lesson').first()
+        if not recommendation:
+            return Response(None, status=status.HTTP_200_OK)
+        return Response(AIStudyRecommendationSerializer(recommendation, context={'request': request}).data)
+
+    def post(self, request):
+        if request.user.role not in ['teacher', 'admin']:
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        student = self._resolve_student(request, request.data)
+        if not student:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        mode = request.data.get('mode')
+        if mode not in ['review', 'speaking', 'writing']:
+            return Response({'mode': 'Invalid mode.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lesson = None
+        lesson_id = request.data.get('lesson_id')
+        if lesson_id:
+            lesson = get_object_or_404(AIStudyContextService.accessible_lessons(request.user, student=student), id=lesson_id)
+        elif mode == 'review':
+            lesson = student.lessons_attended.order_by('-date', '-created_at').first()
+
+        recommendation, _ = AIStudyRecommendation.objects.update_or_create(
+            student=student,
+            defaults={
+                'teacher': request.user,
+                'mode': mode,
+                'lesson': lesson,
+                'note': (request.data.get('note') or '').strip(),
+            },
+        )
+        return Response(AIStudyRecommendationSerializer(recommendation, context={'request': request}).data)
+
+    def delete(self, request):
+        if request.user.role not in ['teacher', 'admin']:
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+        student = self._resolve_student(request, request.query_params)
+        if not student:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        AIStudyRecommendation.objects.filter(student=student).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AIStudyProgressOverviewAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        User = get_user_model()
+        student_id = request.query_params.get('student')
+        if request.user.role == 'student':
+            student = request.user
+        elif student_id:
+            student = get_object_or_404(User, id=student_id, role='student')
+            if not can_access_student(request.user, student):
+                return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            return Response({'detail': 'student is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        recommendation = AIStudyRecommendation.objects.filter(student=student).select_related('teacher', 'lesson').first()
+        speaking_history = SpeakingFeedback.objects.filter(session__student=student).order_by('-created_at')[:8]
+        writing_history = WritingFeedback.objects.filter(student=student).order_by('-created_at')[:8]
+
+        return Response({
+            'recommendation': AIStudyRecommendationSerializer(recommendation, context={'request': request}).data if recommendation else None,
+            'speaking_history': [
+                {
+                    'id': str(item.id),
+                    'created_at': item.created_at,
+                    'overall_score': item.overall_score,
+                    'estimated_level': item.estimated_level,
+                    'problem_words': item.problem_words,
+                }
+                for item in speaking_history
+            ],
+            'writing_history': [
+                {
+                    'id': str(item.id),
+                    'created_at': item.created_at,
+                    'text_type': item.text_type,
+                    'writing_score': item.writing_score,
+                    'estimated_level': item.estimated_level,
+                }
+                for item in writing_history
+            ],
+        })

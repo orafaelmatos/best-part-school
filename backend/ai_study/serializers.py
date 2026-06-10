@@ -4,10 +4,12 @@ from lessons.models import Lesson
 from .models import (
     AIContextLesson,
     AIConversationMessage,
+    AIStudyRecommendation,
     AIStudySession,
     PronunciationReview,
     SpeakingAudio,
     SpeakingFeedback,
+    WritingFeedback,
 )
 
 
@@ -72,17 +74,33 @@ class SpeakingFeedbackSerializer(serializers.ModelSerializer):
     class Meta:
         model = SpeakingFeedback
         fields = [
-            'id', 'session', 'audio', 'audio_url', 'transcript', 'pronunciation_score',
-            'fluency_score', 'grammar_score', 'vocabulary_score', 'ai_feedback',
-            'corrected_sentence', 'natural_sentence', 'pronunciation_mistakes',
-            'grammar_explanation', 'vocabulary_suggestions', 'native_alternative_sentence',
-            'tts_audio_url', 'raw_response', 'reviews', 'created_at'
+            'id', 'session', 'audio', 'audio_url', 'transcript', 'overall_score',
+            'estimated_level', 'pronunciation_score', 'fluency_score', 'intonation_score',
+            'clarity_score', 'grammar_score', 'vocabulary_score', 'ai_feedback',
+            'corrected_sentence', 'natural_sentence', 'correct_words', 'problem_words',
+            'pronunciation_mistakes', 'error_details', 'grammar_explanation',
+            'improvement_tips', 'practice_exercises', 'vocabulary_suggestions',
+            'native_alternative_sentence', 'tts_audio_url', 'raw_response', 'reviews', 'created_at'
+        ]
+        read_only_fields = fields
+
+
+class WritingFeedbackSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WritingFeedback
+        fields = [
+            'id', 'session', 'student', 'text_type', 'original_text', 'corrected_text',
+            'estimated_level', 'writing_score', 'sub_scores', 'general_feedback',
+            'level_progress_feedback', 'strengths', 'error_explanations',
+            'improvement_tips', 'rewrites', 'exercises', 'grammar_breakdown',
+            'vocabulary_flashcards', 'raw_response', 'created_at',
         ]
         read_only_fields = fields
 
 
 class AIConversationMessageSerializer(serializers.ModelSerializer):
     feedback_detail = SpeakingFeedbackSerializer(source='feedback', read_only=True)
+    writing_feedback_detail = WritingFeedbackSerializer(source='writing_feedback', read_only=True)
     audio_detail = SpeakingAudioSerializer(source='audio', read_only=True)
     audio_url = serializers.FileField(source='audio.audio', read_only=True)
 
@@ -90,7 +108,8 @@ class AIConversationMessageSerializer(serializers.ModelSerializer):
         model = AIConversationMessage
         fields = [
             'id', 'session', 'role', 'content_type', 'text', 'audio', 'audio_url',
-            'audio_detail', 'feedback', 'feedback_detail', 'metadata', 'stream_state', 'created_at'
+            'audio_detail', 'feedback', 'feedback_detail', 'writing_feedback',
+            'writing_feedback_detail', 'metadata', 'stream_state', 'created_at'
         ]
         read_only_fields = ['created_at']
 
@@ -102,7 +121,7 @@ class AIStudySessionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIStudySession
         fields = [
-            'id', 'student', 'lesson', 'lesson_detail', 'title', 'title_source', 'status',
+            'id', 'student', 'lesson', 'lesson_detail', 'mode', 'title', 'title_source', 'status',
             'message_count', 'last_interaction_at', 'created_at', 'updated_at'
         ]
         read_only_fields = fields
@@ -133,7 +152,15 @@ class AIStudySessionDetailSerializer(AIStudySessionListSerializer):
 
 
 class AIStudySessionCreateSerializer(serializers.Serializer):
-    lesson_id = serializers.UUIDField()
+    mode = serializers.ChoiceField(choices=['review', 'speaking', 'writing'], default='review', required=False)
+    lesson_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        mode = attrs.get('mode') or 'review'
+        lesson_id = attrs.get('lesson_id')
+        if mode == 'review' and not lesson_id:
+            raise serializers.ValidationError({'lesson_id': 'lesson_id is required for review mode.'})
+        return attrs
 
 
 class LessonContextOptionSerializer(serializers.ModelSerializer):
@@ -264,6 +291,11 @@ class RenameConversationSerializer(serializers.Serializer):
 
 class TextMessageSerializer(serializers.Serializer):
     text = serializers.CharField(required=False, allow_blank=True)
+    text_type = serializers.ChoiceField(
+        choices=[choice[0] for choice in WritingFeedback.TEXT_TYPE_CHOICES],
+        required=False,
+        default='free',
+    )
 
 
 class SpeakingAudioUploadSerializer(serializers.Serializer):
@@ -278,6 +310,19 @@ class SpeakingAudioUploadSerializer(serializers.Serializer):
         if value.size > 25 * 1024 * 1024:
             raise serializers.ValidationError('Audio file must be 25 MB or smaller.')
         return value
+
+
+class AIStudyRecommendationSerializer(serializers.ModelSerializer):
+    lesson_detail = LessonReferenceSerializer(source='lesson', read_only=True)
+    teacher_name = serializers.CharField(source='teacher.name', read_only=True)
+
+    class Meta:
+        model = AIStudyRecommendation
+        fields = [
+            'id', 'student', 'teacher', 'teacher_name', 'mode', 'lesson', 'lesson_detail',
+            'note', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['teacher', 'teacher_name', 'created_at', 'updated_at']
 
 
 AIStudySessionSerializer = AIStudySessionDetailSerializer

@@ -38,6 +38,20 @@ import {
 } from "@/lib/studentLessonHistory";
 import { useAuth } from "@/contexts/AuthContext";
 
+type PracticeMode = "review" | "speaking" | "writing";
+
+type AIStudyRecommendation = {
+  id: string;
+  mode: PracticeMode;
+  note?: string;
+  teacher_name?: string;
+  lesson?: string | null;
+  lesson_detail?: {
+    id: string;
+    title: string;
+  } | null;
+};
+
 const AlunoTrilha = () => {
   const { id: studentId = "" } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -88,6 +102,17 @@ const AlunoTrilha = () => {
         student: studentId,
         ordering: "-due_date",
       }),
+    enabled: !!studentId,
+  });
+
+  const recommendationQuery = useQuery({
+    queryKey: ["student-ai-study-recommendation", studentId],
+    queryFn: async () => {
+      const response = await api.get("/ai-study/recommendations/current/", {
+        params: { student: studentId },
+      });
+      return response.data as AIStudyRecommendation | null;
+    },
     enabled: !!studentId,
   });
 
@@ -171,6 +196,38 @@ const AlunoTrilha = () => {
     0,
   );
   const openHomeworkCount = homeworkItems.filter((item) => item.status !== "draft" && item.status !== "corrected").length;
+  const recentCompletedLesson = historyLessons[0] || orderedLessons.find((lesson) => lesson.status === "completed") || orderedLessons[0];
+
+  const recommendationMutation = useMutation({
+    mutationFn: async ({ mode, clear }: { mode?: PracticeMode; clear?: boolean }) => {
+      if (clear) {
+        return api.delete("/ai-study/recommendations/current/", {
+          params: { student: studentId },
+        });
+      }
+      return api.post("/ai-study/recommendations/current/", {
+        student_id: studentId,
+        mode,
+        lesson_id: mode === "review" ? recentCompletedLesson?.id : undefined,
+      });
+    },
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["student-ai-study-recommendation", studentId] });
+      toast({
+        title: variables.clear ? "Recomendação removida" : "Recomendação salva",
+        description: variables.clear
+          ? "O aluno não tem mais um modo recomendado."
+          : "O próximo acesso do aluno ao Praticar com IA vai destacar esse modo.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao salvar recomendação",
+        description: error.response?.data?.detail || "Nao foi possivel atualizar o modo recomendado.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const reorderMutation = useMutation({
     mutationFn: async (lessonIds: string[]) =>
@@ -261,7 +318,8 @@ const AlunoTrilha = () => {
     studentQuery.isLoading ||
     lessonsQuery.isLoading ||
     summariesQuery.isLoading ||
-    homeworkQuery.isLoading;
+    homeworkQuery.isLoading ||
+    recommendationQuery.isLoading;
 
   return (
     <DashboardLayout>
@@ -310,17 +368,84 @@ const AlunoTrilha = () => {
               </p>
             </div>
 
-            <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
-              <p className="text-sm font-semibold text-card-foreground">Habilidades observadas</p>
-              <div className="mt-4 space-y-3">
-                {[
-                  { label: "Listening", value: student?.listening ?? 1 },
-                  { label: "Speaking", value: student?.speaking ?? 1 },
-                  { label: "Reading", value: student?.reading ?? 1 },
-                  { label: "Writing", value: student?.writing ?? 1 },
-                ].map((skill) => (
-                  <SkillMeter key={skill.label} label={skill.label} value={skill.value} />
-                ))}
+            <div className="space-y-6">
+              <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
+                <p className="text-sm font-semibold text-card-foreground">Habilidades observadas</p>
+                <div className="mt-4 space-y-3">
+                  {[
+                    { label: "Listening", value: student?.listening ?? 1 },
+                    { label: "Speaking", value: student?.speaking ?? 1 },
+                    { label: "Reading", value: student?.reading ?? 1 },
+                    { label: "Writing", value: student?.writing ?? 1 },
+                  ].map((skill) => (
+                    <SkillMeter key={skill.label} label={skill.label} value={skill.value} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-card-foreground">Modo recomendado em Praticar com IA</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      O aluno abre diretamente o modo recomendado quando entra em Praticar com IA.
+                    </p>
+                  </div>
+                  {recommendationMutation.isPending ? <p className="text-xs text-primary">Salvando...</p> : null}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {([
+                    { mode: "review" as PracticeMode, label: "Revisar Aula" },
+                    { mode: "speaking" as PracticeMode, label: "Speaking" },
+                    { mode: "writing" as PracticeMode, label: "Writing" },
+                  ]).map((item) => {
+                    const active = recommendationQuery.data?.mode === item.mode;
+                    return (
+                      <button
+                        key={item.mode}
+                        type="button"
+                        onClick={() => recommendationMutation.mutate({ mode: item.mode })}
+                        className={`rounded-full px-3 py-2 text-sm font-medium transition ${
+                          active
+                            ? "bg-slate-900 text-white"
+                            : "border border-border bg-background text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 rounded-2xl bg-muted/40 p-4 text-sm">
+                  {recommendationQuery.data ? (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Atual: {recommendationQuery.data.mode === "review" ? "Revisar Aula" : recommendationQuery.data.mode === "speaking" ? "Speaking" : "Writing"}
+                      </p>
+                      {recommendationQuery.data.lesson_detail ? (
+                        <p className="mt-1 text-muted-foreground">Aula vinculada: {recommendationQuery.data.lesson_detail.title}</p>
+                      ) : null}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Atualizado por {recommendationQuery.data.teacher_name || "professor"}.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground">Nenhum modo recomendado no momento.</p>
+                  )}
+                </div>
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => recommendationMutation.mutate({ clear: true })}
+                    disabled={!recommendationQuery.data}
+                    className="rounded-xl border border-border px-3 py-2 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Limpar recomendação
+                  </button>
+                </div>
               </div>
             </div>
           </div>

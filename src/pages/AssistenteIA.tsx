@@ -5,10 +5,12 @@ import DashboardLayout from "@/components/DashboardLayout";
 import AudioPlayer from "@/components/AudioPlayer";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
+import WritingFeedbackCard, { WritingFeedback } from "@/components/WritingFeedbackCard";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ArrowLeft,
   BookOpen,
@@ -24,6 +26,8 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
+
+type PracticeMode = "review" | "speaking" | "writing";
 
 type LessonReference = {
   id: string;
@@ -54,7 +58,7 @@ type LessonOption = {
 type AIMessage = {
   id: string;
   role: "system" | "user" | "assistant";
-  content_type: "text" | "audio" | "feedback";
+  content_type: "text" | "audio" | "feedback" | "writing_feedback";
   text: string;
   audio_url?: string | null;
   audio_detail?: {
@@ -63,12 +67,14 @@ type AIMessage = {
     created_at?: string;
   } | null;
   feedback_detail?: SpeakingFeedback | null;
+  writing_feedback_detail?: WritingFeedback | null;
   created_at?: string;
   pending?: boolean;
 };
 
 type SessionSummary = {
   id: string;
+  mode: PracticeMode;
   title: string;
   title_source: "auto" | "manual";
   status: string;
@@ -98,6 +104,33 @@ type AudioResponse = {
 };
 
 type PickerMode = "new" | "change" | null;
+
+type Recommendation = {
+  id: string;
+  mode: PracticeMode;
+  note?: string;
+  teacher_name?: string;
+  lesson?: string | null;
+  lesson_detail?: LessonReference | null;
+};
+
+type ProgressOverview = {
+  recommendation?: Recommendation | null;
+  speaking_history: Array<{
+    id: string;
+    created_at: string;
+    overall_score: number;
+    estimated_level: string;
+    problem_words: string[];
+  }>;
+  writing_history: Array<{
+    id: string;
+    created_at: string;
+    text_type: string;
+    writing_score: number;
+    estimated_level: string;
+  }>;
+};
 
 const formatShortDate = (value?: string | null) => {
   if (!value) return "Sem data";
@@ -160,6 +193,25 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
 });
 
 const buildSessionPath = (sessionId: string) => `/treinar-ia/conversa/${sessionId}`;
+const buildNewModePath = (mode?: PracticeMode) => (mode ? `/treinar-ia?mode=new&practiceMode=${mode}` : "/treinar-ia?mode=new");
+
+const modeLabel: Record<PracticeMode, string> = {
+  review: "Revisar Aula",
+  speaking: "Speaking",
+  writing: "Writing",
+};
+
+const modeDescription: Record<PracticeMode, string> = {
+  review: "Converse usando a aula como contexto principal e revise gramática, vocabulário e exercícios do conteúdo estudado.",
+  speaking: "Envie áudio, receba nota de pronúncia, fluência, entonação e clareza, e treine com exercícios focados nos erros.",
+  writing: "Envie um texto para correção com nível CEFR, score, explicações, reescritas por nível e exercícios derivados.",
+};
+
+const composerPlaceholderByMode: Record<PracticeMode, string> = {
+  review: "Peça revisão de vocabulário, gramática ou exercícios desta aula.",
+  speaking: "Escreva um pedido rápido ou grave um áudio em inglês para avaliar sua pronúncia.",
+  writing: "Cole seu texto em inglês para correção, score e reescritas por nível.",
+};
 
 const ConversationListItem = ({
   session,
@@ -191,6 +243,14 @@ const ConversationListItem = ({
         >
           {session.lesson_detail?.title || "Aula não vinculada"}
         </p>
+        <p
+          className={cn(
+            "mt-2 text-[11px] font-medium",
+            active ? "text-primary-foreground/75" : "text-muted-foreground",
+          )}
+        >
+          {modeLabel[session.mode]}
+        </p>
       </div>
       <span
         className={cn(
@@ -213,13 +273,54 @@ const ConversationListItem = ({
   </button>
 );
 
+const ModeCard = ({
+  mode,
+  recommended,
+  onClick,
+}: {
+  mode: PracticeMode;
+  recommended?: boolean;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "flex h-full flex-col rounded-[28px] border p-5 text-left transition",
+      recommended
+        ? "border-amber-300 bg-amber-50/60 shadow-[0_18px_50px_-34px_rgba(217,119,6,0.55)]"
+        : "border-border bg-card/95 hover:border-slate-300 hover:shadow-sm",
+    )}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-lg font-semibold text-foreground">{modeLabel[mode]}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{modeDescription[mode]}</p>
+      </div>
+      {recommended ? (
+        <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+          Recomendado
+        </span>
+      ) : null}
+    </div>
+    <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-4 py-3 text-sm">
+      <p className="text-muted-foreground">
+        {mode === "review" ? "Usa a aula como contexto" : mode === "speaking" ? "Feedback por áudio" : "Correção por texto"}
+      </p>
+      <span className="font-medium text-foreground">Selecionar</span>
+    </div>
+  </button>
+);
+
 const LessonCard = ({
   lesson,
+  recommended,
   loading,
   actionLabel,
   onAction,
 }: {
   lesson: LessonOption;
+  recommended?: boolean;
   loading?: boolean;
   actionLabel: string;
   onAction: () => void;
@@ -231,6 +332,7 @@ const LessonCard = ({
         <div className="mt-2 flex flex-wrap gap-2">
           {lesson.is_recent && <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-700">Mais recente</span>}
           {lesson.is_recommended_review && <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700">Revisão recomendada</span>}
+          {recommended && <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-700">Professor recomendou esta aula</span>}
           {lesson.has_pending_activities && <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-700">Atividades pendentes</span>}
         </div>
       </div>
@@ -323,6 +425,12 @@ const MessageBubble = ({ message }: { message: AIMessage }) => {
             <PronunciationFeedback feedback={message.feedback_detail} />
           </div>
         ) : null}
+
+        {message.writing_feedback_detail ? (
+          <div className="rounded-[28px] border border-slate-200/80 bg-white/95 p-1 shadow-sm">
+            <WritingFeedbackCard feedback={message.writing_feedback_detail} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -332,6 +440,7 @@ const AssistenteIA = () => {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
   const [sessionDraft, setSessionDraft] = useState<SessionDetail | null>(null);
   const [conversationSearch, setConversationSearch] = useState("");
   const [lessonSearch, setLessonSearch] = useState("");
@@ -350,6 +459,7 @@ const AssistenteIA = () => {
   const queryClient = useQueryClient();
   const selectedSessionId = sessionId ?? null;
   const isNewConversationFlow = searchParams.get("mode") === "new";
+  const selectedPracticeMode = (searchParams.get("practiceMode") as PracticeMode | null) ?? null;
   const pickerMode: PickerMode = isChangingLesson ? "change" : isNewConversationFlow ? "new" : null;
 
   const sessionsQuery = useQuery({
@@ -381,6 +491,17 @@ const AssistenteIA = () => {
       return Array.isArray(response.data) ? (response.data as LessonOption[]) : [];
     },
   });
+
+  const progressQuery = useQuery({
+    queryKey: ["ai-study-progress-overview", user?.role],
+    enabled: user?.role === "student",
+    queryFn: async () => {
+      const response = await api.get("/ai-study/progress/overview/");
+      return response.data as ProgressOverview;
+    },
+  });
+
+  const recommendation = progressQuery.data?.recommendation ?? null;
 
   const activeSession =
     sessionDraft && sessionDraft.id === selectedSessionId ? sessionDraft : sessionDetailQuery.data ?? null;
@@ -414,6 +535,13 @@ const AssistenteIA = () => {
     }
   }, [selectedSessionId]);
 
+  useEffect(() => {
+    if (selectedSessionId || isNewConversationFlow || isChangingLesson || selectedPracticeMode || !recommendation?.mode) {
+      return;
+    }
+    navigate(buildNewModePath(recommendation.mode), { replace: true });
+  }, [isChangingLesson, isNewConversationFlow, navigate, recommendation?.mode, selectedPracticeMode, selectedSessionId]);
+
   const filteredLessons = useMemo(() => {
     const lessons = lessonsQuery.data || [];
     const query = deferredLessonSearch.trim().toLowerCase();
@@ -428,13 +556,25 @@ const AssistenteIA = () => {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query));
     });
-    return [...matching].sort(compareByPriority);
-  }, [deferredLessonSearch, lessonsQuery.data]);
+    return [...matching].sort((a, b) => {
+      const recommendationBoost =
+        (String(b.id) === String(recommendation?.lesson || "") ? 1 : 0) -
+        (String(a.id) === String(recommendation?.lesson || "") ? 1 : 0);
+      if (recommendationBoost !== 0) return recommendationBoost;
+      return compareByPriority(a, b);
+    });
+  }, [deferredLessonSearch, lessonsQuery.data, recommendation?.lesson]);
+
+  const recentSpeakingHistory = progressQuery.data?.speaking_history || [];
+  const recentWritingHistory = progressQuery.data?.writing_history || [];
 
   const hasSavedSessions = (sessionsQuery.data?.length ?? 0) > 0;
   const isPickerVisible = pickerMode !== null || (!selectedSessionId && !sessionsQuery.isLoading && !hasSavedSessions);
   const isConversationPage = Boolean(selectedSessionId);
   const isBusy = isSending || sessionDetailQuery.isFetching;
+  const activeMode = activeSession?.mode;
+  const composerPlaceholder = activeMode ? composerPlaceholderByMode[activeMode] : composerPlaceholderByMode.review;
+  const canRecordAudio = activeMode === "speaking";
 
   const syncDraft = (nextSession: SessionDetail) => {
     setSessionDraft(nextSession);
@@ -462,7 +602,7 @@ const AssistenteIA = () => {
     setIsRenaming(false);
     setShowRecorder(false);
     setRecordingState("idle");
-    navigate("/treinar-ia?mode=new");
+    navigate(buildNewModePath());
   };
 
   const closeLessonPicker = () => {
@@ -476,16 +616,23 @@ const AssistenteIA = () => {
     navigate("/treinar-ia");
   };
 
+  const handleSelectMode = (mode: PracticeMode) => {
+    setLessonSearch("");
+    navigate(buildNewModePath(mode));
+  };
+
   const handleSelectSession = (sessionId: string) => {
     setIsChangingLesson(false);
     setIsRenaming(false);
     startTransition(() => navigate(buildSessionPath(sessionId)));
   };
 
-  const handleCreateSession = async (lessonId: string) => {
-    setCreatingLessonId(lessonId);
+  const handleCreateSession = async (mode: PracticeMode, lessonId?: string) => {
+    setCreatingLessonId(lessonId || mode);
     try {
-      const response = await api.post("/ai-study/sessions/", { lesson_id: lessonId });
+      const payload: { mode: PracticeMode; lesson_id?: string } = { mode };
+      if (lessonId) payload.lesson_id = lessonId;
+      const response = await api.post("/ai-study/sessions/", payload);
       const createdSession = response.data as SessionDetail;
       syncDraft(createdSession);
       setRenameValue(createdSession.title || "");
@@ -495,7 +642,7 @@ const AssistenteIA = () => {
     } catch {
       toast({
         title: "Não foi possível iniciar a conversa",
-        description: "Selecione outra aula ou tente novamente.",
+        description: mode === "review" ? "Selecione outra aula ou tente novamente." : "Tente novamente em instantes.",
         variant: "destructive",
       });
     } finally {
@@ -639,7 +786,7 @@ const AssistenteIA = () => {
   };
 
   const uploadAudio = async (blob: Blob, durationSeconds: number) => {
-    if (!activeSession) return;
+    if (!activeSession || activeSession.mode !== "speaking") return;
     const optimisticId = `audio-${Date.now()}`;
     const optimisticMessage: AIMessage = {
       id: optimisticId,
@@ -724,12 +871,24 @@ const AssistenteIA = () => {
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">Praticar com IA</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Converse com a IA usando o contexto real das suas aulas</h1>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Escolha o modo de prática e treine com feedback estruturado</h1>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Escolha a aula antes de abrir o chat. Depois disso, a conversa segue em uma página própria, igual ao fluxo de um chat dedicado.
+                  Revise uma aula, receba análise de pronúncia ou corrija sua escrita com nível CEFR, score e exercícios derivados.
                 </p>
               </div>
             </div>
+            {recommendation ? (
+              <div className="mt-6 rounded-[24px] border border-amber-300/80 bg-amber-50/70 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Recomendação do professor</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">{modeLabel[recommendation.mode]}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {recommendation.note || `Seu professor recomendou focar em ${modeLabel[recommendation.mode].toLowerCase()}.`}
+                </p>
+                {recommendation.lesson_detail ? (
+                  <p className="mt-2 text-sm font-medium text-foreground">Aula sugerida: {recommendation.lesson_detail.title}</p>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -800,21 +959,33 @@ const AssistenteIA = () => {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {pickerMode === "change" ? "Trocar aula de referência" : "Selecione a aula de referência"}
+                        {pickerMode === "change"
+                          ? "Trocar aula de referência"
+                          : !selectedPracticeMode
+                            ? "Escolha como você quer praticar"
+                            : selectedPracticeMode === "review"
+                              ? "Selecione a aula de referência"
+                              : `Preparar modo ${modeLabel[selectedPracticeMode]}`}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Toda conversa precisa estar vinculada a uma aula para a IA manter o contexto correto.
+                        {pickerMode === "change" || selectedPracticeMode === "review"
+                          ? "A revisão de aula sempre usa uma aula vinculada para manter o contexto correto."
+                          : !selectedPracticeMode
+                            ? "Você pode revisar uma aula, treinar pronúncia ou enviar um texto para correção."
+                            : modeDescription[selectedPracticeMode]}
                       </p>
                     </div>
-                    <div className="relative w-full max-w-sm">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input
-                        value={lessonSearch}
-                        onChange={(event) => setLessonSearch(event.target.value)}
-                        placeholder="Buscar aula"
-                        className="w-full rounded-xl border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-                      />
-                    </div>
+                    {pickerMode === "change" || selectedPracticeMode === "review" ? (
+                      <div className="relative w-full max-w-sm">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          value={lessonSearch}
+                          onChange={(event) => setLessonSearch(event.target.value)}
+                          placeholder="Buscar aula"
+                          className="w-full rounded-xl border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                   {pickerMode && (pickerMode === "change" || hasSavedSessions) ? (
                     <button
@@ -829,32 +1000,122 @@ const AssistenteIA = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6">
-                  {lessonsQuery.isLoading ? (
-                    <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Carregando aulas...
-                    </div>
-                  ) : filteredLessons.length === 0 ? (
-                    <div className="rounded-[24px] border border-dashed border-border bg-muted/40 p-6 text-sm text-muted-foreground">
-                      Nenhuma aula encontrada com esse filtro.
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-                      {filteredLessons.map((lesson) => (
-                        <LessonCard
-                          key={lesson.id}
-                          lesson={lesson}
-                          loading={creatingLessonId === lesson.id}
-                          actionLabel={pickerMode === "change" ? "Usar esta aula" : "Praticar esta aula"}
-                          onAction={() =>
-                            pickerMode === "change"
-                              ? void handleChangeLesson(lesson.id)
-                              : void handleCreateSession(lesson.id)
-                          }
+                  {!selectedPracticeMode && pickerMode !== "change" ? (
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
+                        <ModeCard
+                          key={mode}
+                          mode={mode}
+                          recommended={recommendation?.mode === mode}
+                          onClick={() => handleSelectMode(mode)}
                         />
                       ))}
                     </div>
-                  )}
+                  ) : pickerMode === "change" || selectedPracticeMode === "review" ? (
+                    lessonsQuery.isLoading ? (
+                      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Carregando aulas...
+                      </div>
+                    ) : filteredLessons.length === 0 ? (
+                      <div className="rounded-[24px] border border-dashed border-border bg-muted/40 p-6 text-sm text-muted-foreground">
+                        Nenhuma aula encontrada com esse filtro.
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+                        {filteredLessons.map((lesson) => (
+                          <LessonCard
+                            key={lesson.id}
+                            lesson={lesson}
+                            recommended={String(lesson.id) === String(recommendation?.lesson || "")}
+                            loading={creatingLessonId === lesson.id}
+                            actionLabel={pickerMode === "change" ? "Usar esta aula" : "Praticar esta aula"}
+                            onAction={() =>
+                              pickerMode === "change"
+                                ? void handleChangeLesson(lesson.id)
+                                : void handleCreateSession("review", lesson.id)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )
+                  ) : selectedPracticeMode ? (
+                    <div className="mx-auto flex h-full w-full max-w-4xl flex-col justify-center">
+                      <div className="rounded-[28px] border border-border bg-card/95 p-6 shadow-sm">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="max-w-2xl">
+                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">{modeLabel[selectedPracticeMode]}</p>
+                            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
+                              {selectedPracticeMode === "speaking" ? "Treino de pronúncia com análise detalhada" : "Correção de escrita com CEFR e reescritas"}
+                            </h2>
+                            <p className="mt-3 text-sm leading-6 text-muted-foreground">{modeDescription[selectedPracticeMode]}</p>
+                            {recommendation?.mode === selectedPracticeMode ? (
+                              <p className="mt-3 text-sm font-medium text-amber-700">
+                                Recomendação ativa de {recommendation.teacher_name || "seu professor"}.
+                              </p>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateSession(selectedPracticeMode, recommendation?.mode === selectedPracticeMode ? recommendation.lesson || undefined : undefined)}
+                            disabled={creatingLessonId === selectedPracticeMode}
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                          >
+                            {creatingLessonId === selectedPracticeMode ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
+                          </button>
+                        </div>
+
+                        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                          <div className="rounded-[24px] bg-muted/40 p-4">
+                            <p className="text-sm font-semibold text-foreground">Como funciona</p>
+                            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
+                              {selectedPracticeMode === "speaking" ? (
+                                <>
+                                  <li>Envie um áudio ou use o microfone.</li>
+                                  <li>Receba score geral, nível estimado e palavras com dificuldade.</li>
+                                  <li>Pratique com exercícios derivados dos seus erros.</li>
+                                </>
+                              ) : (
+                                <>
+                                  <li>Envie um texto livre, redação, email, apresentação pessoal ou storytelling.</li>
+                                  <li>Receba correção completa, score e nível CEFR estimado.</li>
+                                  <li>Compare reescritas em B1, B2, C1 e C2.</li>
+                                </>
+                              )}
+                            </ul>
+                          </div>
+                          <div className="rounded-[24px] bg-muted/40 p-4">
+                            <p className="text-sm font-semibold text-foreground">Evolução recente</p>
+                            <div className="mt-3 space-y-2 text-sm">
+                              {selectedPracticeMode === "speaking"
+                                ? recentSpeakingHistory.slice(0, 4).map((item) => (
+                                    <div key={item.id} className="rounded-xl bg-white px-3 py-2">
+                                      <p className="font-medium text-foreground">
+                                        {new Date(item.created_at).toLocaleDateString("pt-BR")} · {item.overall_score}/100 · {item.estimated_level}
+                                      </p>
+                                      <p className="text-muted-foreground">
+                                        {(item.problem_words || []).length ? item.problem_words.join(", ") : "Sem palavras críticas registradas."}
+                                      </p>
+                                    </div>
+                                  ))
+                                : recentWritingHistory.slice(0, 4).map((item) => (
+                                    <div key={item.id} className="rounded-xl bg-white px-3 py-2">
+                                      <p className="font-medium text-foreground">
+                                        {new Date(item.created_at).toLocaleDateString("pt-BR")} · {item.writing_score}/100 · {item.estimated_level}
+                                      </p>
+                                      <p className="text-muted-foreground">{item.text_type}</p>
+                                    </div>
+                                  ))}
+                              {(selectedPracticeMode === "speaking" ? recentSpeakingHistory.length === 0 : recentWritingHistory.length === 0) ? (
+                                <p className="text-muted-foreground">Ainda não há registros neste modo.</p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : activeSession ? (
@@ -863,16 +1124,23 @@ const AssistenteIA = () => {
                   <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
                       <div className="mb-3 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          Aula atual: {activeSession.lesson_detail?.title || "Sem aula"}
+                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
+                          {modeLabel[activeSession.mode]}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsChangingLesson(true)}
-                          className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-                        >
-                          Trocar aula
-                        </button>
+                        {activeSession.lesson_detail ? (
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                            Aula atual: {activeSession.lesson_detail.title}
+                          </span>
+                        ) : null}
+                        {activeSession.mode === "review" ? (
+                          <button
+                            type="button"
+                            onClick={() => setIsChangingLesson(true)}
+                            className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                          >
+                            Trocar aula
+                          </button>
+                        ) : null}
                       </div>
 
                       {isRenaming ? (
@@ -947,13 +1215,21 @@ const AssistenteIA = () => {
                       <div className="flex flex-1 items-center justify-center px-6">
                         <div className="max-w-2xl text-center">
                           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
-                            {activeSession.lesson_detail?.title || "Nova conversa"}
+                            {activeSession.lesson_detail?.title || modeLabel[activeSession.mode]}
                           </p>
                           <p className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
-                            O que você quer praticar nesta aula?
+                            {activeSession.mode === "review"
+                              ? "O que você quer revisar nesta aula?"
+                              : activeSession.mode === "speaking"
+                                ? "Envie um áudio para avaliar sua pronúncia"
+                                : "Envie um texto para análise de writing"}
                           </p>
                           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                            Escreva, peça correções, treine speaking com áudio ou solicite exercícios com base no conteúdo já estudado.
+                            {activeSession.mode === "review"
+                              ? "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado."
+                              : activeSession.mode === "speaking"
+                                ? "A IA vai analisar pronúncia, fluência, entonação e clareza, além de sugerir exercícios focados nos erros identificados."
+                                : "A IA vai corrigir seu texto, estimar seu nível CEFR, explicar os erros e gerar reescritas por nível."}
                           </p>
                         </div>
                       </div>
@@ -963,7 +1239,7 @@ const AssistenteIA = () => {
 
                 <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-4 backdrop-blur">
                   <div className="mx-auto w-full max-w-5xl space-y-3">
-                    {showRecorder || recordingState !== "idle" ? (
+                    {canRecordAudio && (showRecorder || recordingState !== "idle") ? (
                       <MicRecorder
                         state={recordingState}
                         onStateChange={setRecordingState}
@@ -974,27 +1250,29 @@ const AssistenteIA = () => {
 
                     <div className="rounded-[30px] border border-slate-200/80 bg-white/98 p-3 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.4)]">
                       <div className="flex items-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowRecorder((current) => !current)}
-                          disabled={!activeSession || isBusy}
-                          className={cn(
-                            "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition disabled:opacity-50",
-                            showRecorder || recordingState !== "idle"
-                              ? "border-slate-900 bg-slate-900 text-white"
-                              : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                          )}
-                          aria-label="Abrir microfone"
-                        >
-                          <Mic className="h-5 w-5" />
-                        </button>
+                        {canRecordAudio ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowRecorder((current) => !current)}
+                            disabled={!activeSession || isBusy}
+                            className={cn(
+                              "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition disabled:opacity-50",
+                              showRecorder || recordingState !== "idle"
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                            aria-label="Abrir microfone"
+                          >
+                            <Mic className="h-5 w-5" />
+                          </button>
+                        ) : null}
 
                         <div className="flex min-h-[52px] flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
                           <textarea
                             value={input}
                             onChange={(event) => setInput(event.target.value)}
                             onKeyDown={handleComposerKeyDown}
-                            placeholder="Escreva em inglês, peça correções, exercícios ou envie um áudio."
+                            placeholder={composerPlaceholder}
                             disabled={!activeSession || isBusy}
                             rows={1}
                             className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
@@ -1042,12 +1320,12 @@ const AssistenteIA = () => {
               <div className="flex h-full items-center justify-center p-6">
                 <div className="max-w-lg rounded-[28px] border border-dashed border-border bg-muted/40 px-8 py-10 text-center">
                   <p className="text-lg font-semibold text-foreground">
-                    {hasSavedSessions ? "Escolha uma conversa ou crie uma nova" : "Selecione uma aula para começar"}
+                    {hasSavedSessions ? "Escolha uma conversa ou crie uma nova" : "Escolha um modo para começar"}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {hasSavedSessions
-                      ? "Abra uma conversa pelo histórico à esquerda ou inicie um novo chat escolhendo primeiro a aula que você quer estudar."
-                      : "A IA só inicia quando existe uma aula de referência. Isso mantém correções, vocabulário e exercícios sempre alinhados ao conteúdo estudado."}
+                      ? "Abra uma conversa pelo histórico à esquerda ou inicie uma nova prática escolhendo o modo primeiro."
+                      : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                     <button
@@ -1056,7 +1334,7 @@ const AssistenteIA = () => {
                       className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
                     >
                       <BookOpen className="h-4 w-4" />
-                      Escolher aula
+                      Escolher modo
                     </button>
                     {sessionsQuery.data?.[0] ? (
                       <button

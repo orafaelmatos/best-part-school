@@ -7,15 +7,26 @@ import { absoluteMediaUrl } from "@/lib/config";
 export type SpeakingFeedback = {
   id: string;
   transcript: string;
+  overall_score: number;
+  estimated_level: string;
   pronunciation_score: number;
   fluency_score: number;
-  grammar_score: number;
-  vocabulary_score: number;
+  intonation_score: number;
+  clarity_score: number;
   ai_feedback: string;
   corrected_sentence: string;
   natural_sentence: string;
+  correct_words: string[];
+  problem_words: string[];
   pronunciation_mistakes: string[];
+  error_details?: Array<{
+    word?: string;
+    issue?: string;
+    tip?: string;
+  }>;
   grammar_explanation: string;
+  improvement_tips: string[];
+  practice_exercises: string[];
   vocabulary_suggestions: string[];
   native_alternative_sentence: string;
   tts_audio_url?: string | null;
@@ -56,6 +67,14 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
           <p className="text-xs text-muted-foreground">
             Feedback orientado para estudo, com foco em pronúncia, fluência e naturalidade.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">
+              Score {feedback.overall_score}/100
+            </span>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
+              Nível {feedback.estimated_level || "A2"}
+            </span>
+          </div>
         </div>
         <button
           type="button"
@@ -70,8 +89,8 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Score label="Pronúncia" value={feedback.pronunciation_score} />
         <Score label="Fluência" value={feedback.fluency_score} />
-        <Score label="Gramática" value={feedback.grammar_score} />
-        <Score label="Vocabulário" value={feedback.vocabulary_score} />
+        <Score label="Entonação" value={feedback.intonation_score} />
+        <Score label="Clareza" value={feedback.clarity_score} />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -104,7 +123,29 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 p-4">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Acertos</p>
+              <ul className="space-y-2 text-sm">
+                {(feedback.correct_words || []).map((item) => (
+                  <li key={item} className="rounded-xl bg-white/80 px-3 py-2 text-emerald-950">
+                    {item}
+                  </li>
+                ))}
+                {!feedback.correct_words?.length && <li className="text-emerald-800/80">Nenhum destaque registrado.</li>}
+              </ul>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Palavras para melhorar</p>
+              <ul className="space-y-2 text-sm">
+                {(feedback.problem_words || []).map((item) => (
+                  <li key={item} className="rounded-xl bg-muted px-3 py-2">
+                    {item}
+                  </li>
+                ))}
+                {!feedback.problem_words?.length && <li className="text-muted-foreground">Nenhuma palavra crítica.</li>}
+              </ul>
+            </div>
             <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Ajustes de pronúncia</p>
               <ul className="space-y-2 text-sm">
@@ -117,17 +158,55 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
               </ul>
             </div>
             <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Sugestões de vocabulário</p>
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Exercícios sugeridos</p>
               <ul className="space-y-2 text-sm">
-                {(feedback.vocabulary_suggestions || []).map((item) => (
+                {(feedback.practice_exercises || []).map((item) => (
                   <li key={item} className="rounded-xl bg-muted px-3 py-2">
                     {item}
                   </li>
                 ))}
-                {!feedback.vocabulary_suggestions?.length && <li className="text-muted-foreground">Vocabulário adequado.</li>}
+                {!feedback.practice_exercises?.length && <li className="text-muted-foreground">Sem exercícios extras no momento.</li>}
               </ul>
             </div>
           </div>
+
+          {(feedback.error_details?.length || feedback.improvement_tips?.length || feedback.vocabulary_suggestions?.length) && (
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Erros explicados</p>
+                <ul className="space-y-2 text-sm">
+                  {(feedback.error_details || []).map((item, index) => (
+                    <li key={`${item.word || "detail"}-${index}`} className="rounded-xl bg-muted px-3 py-2">
+                      <p className="font-medium">{item.word || "Detalhe"}</p>
+                      <p className="text-muted-foreground">{item.issue}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.tip}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Como melhorar</p>
+                <ul className="space-y-2 text-sm">
+                  {(feedback.improvement_tips || []).map((item) => (
+                    <li key={item} className="rounded-xl bg-muted px-3 py-2">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Vocabulário útil</p>
+                <ul className="space-y-2 text-sm">
+                  {(feedback.vocabulary_suggestions || []).map((item) => (
+                    <li key={item} className="rounded-xl bg-muted px-3 py-2">
+                      {item}
+                    </li>
+                  ))}
+                  {!feedback.vocabulary_suggestions?.length && <li className="text-muted-foreground">Nenhuma sugestão adicional.</li>}
+                </ul>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3 border-t border-border pt-4">
             <button

@@ -25,6 +25,7 @@ from .models import (
     PronunciationReview,
     SpeakingAudio,
     SpeakingFeedback,
+    WritingFeedback,
 )
 
 client = OpenAI()
@@ -40,6 +41,63 @@ def clean_context_text(value, limit=None):
     if limit and len(text) > limit:
         return f"{text[:limit].rstrip()}..."
     return text
+
+
+def normalize_score(value):
+    try:
+        return max(0, min(100, int(round(float(value or 0)))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_level(value, fallback='A2'):
+    normalized = clean_context_text(value, limit=10).upper()
+    return normalized if normalized in {'A1', 'A2', 'B1', 'B2', 'C1', 'C2'} else fallback
+
+
+def normalize_string_list(value, limit=12):
+    items = value if isinstance(value, list) else []
+    cleaned = []
+    for item in items:
+        text = clean_context_text(item, limit=220)
+        if text:
+            cleaned.append(text)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def normalize_dict_list(value, limit=12):
+    items = value if isinstance(value, list) else []
+    cleaned = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized = {}
+        for key, item_value in item.items():
+            normalized[key] = clean_context_text(item_value, limit=320)
+        if normalized:
+            cleaned.append(normalized)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def normalize_rewrites(value):
+    base = value if isinstance(value, dict) else {}
+    return {
+        level: clean_context_text(base.get(level), limit=4000)
+        for level in ['B1', 'B2', 'C1', 'C2']
+        if clean_context_text(base.get(level), limit=4000)
+    }
+
+
+def mode_display_name(mode):
+    return {
+        'review': 'Lesson Review',
+        'speaking': 'Speaking Practice',
+        'writing': 'Writing Lab',
+    }.get(mode, 'AI Practice')
 
 
 def get_lesson_summary_text(lesson):
@@ -449,19 +507,43 @@ class AIStudyContextService:
     @staticmethod
     def tutor_system_prompt(session):
         lesson = AIStudyContextService.primary_lesson(session)
-        lesson_title = lesson.title if lesson else 'Unknown lesson'
-        return (
+        lesson_title = lesson.title if lesson else 'No lesson selected'
+        common_prefix = (
             'You are an English tutor inside an English school SaaS. '
-            'This product is different from a generic chatbot because you must teach with precision from the school lesson context. '
+            'Teach with precision and keep feedback practical, structured and pedagogical. '
             f'Student level: {session.student.level or "A2"}. Current lesson: {lesson_title}. '
-            'The student does not choose a practice mode upfront. Infer intent from the message itself: '
-            'text may require writing help, grammar correction, free conversation or exercises; audio transcripts may require speaking feedback, pronunciation guidance and a natural conversational reply. '
-            'Selected lesson context is primary. '
+        )
+        lesson_rules = (
+            'Selected lesson context is primary when it exists. '
             'Ground every answer in the linked lesson first and use broader student history only as fallback. '
             'When lesson context exists, answer based on its notes, summaries, flashcards, attached images, homework and corrections. '
             'Do not invent what happened in class. If the context is incomplete, say so explicitly. '
-            'Keep answers concise, helpful and pedagogical, and end with one natural follow-up question when it fits.'
         )
+        if session.mode == 'review':
+            return (
+                common_prefix +
+                'The active mode is lesson review. '
+                'Focus on revision of vocabulary, grammar, comprehension and exercises connected to the selected lesson. '
+                + lesson_rules +
+                'Keep answers concise, helpful and pedagogical, and end with one natural follow-up question when it fits.'
+            )
+        if session.mode == 'speaking':
+            return (
+                common_prefix +
+                'The active mode is speaking practice. '
+                'Act as a pronunciation coach. Text replies should reinforce pronunciation, fluency, intonation and clarity, and propose short targeted drills based on the student mistakes when relevant. '
+                + lesson_rules +
+                'Keep the reply concise and actionable.'
+            )
+        if session.mode == 'writing':
+            return (
+                common_prefix +
+                'The active mode is writing practice. '
+                'If the student sends short follow-up questions, answer as a writing coach using the latest corrections as reference. '
+                'Prefer concrete explanations, CEFR-oriented guidance and examples over generic motivation. '
+                + lesson_rules
+            )
+        return common_prefix + lesson_rules
 
 
 class AIStudyOpenAIService:
@@ -523,24 +605,122 @@ class AIStudyOpenAIService:
             'additionalProperties': False,
             'properties': {
                 'transcript': {'type': 'string'},
+                'overall_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                'estimated_level': {'type': 'string'},
                 'pronunciation_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
                 'fluency_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
-                'grammar_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
-                'vocabulary_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                'intonation_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                'clarity_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
                 'corrected_sentence': {'type': 'string'},
                 'natural_sentence': {'type': 'string'},
                 'ai_feedback': {'type': 'string'},
+                'correct_words': {'type': 'array', 'items': {'type': 'string'}},
+                'problem_words': {'type': 'array', 'items': {'type': 'string'}},
                 'pronunciation_mistakes': {'type': 'array', 'items': {'type': 'string'}},
+                'error_details': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'additionalProperties': False,
+                        'properties': {
+                            'word': {'type': 'string'},
+                            'issue': {'type': 'string'},
+                            'tip': {'type': 'string'},
+                        },
+                        'required': ['word', 'issue', 'tip'],
+                    },
+                },
                 'grammar_explanation': {'type': 'string'},
+                'improvement_tips': {'type': 'array', 'items': {'type': 'string'}},
+                'practice_exercises': {'type': 'array', 'items': {'type': 'string'}},
                 'vocabulary_suggestions': {'type': 'array', 'items': {'type': 'string'}},
                 'native_alternative_sentence': {'type': 'string'},
                 'assistant_response': {'type': 'string'},
             },
             'required': [
-                'transcript', 'pronunciation_score', 'fluency_score', 'grammar_score',
-                'vocabulary_score', 'corrected_sentence', 'natural_sentence', 'ai_feedback',
-                'pronunciation_mistakes', 'grammar_explanation', 'vocabulary_suggestions',
+                'transcript', 'overall_score', 'estimated_level', 'pronunciation_score',
+                'fluency_score', 'intonation_score', 'clarity_score', 'corrected_sentence',
+                'natural_sentence', 'ai_feedback', 'correct_words', 'problem_words',
+                'pronunciation_mistakes', 'error_details', 'grammar_explanation',
+                'improvement_tips', 'practice_exercises', 'vocabulary_suggestions',
                 'native_alternative_sentence', 'assistant_response'
+            ],
+        },
+        'strict': True,
+    }
+
+    writing_schema = {
+        'name': 'writing_feedback',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'estimated_level': {'type': 'string'},
+                'writing_score': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                'sub_scores': {
+                    'type': 'object',
+                    'additionalProperties': False,
+                    'properties': {
+                        'grammar': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                        'vocabulary': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                        'naturality': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                        'coherence': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                        'complexity': {'type': 'integer', 'minimum': 0, 'maximum': 100},
+                    },
+                    'required': ['grammar', 'vocabulary', 'naturality', 'coherence', 'complexity'],
+                },
+                'corrected_text': {'type': 'string'},
+                'general_feedback': {'type': 'string'},
+                'level_progress_feedback': {'type': 'string'},
+                'strengths': {'type': 'array', 'items': {'type': 'string'}},
+                'error_explanations': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'additionalProperties': False,
+                        'properties': {
+                            'excerpt': {'type': 'string'},
+                            'corrected': {'type': 'string'},
+                            'explanation': {'type': 'string'},
+                            'category': {'type': 'string'},
+                        },
+                        'required': ['excerpt', 'corrected', 'explanation', 'category'],
+                    },
+                },
+                'improvement_tips': {'type': 'array', 'items': {'type': 'string'}},
+                'rewrites': {
+                    'type': 'object',
+                    'additionalProperties': False,
+                    'properties': {
+                        'B1': {'type': 'string'},
+                        'B2': {'type': 'string'},
+                        'C1': {'type': 'string'},
+                        'C2': {'type': 'string'},
+                    },
+                    'required': ['B1', 'B2', 'C1', 'C2'],
+                },
+                'exercises': {'type': 'array', 'items': {'type': 'string'}},
+                'grammar_breakdown': {'type': 'array', 'items': {'type': 'string'}},
+                'vocabulary_flashcards': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'additionalProperties': False,
+                        'properties': {
+                            'term': {'type': 'string'},
+                            'meaning': {'type': 'string'},
+                            'example': {'type': 'string'},
+                        },
+                        'required': ['term', 'meaning', 'example'],
+                    },
+                },
+                'assistant_response': {'type': 'string'},
+            },
+            'required': [
+                'estimated_level', 'writing_score', 'sub_scores', 'corrected_text',
+                'general_feedback', 'level_progress_feedback', 'strengths',
+                'error_explanations', 'improvement_tips', 'rewrites', 'exercises',
+                'grammar_breakdown', 'vocabulary_flashcards', 'assistant_response',
             ],
         },
         'strict': True,
@@ -580,7 +760,10 @@ class AIStudyOpenAIService:
                             f"Student level: {session.student.level or 'A2'}\n"
                             f"Current lesson: {lesson.title if lesson else 'Unknown lesson'}\n"
                             f"Context:\n{context_text}\n\n"
-                            f"Transcript:\n{transcript}"
+                            f"Transcript:\n{transcript}\n\n"
+                            'Evaluate pronunciation, fluency, intonation and clarity. '
+                            'Return an estimated CEFR level, a global score, words that were correct, '
+                            'words that need improvement, error explanations, and short drill ideas.'
                         ),
                     },
                     *image_blocks,
@@ -591,6 +774,46 @@ class AIStudyOpenAIService:
             model='gpt-4o',
             messages=messages,
             response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.pronunciation_schema},
+        )
+        return json.loads(response.choices[0].message.content)
+
+    @staticmethod
+    def analyze_writing(session, text, text_type='free'):
+        context_text = AIStudyContextService.prompt_context(session)
+        _, image_blocks = AIStudyContextService.selected_context_payload(session, include_images=True)
+        lesson = AIStudyContextService.primary_lesson(session)
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You are a strict but encouraging English writing evaluator. '
+                    'Analyze the student text and return only structured JSON. '
+                    'Estimate the CEFR level, score the writing, correct the text, explain errors, '
+                    'suggest improvements to reach the next level, generate rewritten versions for B1, B2, C1 and C2, '
+                    'and create quick study actions based on the same errors.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'text',
+                        'text': (
+                            f"Student level: {session.student.level or 'A2'}\n"
+                            f"Writing type: {text_type}\n"
+                            f"Current lesson: {lesson.title if lesson else 'No lesson selected'}\n"
+                            f"Context:\n{context_text}\n\n"
+                            f"Student text:\n{text}"
+                        ),
+                    },
+                    *image_blocks,
+                ],
+            },
+        ]
+        response = client.chat.completions.create(
+            model='gpt-4o',
+            messages=messages,
+            response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.writing_schema},
         )
         return json.loads(response.choices[0].message.content)
 
@@ -622,7 +845,7 @@ class AIStudyOpenAIService:
     @staticmethod
     def fallback_session_title(session):
         lesson = AIStudyContextService.primary_lesson(session)
-        lesson_title = clean_context_text(lesson.title if lesson else 'AI Practice', limit=48)
+        lesson_title = clean_context_text(lesson.title if lesson else mode_display_name(session.mode), limit=48)
         first_user_message = session.messages.filter(role='user').order_by('created_at').values_list('text', flat=True).first() or ''
         snippet = ' '.join(clean_context_text(first_user_message, limit=80).split()[:5])
         if snippet:
@@ -1034,6 +1257,39 @@ class LessonSummaryWorkflowService:
 
 class AIStudyWorkflowService:
     @staticmethod
+    def default_title_for_mode(mode):
+        return {
+            'review': 'Lesson Review',
+            'speaking': 'Speaking Practice',
+            'writing': 'Writing Lab',
+        }.get(mode, 'AI Practice')
+
+    @staticmethod
+    def initial_message_payload(session, lesson=None):
+        lesson = lesson or AIStudyContextService.primary_lesson(session)
+        if session.mode == 'review' and lesson:
+            text = f"Aula atual: {lesson.title}. Vou usar esta aula como contexto principal. O que você quer revisar agora?"
+        elif session.mode == 'speaking':
+            text = (
+                'Vamos treinar pronúncia. Envie um áudio curto em inglês e eu vou avaliar '
+                'pronúncia, fluência, entonação, clareza e sugerir exercícios focados nos seus pontos de melhoria.'
+            )
+        elif session.mode == 'writing':
+            text = (
+                'Envie um texto em inglês para correção. Eu vou estimar seu nível CEFR, corrigir o texto, '
+                'explicar os erros e gerar reescritas em níveis mais avançados.'
+            )
+        else:
+            text = 'Sua sessão de prática com IA está pronta.'
+        return {
+            'session': session,
+            'role': 'assistant',
+            'content_type': 'text',
+            'text': text,
+            'metadata': {'initial': True, 'supports_streaming': True, 'mode': session.mode},
+        }
+
+    @staticmethod
     def handle_audio_upload(session, uploaded_file, duration_seconds=None):
         speaking_audio = SpeakingAudio.objects.create(
             session=session,
@@ -1052,23 +1308,32 @@ class AIStudyWorkflowService:
                 session=session,
                 audio=speaking_audio,
                 transcript=analysis.get('transcript') or transcript,
-                pronunciation_score=analysis.get('pronunciation_score', 0),
-                fluency_score=analysis.get('fluency_score', 0),
-                grammar_score=analysis.get('grammar_score', 0),
-                vocabulary_score=analysis.get('vocabulary_score', 0),
+                overall_score=normalize_score(analysis.get('overall_score')),
+                estimated_level=normalize_level(analysis.get('estimated_level')),
+                pronunciation_score=normalize_score(analysis.get('pronunciation_score')),
+                fluency_score=normalize_score(analysis.get('fluency_score')),
+                intonation_score=normalize_score(analysis.get('intonation_score')),
+                clarity_score=normalize_score(analysis.get('clarity_score')),
+                grammar_score=normalize_score(analysis.get('intonation_score')),
+                vocabulary_score=normalize_score(analysis.get('clarity_score')),
                 ai_feedback=analysis.get('ai_feedback', ''),
                 corrected_sentence=analysis.get('corrected_sentence', ''),
                 natural_sentence=analysis.get('natural_sentence', ''),
-                pronunciation_mistakes=analysis.get('pronunciation_mistakes', []),
+                correct_words=normalize_string_list(analysis.get('correct_words'), limit=16),
+                problem_words=normalize_string_list(analysis.get('problem_words'), limit=16),
+                pronunciation_mistakes=normalize_string_list(analysis.get('pronunciation_mistakes'), limit=16),
+                error_details=normalize_dict_list(analysis.get('error_details'), limit=16),
                 grammar_explanation=analysis.get('grammar_explanation', ''),
-                vocabulary_suggestions=analysis.get('vocabulary_suggestions', []),
+                improvement_tips=normalize_string_list(analysis.get('improvement_tips'), limit=12),
+                practice_exercises=normalize_string_list(analysis.get('practice_exercises'), limit=12),
+                vocabulary_suggestions=normalize_string_list(analysis.get('vocabulary_suggestions'), limit=12),
                 native_alternative_sentence=analysis.get('native_alternative_sentence', ''),
                 raw_response=analysis,
             )
             PronunciationReview.objects.create(
                 feedback=feedback,
                 target_sentence=feedback.natural_sentence or feedback.corrected_sentence or feedback.transcript,
-                difficulty_level='hard' if feedback.pronunciation_score < 60 else 'medium',
+                difficulty_level='hard' if feedback.overall_score < 60 else 'medium',
             )
             speaking_audio.status = 'analyzed'
             speaking_audio.save(update_fields=['status'])
@@ -1089,3 +1354,45 @@ class AIStudyWorkflowService:
             speaking_audio.error_message = str(exc)
             speaking_audio.save(update_fields=['status', 'error_message'])
             raise
+
+    @staticmethod
+    def handle_writing_submission(session, text, text_type='free'):
+        analysis = AIStudyOpenAIService.analyze_writing(session, text, text_type=text_type)
+        user_message = AIConversationMessage.objects.create(
+            session=session,
+            role='user',
+            content_type='text',
+            text=text,
+            metadata={'text_type': text_type},
+        )
+        feedback = WritingFeedback.objects.create(
+            session=session,
+            student=session.student,
+            text_type=text_type,
+            original_text=text,
+            corrected_text=analysis.get('corrected_text', ''),
+            estimated_level=normalize_level(analysis.get('estimated_level')),
+            writing_score=normalize_score(analysis.get('writing_score')),
+            sub_scores=analysis.get('sub_scores') if isinstance(analysis.get('sub_scores'), dict) else {},
+            general_feedback=analysis.get('general_feedback', ''),
+            level_progress_feedback=analysis.get('level_progress_feedback', ''),
+            strengths=normalize_string_list(analysis.get('strengths'), limit=12),
+            error_explanations=normalize_dict_list(analysis.get('error_explanations'), limit=20),
+            improvement_tips=normalize_string_list(analysis.get('improvement_tips'), limit=12),
+            rewrites=normalize_rewrites(analysis.get('rewrites')),
+            exercises=normalize_string_list(analysis.get('exercises'), limit=12),
+            grammar_breakdown=normalize_string_list(analysis.get('grammar_breakdown'), limit=12),
+            vocabulary_flashcards=normalize_dict_list(analysis.get('vocabulary_flashcards'), limit=20),
+            raw_response=analysis,
+        )
+        assistant_message = AIConversationMessage.objects.create(
+            session=session,
+            role='assistant',
+            content_type='writing_feedback',
+            text=analysis.get('assistant_response') or feedback.general_feedback,
+            writing_feedback=feedback,
+            metadata={'supports_streaming': True, 'mode': session.mode},
+        )
+        AIStudyContextService.touch_session(session)
+        AIStudyOpenAIService.maybe_generate_session_title(session)
+        return user_message, assistant_message
