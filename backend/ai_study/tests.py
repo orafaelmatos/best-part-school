@@ -49,6 +49,22 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(response.data['mode'], 'speaking')
         self.assertIsNone(response.data['lesson'])
 
+    def test_sessions_list_returns_full_history_as_array(self):
+        sessions = [
+            AIStudySession.objects.create(student=self.student, mode='writing', theme='custom', title=f'Writing {index}')
+            for index in range(12)
+        ]
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.get('/api/ai-study/sessions/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.data, list)
+        self.assertEqual(len(response.data), len(sessions))
+        returned_ids = {str(item['id']) for item in response.data}
+        expected_ids = {str(session.id) for session in sessions}
+        self.assertSetEqual(returned_ids, expected_ids)
+
     def test_student_cannot_access_other_student_session(self):
         session = AIStudySession.objects.create(student=self.other_student, mode='speaking', theme='travel')
         self.client.force_authenticate(user=self.student)

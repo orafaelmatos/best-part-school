@@ -441,16 +441,16 @@ const HomeworkCard = ({ homework, isTeacher, isStudent, onEdit, onDuplicate, onS
           const answer = answers[question.id || ""];
           return (
             <div key={question.id || index} className="rounded-lg border border-border p-3">
-              <p className="text-sm font-medium mb-2">{index + 1}. {question.prompt}</p>
+              <p className="mb-2 whitespace-pre-wrap text-sm font-medium leading-6">{index + 1}. {question.prompt}</p>
               {isStudent && homework.status !== "corrected" ? (
                 question.type === "open_text" ? (
                   <Textarea value={answer?.answer_text || ""} onChange={(event) => setAnswers((current) => ({ ...current, [question.id || ""]: { ...answer, question: question.id || "", id: answer?.id || "", answer_text: event.target.value } }))} />
                 ) : (
                   <div className="space-y-2">
                     {question.options.map((option, optionIndex) => (
-                      <label key={optionIndex} className="flex items-center gap-2 text-sm">
+                      <label key={optionIndex} className="flex items-start gap-2 text-sm">
                         <input type="radio" name={`answer-${homework.id}-${question.id}`} checked={answer?.selected_option_index === optionIndex} onChange={() => setAnswers((current) => ({ ...current, [question.id || ""]: { ...answer, question: question.id || "", id: answer?.id || "", selected_option_index: optionIndex } }))} />
-                        {option}
+                        <span className="whitespace-pre-wrap leading-6">{option}</span>
                       </label>
                     ))}
                   </div>
@@ -493,5 +493,5 @@ const AnswerPreview = ({ question, answer }: { question: HomeworkQuestion; answe
     return answer.answer_text || "Sem resposta enviada.";
   }, [answer, question]);
 
-  return <p className="text-sm text-card-foreground whitespace-pre-wrap">{text}</p>;
+  return <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{text}</p>;
 };

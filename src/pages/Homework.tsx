@@ -228,7 +228,7 @@ const HomeworkLessons = () => {
           <div className="space-y-4">
             {selectedHomework.questions.map((question, index) => (
               <div key={question.id} className="rounded-lg border border-border bg-background p-4">
-                <p className="mb-3 text-sm font-semibold">{index + 1}. {question.prompt}</p>
+                <p className="mb-3 whitespace-pre-wrap text-sm font-semibold leading-6">{index + 1}. {question.prompt}</p>
                 {canAnswer ? (
                   question.type === "open_text" ? (
                     <Textarea
@@ -239,14 +239,14 @@ const HomeworkLessons = () => {
                   ) : (
                     <div className="space-y-2">
                       {question.options.map((option, optionIndex) => (
-                        <label key={optionIndex} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted/50">
+                        <label key={optionIndex} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted/50">
                           <input
                             type="radio"
                             name={`answer-${question.id}`}
                             checked={answers[question.id]?.selected_option_index === optionIndex}
                             onChange={() => setAnswers((current) => ({ ...current, [question.id]: { ...current[question.id], question: question.id, selected_option_index: optionIndex } }))}
                           />
-                          {option}
+                          <span className="whitespace-pre-wrap leading-6">{option}</span>
                         </label>
                       ))}
                     </div>
@@ -538,9 +538,9 @@ const AnswerPreview = ({ question, answer }: { question: HomeworkQuestion; answe
   if (!answer) return <p className="text-sm text-muted-foreground">Sem resposta enviada.</p>;
   if (question.type === "multiple_choice") {
     const selected = answer.selected_option_index;
-    return <p className="text-sm">{selected === null || selected === undefined ? "Sem opção selecionada." : question.options[selected] || "Opção não encontrada."}</p>;
+    return <p className="whitespace-pre-wrap text-sm leading-6">{selected === null || selected === undefined ? "Sem opção selecionada." : question.options[selected] || "Opção não encontrada."}</p>;
   }
-  return <p className="whitespace-pre-wrap text-sm">{answer.answer_text || "Sem resposta enviada."}</p>;
+  return <p className="whitespace-pre-wrap text-sm leading-6">{answer.answer_text || "Sem resposta enviada."}</p>;
 };
 
 export default Homework;

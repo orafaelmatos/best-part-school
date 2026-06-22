@@ -28,6 +28,7 @@ from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkfl
 
 class AIStudySessionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, CanAccessAIStudySession]
+    pagination_class = None
 
     def get_queryset(self):
         base_qs = AIStudySession.objects.select_related(

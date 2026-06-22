@@ -584,8 +584,8 @@ const HomeworkCorrectionCard = ({ homework, answerFeedback, homeworkFeedback, se
           const answer = homework.answers?.find((item) => item.question === question.id);
           return (
             <div key={question.id} className="rounded-lg border border-border p-3">
-              <p className="text-sm font-medium">{index + 1}. {question.prompt}</p>
-              <p className="mt-2 rounded-md bg-muted p-3 text-sm">{answerText(question, answer)}</p>
+              <p className="whitespace-pre-wrap text-sm font-medium leading-6">{index + 1}. {question.prompt}</p>
+              <p className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm leading-6">{answerText(question, answer)}</p>
               {answer?.id && (
                 <Textarea
                   className="mt-2"

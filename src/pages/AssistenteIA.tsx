@@ -132,6 +132,17 @@ type ProgressOverview = {
   }>;
 };
 
+type ListResponse<T> =
+  | T[]
+  | {
+      results?: T[];
+    };
+
+const unwrapListResponse = <T,>(data: ListResponse<T> | null | undefined): T[] => {
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data?.results) ? data.results : [];
+};
+
 const formatShortDate = (value?: string | null) => {
   if (!value) return "Sem data";
   return new Date(value).toLocaleDateString("pt-BR", {
@@ -471,7 +482,7 @@ const AssistenteIA = () => {
       }
       const suffix = params.toString() ? `?${params.toString()}` : "";
       const response = await api.get(`/ai-study/sessions/${suffix}`);
-      return Array.isArray(response.data) ? (response.data as SessionSummary[]) : [];
+      return unwrapListResponse<SessionSummary>(response.data as ListResponse<SessionSummary>);
     },
   });
 
@@ -488,7 +499,7 @@ const AssistenteIA = () => {
     queryKey: ["ai-study-context-lessons"],
     queryFn: async () => {
       const response = await api.get("/ai-study/context-lessons/");
-      return Array.isArray(response.data) ? (response.data as LessonOption[]) : [];
+      return unwrapListResponse<LessonOption>(response.data as ListResponse<LessonOption>);
     },
   });
 
