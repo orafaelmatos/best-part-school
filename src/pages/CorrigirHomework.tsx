@@ -40,6 +40,7 @@ type HomeworkItem = {
   lesson_title?: string;
   questions: HomeworkQuestion[];
   answers?: HomeworkAnswer[];
+  updated_at?: string | null;
 };
 
 const statusStyles = {
@@ -68,6 +69,7 @@ export default function CorrigirHomework() {
   const [selectedHomework, setSelectedHomework] = useState<HomeworkItem | null>(null);
   const [generalFeedback, setGeneralFeedback] = useState("");
   const [answersFeedback, setAnswersFeedback] = useState<Record<string, string>>({});
+  const [openingHomeworkId, setOpeningHomeworkId] = useState<string | null>(null);
 
   const { data: homeworkItems = [], isLoading } = useQuery({
     queryKey: ["teacher-homework"],
@@ -131,16 +133,24 @@ export default function CorrigirHomework() {
     }
   });
 
-  const handleCorrect = (homework: HomeworkItem) => {
-    setGeneralFeedback(homework.teacher_feedback || "");
-    const initialFeedback: Record<string, string> = {};
-    homework.answers?.forEach(ans => {
-      if (ans.id && ans.teacher_feedback) {
-        initialFeedback[ans.id] = ans.teacher_feedback;
-      }
-    });
-    setAnswersFeedback(initialFeedback);
-    setSelectedHomework(homework);
+  const handleCorrect = async (homework: HomeworkItem) => {
+    setOpeningHomeworkId(homework.id);
+    try {
+      const { data } = await api.get(`/homework/${homework.id}/`);
+      const latestHomework = data as HomeworkItem;
+
+      setGeneralFeedback(latestHomework.teacher_feedback || "");
+      const initialFeedback: Record<string, string> = {};
+      latestHomework.answers?.forEach(ans => {
+        if (ans.id && ans.teacher_feedback) {
+          initialFeedback[ans.id] = ans.teacher_feedback;
+        }
+      });
+      setAnswersFeedback(initialFeedback);
+      setSelectedHomework(latestHomework);
+    } finally {
+      setOpeningHomeworkId(null);
+    }
   };
 
   const onSubmitCorrection = () => {
@@ -294,12 +304,12 @@ export default function CorrigirHomework() {
                   
                   <div>
                     {isReady ? (
-                      <Button onClick={() => handleCorrect(item)} size="sm">
-                        Avaliar
+                      <Button onClick={() => void handleCorrect(item)} size="sm" disabled={openingHomeworkId === item.id}>
+                        {openingHomeworkId === item.id ? "Carregando..." : "Avaliar"}
                       </Button>
                     ) : status === 'corrected' ? (
-                      <Button onClick={() => handleCorrect(item)} size="sm" variant="outline">
-                        Ver Avaliação
+                      <Button onClick={() => void handleCorrect(item)} size="sm" variant="outline" disabled={openingHomeworkId === item.id}>
+                        {openingHomeworkId === item.id ? "Carregando..." : "Ver Avaliação"}
                       </Button>
                     ) : (
                        <Button size="sm" variant="secondary" disabled>

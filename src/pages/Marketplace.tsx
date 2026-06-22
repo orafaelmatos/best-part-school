@@ -3,6 +3,7 @@ import PageHeader from "@/components/PageHeader";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   fetchCourses,
   formatCurrency,
@@ -13,12 +14,14 @@ import {
 } from "@/lib/courses";
 
 const Marketplace = () => {
+  const { user } = useAuth();
   const { data = [], isLoading } = useQuery({
     queryKey: ["courses"],
     queryFn: fetchCourses,
   });
 
   const courses = Array.isArray(data) ? data : [];
+  const canCreateCourse = user?.role === "teacher" || user?.role === "admin";
 
   const CourseCard = ({ course }: { course: MarketplaceCourse }) => {
     const originalPrice = getOriginalPrice(course);
@@ -53,9 +56,11 @@ const Marketplace = () => {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-6">
         <PageHeader title="Marketplace" description="Cursos e materiais para acelerar seu aprendizado." />
-        <Link to="/cursos/novo" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 font-medium hover:opacity-90">
-          <Plus size={18} /> Novo Curso
-        </Link>
+        {canCreateCourse ? (
+          <Link to="/cursos/novo" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 font-medium hover:opacity-90">
+            <Plus size={18} /> Novo Curso
+          </Link>
+        ) : null}
       </div>
 
       {isLoading ? <p>Carregando cursos...</p> : (

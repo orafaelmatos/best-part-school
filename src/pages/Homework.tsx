@@ -202,7 +202,7 @@ const HomeworkLessons = () => {
 
   if (selectedHomework) {
     const uiStatus = getHomeworkStatus(selectedHomework);
-    const canAnswer = uiStatus === "pending" || uiStatus === "late";
+    const canAnswer = uiStatus === "pending" || uiStatus === "late" || uiStatus === "sent";
 
     return (
       <div className="space-y-5">
@@ -261,6 +261,12 @@ const HomeworkLessons = () => {
             ))}
           </div>
 
+          {uiStatus === "sent" && (
+            <p className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+              Você pode editar e reenviar este homework. O professor verá sempre a versão mais atual.
+            </p>
+          )}
+
           {uiStatus === "corrected" && selectedHomework.teacher_feedback && (
             <div className="rounded-lg border border-border bg-muted/50 p-4">
               <p className="text-sm font-semibold">Feedback geral do professor</p>
@@ -270,7 +276,7 @@ const HomeworkLessons = () => {
 
           {canAnswer && (
             <Button onClick={() => submitMutation.mutate(selectedHomework)} disabled={submitMutation.isPending}>
-              <Send className="mr-2 h-4 w-4" /> {submitMutation.isPending ? "Enviando..." : "Enviar atividade"}
+              <Send className="mr-2 h-4 w-4" /> {submitMutation.isPending ? "Enviando..." : uiStatus === "sent" ? "Atualizar atividade" : "Enviar atividade"}
             </Button>
           )}
         </section>

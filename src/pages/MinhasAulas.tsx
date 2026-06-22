@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import DashboardLayout from "@/components/DashboardLayout";
+import PageHeader from "@/components/PageHeader";
 import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
@@ -48,6 +49,8 @@ type VocabularyStats = {
 const MinhasAulas = () => {
   const { user } = useAuth();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const upcomingSectionRef = useRef<HTMLElement | null>(null);
+  const completedSectionRef = useRef<HTMLElement | null>(null);
 
   const studentId = user?.user_id || "";
 
@@ -162,6 +165,18 @@ const MinhasAulas = () => {
   const correctedHomeworkCount = homeworkItems.filter((item) => item.status === "corrected").length;
   const remainingLessonsCount = upcomingLessons.length;
   const archivedCount = archivedLessons.length;
+  const scrollToUpcomingLessons = () => {
+    upcomingSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+  const scrollToCompletedLessons = () => {
+    completedSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   if (user?.role !== "student") {
     return <Navigate to="/alunos" replace />;
@@ -176,21 +191,25 @@ const MinhasAulas = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.14),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-6 shadow-[0_24px_80px_-45px_rgba(15,23,42,0.45)] sm:p-8">
-          <div className="grid gap-8 xl:grid-cols-[minmax(0,1.15fr)_380px]">
+        <PageHeader
+          title="Minhas Aulas"
+          description="Acompanhe suas próximas aulas, o que já foi concluído e o que ainda falta na trilha."
+        />
+
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_380px]">
+          <div className="space-y-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">Minha evolucao</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Minhas Aulas</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Agora a pagina separa com mais clareza o que vem a seguir, o que ja foi feito e como sua trilha esta avancando.
+              <p className="text-sm leading-6 text-muted-foreground">
+                Veja rapidamente o que vem a seguir, o que já foi feito e como sua trilha está avançando.
               </p>
 
-              <div className="mt-6 grid gap-4 lg:grid-cols-3">
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 <HeroSnapshot
                   eyebrow="Proxima aula"
                   title={nextLesson ? nextLesson.title : "Nenhuma aula agendada"}
                   description={nextLesson ? formatLessonDate(nextLesson.date) : "Quando uma nova aula for marcada, ela aparecera aqui."}
                   icon={CalendarDays}
+                  onClick={scrollToUpcomingLessons}
                 />
                 <HeroSnapshot
                   eyebrow="Aulas feitas"
@@ -201,6 +220,7 @@ const MinhasAulas = () => {
                       : "Suas aulas concluidas vao aparecer aqui conforme voce avanca."
                   }
                   icon={CheckCircle2}
+                  onClick={scrollToCompletedLessons}
                 />
                 <HeroSnapshot
                   eyebrow="Andamento da trilha"
@@ -214,15 +234,15 @@ const MinhasAulas = () => {
                 />
               </div>
 
-              <div className="mt-4 rounded-[24px] border border-sky-100 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+              <div className="mt-4 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                 Se precisar mudar um horario, fale com seu professor. O reagendamento e feito apenas pelo professor.
               </div>
 
-              <div className="mt-6 rounded-[28px] border border-white/70 bg-white/80 p-5 shadow-sm backdrop-blur">
+              <div className="mt-4 rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resumo do ciclo atual</p>
-                    <p className="mt-2 text-xl font-semibold text-foreground">
+                    <p className="mt-2 text-lg font-semibold text-foreground">
                       {visibleLessons.length ? `${completedCount} de ${visibleLessons.length} aulas concluidas` : "Ainda sem aulas visiveis"}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -243,74 +263,173 @@ const MinhasAulas = () => {
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MetricCard
-                title="Concluidas"
-                value={completedCount}
-                description="Aulas finalizadas no seu historico"
-                icon={CheckCircle2}
-                tone="success"
-              />
-              <MetricCard
-                title="Palavras"
-                value={learnedWords}
-                description="Vocabulos registrados ao longo das aulas"
-                icon={BookOpenCheck}
-                tone="default"
-              />
-              <MetricCard
-                title="Homework"
-                value={pendingHomeworkCount}
-                description={`${correctedHomeworkCount} tarefas ja corrigidas`}
-                icon={NotebookText}
-                tone={pendingHomeworkCount > 0 ? "warning" : "default"}
-              />
-              <MetricCard
-                title="Revisoes"
-                value={dueReviewCount}
-                description={`${vocabularyStats?.study_streak || 0} dias de sequencia`}
-                icon={BrainCircuit}
-                tone={dueReviewCount > 0 ? "warning" : "success"}
-              />
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MetricCard
+              title="Concluidas"
+              value={completedCount}
+              description="Aulas finalizadas no seu historico"
+              icon={CheckCircle2}
+              tone="success"
+            />
+            <MetricCard
+              title="Palavras"
+              value={learnedWords}
+              description="Vocabulos registrados ao longo das aulas"
+              icon={BookOpenCheck}
+              tone="default"
+            />
+            <MetricCard
+              title="Homework"
+              value={pendingHomeworkCount}
+              description={`${correctedHomeworkCount} tarefas ja corrigidas`}
+              icon={NotebookText}
+              tone={pendingHomeworkCount > 0 ? "warning" : "default"}
+            />
+            <MetricCard
+              title="Revisoes"
+              value={dueReviewCount}
+              description={`${vocabularyStats?.study_streak || 0} dias de sequencia`}
+              icon={BrainCircuit}
+              tone={dueReviewCount > 0 ? "warning" : "success"}
+            />
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-          <div className="space-y-4">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-2xl font-semibold tracking-tight text-foreground">Proximas aulas</h2>
-              <p className="text-sm text-muted-foreground">
-                Aqui ficam somente as aulas que ainda vao acontecer, para voce bater o olho e saber o que vem primeiro.
-              </p>
-            </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+          <div className="space-y-8">
+            <section ref={upcomingSectionRef} className="space-y-4">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lg font-semibold text-foreground">Proximas aulas</h2>
+                <p className="text-sm text-muted-foreground">
+                  Aqui ficam somente as aulas que ainda vao acontecer, para voce bater o olho e saber o que vem primeiro.
+                </p>
+              </div>
 
-            {isLoading ? (
-              <div className="rounded-[26px] border border-border bg-card p-6 text-sm text-muted-foreground">
-                Carregando suas aulas...
+              {isLoading ? (
+                <div className="rounded-[26px] border border-border bg-card p-6 text-sm text-muted-foreground">
+                  Carregando suas aulas...
+                </div>
+              ) : upcomingLessons.length === 0 ? (
+                <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+                  Nenhuma aula futura encontrada.
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-[26px] border border-border bg-card shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-border text-sm">
+                      <thead className="bg-muted/40">
+                        <tr className="text-left">
+                          <th className="px-4 py-3 font-medium text-muted-foreground">Aula</th>
+                          <th className="px-4 py-3 font-medium text-muted-foreground">Data</th>
+                          <th className="px-4 py-3 font-medium text-muted-foreground">Nivel</th>
+                          <th className="px-4 py-3 font-medium text-muted-foreground">Status</th>
+                          <th className="px-4 py-3 text-right font-medium text-muted-foreground">Detalhes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {upcomingLessons.map((lesson) => {
+                          const isExpanded = expandedId === lesson.id;
+                          return (
+                            <Fragment key={lesson.id}>
+                              <tr
+                                className={[
+                                  "transition hover:bg-muted/30",
+                                  isExpanded ? "bg-muted/20" : "",
+                                ].join(" ")}
+                              >
+                                <td className="px-4 py-3 align-top">
+                                  <div className="min-w-[220px]">
+                                    <p className="font-semibold text-foreground">{lesson.title}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {typeof lesson.order === "number" && lesson.order > 0
+                                        ? `Aula ${lesson.order}`
+                                        : "Ordem nao definida"}
+                                    </p>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 align-top text-muted-foreground">
+                                  {formatLessonDate(lesson.date, { weekday: undefined })}
+                                </td>
+                                <td className="px-4 py-3 align-top text-muted-foreground">
+                                  {lesson.level || "Nao informado"}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                                    {formatStatusLabel(lesson.status)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right align-top">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
+                                    className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                  >
+                                    {isExpanded ? "Ocultar" : "Ver detalhes"}
+                                  </button>
+                                </td>
+                              </tr>
+                              {isExpanded ? (
+                                <tr className="bg-background">
+                                  <td colSpan={5} className="p-4">
+                                    <LessonExperienceCard
+                                      lesson={lesson}
+                                      summary={summaryByLesson.get(lesson.id)}
+                                      homeworkItems={homeworkByLesson.get(lesson.id) || []}
+                                      expanded
+                                      onToggle={() => setExpandedId(null)}
+                                      onRefreshLessons={() => lessonsQuery.refetch()}
+                                      onRefreshHomework={() => homeworkQuery.refetch()}
+                                      onRefreshSummaries={() => summariesQuery.refetch()}
+                                    />
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section ref={completedSectionRef} className="space-y-4">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-lg font-semibold text-foreground">Aulas feitas</h2>
+                <p className="text-sm text-muted-foreground">
+                  Aqui ficam as aulas concluidas, com os resumos, palavras e tarefas que ajudam a revisar o que ja passou.
+                </p>
               </div>
-            ) : upcomingLessons.length === 0 ? (
-              <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
-                Nenhuma aula futura encontrada.
-              </div>
-            ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                {upcomingLessons.map((lesson) => (
-                  <LessonExperienceCard
-                    key={lesson.id}
-                    lesson={lesson}
-                    summary={summaryByLesson.get(lesson.id)}
-                    homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                    expanded={expandedId === lesson.id}
-                    onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                    onRefreshLessons={() => lessonsQuery.refetch()}
-                    onRefreshHomework={() => homeworkQuery.refetch()}
-                    onRefreshSummaries={() => summariesQuery.refetch()}
-                  />
-                ))}
-              </div>
-            )}
+
+              {completedLessons.length === 0 ? (
+                <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+                  Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
+                </div>
+              ) : (
+                <div className="relative pl-6 before:absolute before:bottom-4 before:left-2 before:top-4 before:w-px before:bg-slate-200">
+                  <div className="space-y-6">
+                    {completedLessons.map((lesson) => (
+                      <div key={lesson.id} className="relative">
+                        <span className="absolute -left-[1.55rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
+                        <LessonExperienceCard
+                          lesson={lesson}
+                          summary={summaryByLesson.get(lesson.id)}
+                          homeworkItems={homeworkByLesson.get(lesson.id) || []}
+                          expanded={expandedId === lesson.id}
+                          onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
+                          onRefreshLessons={() => lessonsQuery.refetch()}
+                          onRefreshHomework={() => homeworkQuery.refetch()}
+                          onRefreshSummaries={() => summariesQuery.refetch()}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
           </div>
 
           <aside className="space-y-4">
@@ -352,46 +471,7 @@ const MinhasAulas = () => {
                 )}
               </div>
             </div>
-          </aside>
-        </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-2xl font-semibold tracking-tight text-foreground">Aulas feitas</h2>
-              <p className="text-sm text-muted-foreground">
-                Aqui ficam as aulas concluidas, com os resumos, palavras e tarefas que ajudam a revisar o que ja passou.
-              </p>
-            </div>
-
-            {completedLessons.length === 0 ? (
-              <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
-                Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
-              </div>
-            ) : (
-              <div className="relative pl-6 before:absolute before:bottom-4 before:left-2 before:top-4 before:w-px before:bg-slate-200">
-                <div className="space-y-6">
-                  {completedLessons.map((lesson) => (
-                    <div key={lesson.id} className="relative">
-                      <span className="absolute -left-[1.55rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
-                      <LessonExperienceCard
-                        lesson={lesson}
-                        summary={summaryByLesson.get(lesson.id)}
-                        homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                        expanded={expandedId === lesson.id}
-                        onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                        onRefreshLessons={() => lessonsQuery.refetch()}
-                        onRefreshHomework={() => homeworkQuery.refetch()}
-                        onRefreshSummaries={() => summariesQuery.refetch()}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <aside className="space-y-4">
             <div className="rounded-[28px] border border-border bg-card p-5 shadow-sm">
               <div className="flex items-center gap-2 text-primary">
                 <Target className="h-4 w-4" />
@@ -453,7 +533,7 @@ const MinhasAulas = () => {
               </div>
             )}
           </aside>
-        </section>
+        </div>
       </div>
     </DashboardLayout>
   );
@@ -474,20 +554,29 @@ const HeroSnapshot = ({
   title,
   description,
   icon: Icon,
+  onClick,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   icon: typeof CalendarDays;
+  onClick?: () => void;
 }) => (
-  <div className="rounded-[24px] border border-white/70 bg-white/85 p-4 shadow-sm backdrop-blur">
+  <button
+    type="button"
+    onClick={onClick}
+    className={[
+      "w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm",
+      onClick ? "transition hover:border-primary/30 hover:bg-muted/30" : "cursor-default",
+    ].join(" ")}
+  >
     <div className="flex items-center justify-between gap-3">
       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{eyebrow}</p>
-      <Icon className="h-4 w-4 text-sky-700" />
+      <Icon className="h-4 w-4 text-primary" />
     </div>
-    <p className="mt-3 text-lg font-semibold tracking-tight text-foreground">{title}</p>
+    <p className="mt-3 text-lg font-semibold text-foreground">{title}</p>
     <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
-  </div>
+  </button>
 );
 
 const MetricCard = ({
@@ -511,12 +600,12 @@ const MetricCard = ({
         : "text-slate-700";
 
   return (
-    <div className="rounded-[24px] border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{title}</p>
         <Icon className={`h-4 w-4 ${toneClass}`} />
       </div>
-      <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-2 text-2xl font-bold text-foreground">{value}</p>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
     </div>
   );

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Loader2, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Mic, Volume2 } from "lucide-react";
 import { api } from "@/lib/api";
 import AudioPlayer from "@/components/AudioPlayer";
 import { absoluteMediaUrl } from "@/lib/config";
 
 export type SpeakingFeedback = {
   id: string;
+  audio_url?: string | null;
   transcript: string;
   overall_score: number;
   estimated_level: string;
@@ -99,10 +100,52 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
           <p className="mt-2 text-sm leading-6 text-foreground">{feedback.ai_feedback}</p>
         </div>
         <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Versão mais natural</p>
-          <p className="mt-2 text-sm leading-6 text-emerald-950">
-            {feedback.natural_sentence || feedback.native_alternative_sentence || feedback.corrected_sentence || "Sem alternativa sugerida."}
-          </p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Comparar pronúncia</p>
+          <div className="mt-3 space-y-3">
+            <div className="rounded-2xl bg-white/80 p-3">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <Mic className="h-3.5 w-3.5" />
+                Sua fala
+              </div>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {feedback.transcript || "Sem transcrição disponível."}
+              </p>
+              <div className="mt-3">
+                {feedback.audio_url ? (
+                  <AudioPlayer src={absoluteMediaUrl(feedback.audio_url)} compact />
+                ) : (
+                  <p className="text-xs text-muted-foreground">A gravação enviada aparece aqui para comparação.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white/80 p-3">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                <Volume2 className="h-3.5 w-3.5" />
+                Pronúncia sugerida
+              </div>
+              <p className="mt-2 text-sm leading-6 text-emerald-950">
+                {feedback.natural_sentence || feedback.native_alternative_sentence || feedback.corrected_sentence || "Sem alternativa sugerida."}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={generateTts}
+                  disabled={loadingTts}
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {loadingTts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
+                  {ttsUrl ? "Gerar novamente" : "Ouvir pronúncia correta"}
+                </button>
+                {ttsUrl ? <span className="text-xs text-emerald-800/80">Compare com sua gravação acima.</span> : null}
+              </div>
+              {ttsUrl ? (
+                <div className="mt-3">
+                  <AudioPlayer src={absoluteMediaUrl(ttsUrl)} compact />
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -207,19 +250,6 @@ const PronunciationFeedback = ({ feedback }: { feedback: SpeakingFeedback }) => 
               </div>
             </div>
           )}
-
-          <div className="space-y-3 border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={generateTts}
-              disabled={loadingTts}
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              {loadingTts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
-              Ouvir pronúncia correta
-            </button>
-            <AudioPlayer src={absoluteMediaUrl(ttsUrl)} />
-          </div>
         </>
       ) : null}
     </div>

@@ -1,11 +1,20 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, BookOpenCheck, Brain, CalendarClock, Flame, Plus, Search, Star, Target, Trophy } from "lucide-react";
+import { Archive, Brain, CalendarClock, Flame, Plus, Search, Star, Target, Trophy } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import ReviewQueue from "@/components/ReviewQueue";
 import { VocabularyCard } from "@/components/FlashcardReview";
+import VocabularyAudioButton from "@/components/VocabularyAudioButton";
 
 type VocabularyStats = {
   due_today: number;
@@ -30,7 +39,6 @@ type CardForm = {
   translation: string;
   explanation: string;
   example_sentence: string;
-  pronunciation: string;
   tags: string;
   category: string;
   custom_category: string;
@@ -41,7 +49,6 @@ const emptyForm: CardForm = {
   translation: "",
   explanation: "",
   example_sentence: "",
-  pronunciation: "",
   tags: "",
   category: "",
   custom_category: "",
@@ -61,10 +68,11 @@ const filters = [
 const VocabularyDashboard = () => {
   const queryClient = useQueryClient();
   const [reviewMode, setReviewMode] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]["value"]>("active");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [revealedCardIds, setRevealedCardIds] = useState<string[]>([]);
   const [form, setForm] = useState<CardForm>(emptyForm);
 
   const { data: stats } = useQuery({
@@ -97,7 +105,7 @@ const VocabularyDashboard = () => {
     mutationFn: async (payload: any) => api.post("/vocabulary-cards/", payload),
     onSuccess: () => {
       setForm(emptyForm);
-      setShowForm(false);
+      setIsCreateDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["vocabulary-cards"] });
       queryClient.invalidateQueries({ queryKey: ["vocabulary-dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["sidebar-badges"] });
@@ -145,6 +153,12 @@ const VocabularyDashboard = () => {
     });
   };
 
+  const toggleReveal = (cardId: string) => {
+    setRevealedCardIds((current) =>
+      current.includes(cardId) ? current.filter((item) => item !== cardId) : [...current, cardId],
+    );
+  };
+
   if (reviewMode) return <ReviewQueue onBack={() => setReviewMode(false)} />;
 
   return (
@@ -168,30 +182,46 @@ const VocabularyDashboard = () => {
         <Button onClick={() => setReviewMode(true)} disabled={!((stats?.due_today || 0) + (stats?.overdue || 0))}>
           <Brain className="mr-2 h-4 w-4" /> Revisar agora
         </Button>
-        <Button variant="outline" onClick={() => setShowForm((value) => !value)}>
+        <Button variant="outline" onClick={() => setIsCreateDialogOpen(true)}>
           <Plus className="mr-2 h-4 w-4" /> Novo card
         </Button>
       </div>
 
-      {showForm && (
-        <form onSubmit={submitCard} className="grid gap-4 rounded-lg border border-border bg-card p-4 md:grid-cols-2">
-          <input required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-          <input required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-          <Textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Explicação" />
-          <Textarea value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Frase de exemplo" />
-          <input value={form.pronunciation} onChange={(event) => setForm({ ...form, pronunciation: event.target.value })} placeholder="Pronúncia" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-          <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-          <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-            <option value="">Categoria padrão</option>
-            {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <input value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Categoria customizada" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-          <div className="flex gap-2 md:col-span-2">
-            <Button type="submit" disabled={createMutation.isPending}>Criar card</Button>
-            <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
-          </div>
-        </form>
-      )}
+      <Dialog
+        open={isCreateDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (!open && !createMutation.isPending) setForm(emptyForm);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Novo card</DialogTitle>
+            <DialogDescription>
+              Cadastre a frente e a resposta do card. O áudio de pronúncia é gerado automaticamente na revisão.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={submitCard} className="grid gap-4 md:grid-cols-2">
+            <input required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+            <input required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+            <Textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Explicação" />
+            <Textarea value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Frase de exemplo" />
+            <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+            <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <option value="">Categoria padrão</option>
+              {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+            <input value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Categoria customizada" className="rounded-lg border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
+            <DialogFooter className="md:col-span-2">
+              <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? "Criando..." : "Criar card"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex flex-wrap gap-2">
         {filters.map((item) => (
@@ -207,7 +237,10 @@ const VocabularyDashboard = () => {
         <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">Nenhum card encontrado com esses filtros.</p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredCards.map((card) => (
+          {filteredCards.map((card) => {
+            const isRevealed = revealedCardIds.includes(card.id);
+
+            return (
             <article key={card.id} className="rounded-lg border border-border bg-card p-5 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
@@ -218,25 +251,40 @@ const VocabularyDashboard = () => {
                   <Star className="h-4 w-4" fill={card.favorite ? "currentColor" : "none"} />
                 </button>
               </div>
-              <p className="text-sm font-medium">{card.translation}</p>
-              {card.example_sentence && <p className="mt-3 rounded-lg bg-muted p-3 text-sm italic">{card.example_sentence}</p>}
+              {isRevealed ? (
+                <div className="space-y-3 rounded-lg border border-border bg-muted/40 px-3 py-4">
+                  <p className="text-sm font-medium text-foreground">{card.translation}</p>
+                  {card.explanation && <p className="text-sm text-muted-foreground">{card.explanation}</p>}
+                  {card.example_sentence && <p className="rounded-lg bg-background px-3 py-2 text-sm italic text-muted-foreground">{card.example_sentence}</p>}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-muted/40 px-3 py-4 text-sm text-muted-foreground">
+                  Resposta escondida até você revelar o card.
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <span className="rounded-md bg-muted px-2 py-1">{card.difficulty_level}</span>
-                <span className="rounded-md bg-muted px-2 py-1">EF {card.easiness_factor}</span>
                 <span className="rounded-md bg-muted px-2 py-1">{card.interval_days}d</span>
                 <span className="rounded-md bg-muted px-2 py-1">{card.confidence_level}%</span>
                 {(card.tags || []).map((tag) => <span key={tag} className="rounded-md bg-muted px-2 py-1">{tag}</span>)}
               </div>
               <div className="mt-4 flex gap-2">
-                <Button className="flex-1" variant="outline" onClick={() => setReviewMode(true)}>
-                  <BookOpenCheck className="mr-2 h-4 w-4" /> Estudar
-                </Button>
+                <VocabularyAudioButton
+                  audioUrl={card.audio_url}
+                  audioFileUrl={card.audio_file_url}
+                  text={card.word}
+                  className="flex-1 justify-center"
+                  label="Ouvir"
+                />
+                {/* <Button className="flex-1" variant="outline" onClick={() => toggleReveal(card.id)}>
+                  {isRevealed ? "Esconder" : "Revelar"}
+                </Button> */}
                 <Button variant="ghost" onClick={() => updateMutation.mutate({ card, payload: { archived: !card.archived } })}>
                   <Archive className="h-4 w-4" />
                 </Button>
               </div>
             </article>
-          ))}
+          )})}
         </div>
       )}
 

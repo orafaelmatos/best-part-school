@@ -27,6 +27,10 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: { role: "teacher" } }),
+}));
+
 vi.mock("@/lib/api", () => ({
   api: {
     get: vi.fn(),
@@ -40,6 +44,7 @@ const mockedPost = vi.mocked(api.post);
 
 const sessionSummary = {
   id: "session-1",
+  mode: "review" as const,
   title: "Conversation archive",
   title_source: "manual" as const,
   status: "active",
@@ -144,6 +149,9 @@ describe("AssistenteIA routing flow", () => {
 
     renderAssistente("/treinar-ia?mode=new");
 
+    expect(await screen.findByText("Escolha como você quer praticar")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Revisar Aula/i }));
+
     expect(await screen.findByText("Selecione a aula de referência")).toBeInTheDocument();
     expect(await screen.findByText("Reviewing yesterday and last week.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Praticar esta aula" })).toBeInTheDocument();
@@ -166,7 +174,7 @@ describe("AssistenteIA routing flow", () => {
     renderAssistente("/treinar-ia/conversa/session-1");
 
     expect(await screen.findByText("Grammar Clinic")).toBeInTheDocument();
-    expect(screen.getByText("O que você quer praticar nesta aula?")).toBeInTheDocument();
+    expect(screen.getByText("O que você quer revisar nesta aula?")).toBeInTheDocument();
     expect(screen.queryByText("Converse com a IA usando o contexto real das suas aulas")).not.toBeInTheDocument();
   });
 
@@ -193,6 +201,7 @@ describe("AssistenteIA routing flow", () => {
 
     renderAssistente("/treinar-ia?mode=new");
 
+    fireEvent.click(await screen.findByRole("button", { name: /Revisar Aula/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Praticar esta aula" }));
 
     await waitFor(() => {

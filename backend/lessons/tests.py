@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from django.utils import timezone
 import datetime
 from accounts.models import User
-from .models import Lesson, NewWord, TeacherAvailability, VocabularyCard
+from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, TeacherAvailability, VocabularyCard
 from .vocabulary import schedule_card, vocabulary_stats
 
 class LessonVisibilityTests(TestCase):
@@ -347,6 +347,79 @@ class StudentLessonSequenceTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.lesson_a.refresh_from_db()
         self.assertEqual(self.lesson_a.status, 'completed')
+
+
+class HomeworkSubmissionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(email='homework-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(email='homework-student@test.com', password='123', role='student', name='Student')
+        self.lesson = Lesson.objects.create(
+            title='Homework lesson',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            status='completed',
+            date=timezone.now(),
+        )
+        self.homework = Homework.objects.create(
+            title='Writing task',
+            status='pending',
+            teacher=self.teacher,
+            student=self.student,
+            lesson=self.lesson,
+        )
+        self.question = HomeworkQuestion.objects.create(
+            homework=self.homework,
+            type='open_text',
+            prompt='Write a paragraph about your weekend.',
+            order=0,
+        )
+
+    def test_student_can_resubmit_homework_and_teacher_sees_latest_answer(self):
+        self.client.force_authenticate(user=self.student)
+
+        first_response = self.client.post(
+            f'/api/homework/{self.homework.id}/submit_answers/',
+            {
+                'answers': [
+                    {
+                        'question': str(self.question.id),
+                        'answer_text': 'First version.',
+                        'selected_option_index': None,
+                    }
+                ]
+            },
+            format='json',
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.homework.refresh_from_db()
+        self.assertEqual(self.homework.status, 'sent')
+        first_answer = HomeworkAnswer.objects.get(homework=self.homework, question=self.question, student=self.student)
+        self.assertEqual(first_answer.answer_text, 'First version.')
+
+        second_response = self.client.post(
+            f'/api/homework/{self.homework.id}/submit_answers/',
+            {
+                'answers': [
+                    {
+                        'question': str(self.question.id),
+                        'answer_text': 'Updated version for the teacher.',
+                        'selected_option_index': None,
+                    }
+                ]
+            },
+            format='json',
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.homework.refresh_from_db()
+        self.assertEqual(self.homework.status, 'sent')
+
+        answers = HomeworkAnswer.objects.filter(homework=self.homework, question=self.question, student=self.student)
+        self.assertEqual(answers.count(), 1)
+        self.assertEqual(answers.first().answer_text, 'Updated version for the teacher.')
 
 
 class VocabularySpacedRepetitionTests(TestCase):

@@ -315,9 +315,6 @@ const ModeCard = ({
       ) : null}
     </div>
     <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-4 py-3 text-sm">
-      <p className="text-muted-foreground">
-        {mode === "review" ? "Usa a aula como contexto" : mode === "speaking" ? "Feedback por áudio" : "Correção por texto"}
-      </p>
       <span className="font-medium text-foreground">Selecionar</span>
     </div>
   </button>
@@ -396,10 +393,26 @@ const LessonCard = ({
 const MessageBubble = ({ message }: { message: AIMessage }) => {
   const isUser = message.role === "user";
   const audioMeta = message.audio_detail;
+  const speakerLabel =
+    message.content_type === "audio"
+      ? "Sua gravação"
+      : isUser
+        ? "Você"
+        : message.content_type === "feedback"
+          ? "Análise da IA"
+          : "Assistente IA";
 
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
-      <div className={cn("max-w-[min(100%,54rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
+      <div className={cn("w-full max-w-[min(100%,58rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
+        <p
+          className={cn(
+            "px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
+            isUser ? "text-right" : "text-left",
+          )}
+        >
+          {speakerLabel}
+        </p>
         <div
           className={cn(
             "rounded-[28px] px-4 py-3.5 text-sm leading-6 shadow-sm",
@@ -410,8 +423,17 @@ const MessageBubble = ({ message }: { message: AIMessage }) => {
         >
           {message.audio_url ? (
             <div className="space-y-3">
-              <AudioPlayer src={absoluteMediaUrl(message.audio_url)} compact />
-              {message.text ? <p className="whitespace-pre-line">{message.text}</p> : null}
+              <div className={cn("rounded-2xl p-3", isUser ? "bg-white/10" : "bg-slate-50")}>
+                <AudioPlayer src={absoluteMediaUrl(message.audio_url)} compact />
+              </div>
+              {message.text ? (
+                <div>
+                  <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em]", isUser ? "text-white/70" : "text-muted-foreground")}>
+                    Transcrição
+                  </p>
+                  <p className="mt-2 whitespace-pre-line">{message.text}</p>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="whitespace-pre-line">{message.text}</p>
@@ -876,7 +898,12 @@ const AssistenteIA = () => {
 
   return (
     <DashboardLayout>
-      <div className={cn("space-y-6", isConversationPage && "h-[calc(100vh-4rem)] overflow-hidden")}>
+      <div
+        className={cn(
+          "space-y-6",
+          isConversationPage && "h-[calc(100dvh-4.5rem)] overflow-hidden space-y-0",
+        )}
+      >
         {!isConversationPage ? (
           <section className="rounded-[28px] border border-border bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_45%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-6 shadow-sm">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -906,10 +933,11 @@ const AssistenteIA = () => {
         <div
           className={cn(
             "grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]",
+            isConversationPage && "gap-3",
             isConversationPage ? "h-full min-h-0" : "min-h-[calc(100vh-12rem)]",
           )}
         >
-          <aside className="flex h-full flex-col rounded-[28px] border border-border bg-card/95 p-4 shadow-sm">
+          <aside className="flex h-full flex-col overflow-hidden rounded-[28px] border border-border bg-card/95 p-4 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-foreground">Conversas</h2>
@@ -1132,7 +1160,7 @@ const AssistenteIA = () => {
             ) : activeSession ? (
               <>
                 <header className="border-b border-slate-200/80 bg-white/80 px-5 py-4 backdrop-blur">
-                  <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
                       <div className="mb-3 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
@@ -1218,12 +1246,17 @@ const AssistenteIA = () => {
                   </div>
                 </header>
 
-                <div ref={messageListRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-                  <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-6">
+                <div ref={messageListRef} className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+                  <div
+                    className={cn(
+                      "mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5",
+                      activeSession.messages.length ? "justify-end" : "",
+                    )}
+                  >
                     {activeSession.messages.length ? (
                       activeSession.messages.map((message) => <MessageBubble key={message.id} message={message} />)
                     ) : (
-                      <div className="flex flex-1 items-center justify-center px-6">
+                      <div className="flex flex-1 items-center justify-center px-6 py-10">
                         <div className="max-w-2xl text-center">
                           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
                             {activeSession.lesson_detail?.title || modeLabel[activeSession.mode]}
@@ -1248,8 +1281,8 @@ const AssistenteIA = () => {
                   </div>
                 </div>
 
-                <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-4 backdrop-blur">
-                  <div className="mx-auto w-full max-w-5xl space-y-3">
+                <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-3 backdrop-blur">
+                  <div className="mx-auto w-full max-w-6xl space-y-3">
                     {canRecordAudio && (showRecorder || recordingState !== "idle") ? (
                       <MicRecorder
                         state={recordingState}

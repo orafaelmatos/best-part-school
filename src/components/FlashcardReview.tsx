@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Flame, RotateCcw, Volume2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Flame, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import VocabularyAudioButton from "@/components/VocabularyAudioButton";
 
 export type ReviewRating = "very_hard" | "hard" | "easy";
 
@@ -53,7 +54,8 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
   const [index, setIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const activeCard = cards[index];
-  const total = cards.length;
+  const remaining = cards.length;
+  const total = reviewedCount + remaining;
   const progress = total ? Math.round((reviewedCount / total) * 100) : 0;
 
   useEffect(() => {
@@ -121,11 +123,12 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
           <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
             <p className="text-xs uppercase text-muted-foreground">Frente</p>
             <h2 className="mt-4 max-w-full break-words text-4xl font-bold sm:text-5xl">{activeCard.word}</h2>
-            {(activeCard.audio_url || activeCard.audio_file_url) && (
-              <a href={activeCard.audio_url || activeCard.audio_file_url} className="mt-4 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-                <Volume2 className="h-4 w-4" /> áudio
-              </a>
-            )}
+            <VocabularyAudioButton
+              audioUrl={activeCard.audio_url}
+              audioFileUrl={activeCard.audio_file_url}
+              text={activeCard.word}
+              className="mt-4"
+            />
           </div>
 
           {!revealed ? (
@@ -138,7 +141,13 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
                 <h3 className="text-2xl font-semibold">{activeCard.translation}</h3>
                 {activeCard.explanation && <p className="text-sm leading-6 text-muted-foreground">{activeCard.explanation}</p>}
                 {activeCard.example_sentence && <p className="rounded-lg bg-muted p-3 text-sm italic">{activeCard.example_sentence}</p>}
-                {activeCard.pronunciation && <p className="text-sm text-muted-foreground">Pronúncia: {activeCard.pronunciation}</p>}
+                <div className="flex justify-center">
+                  <VocabularyAudioButton
+                    audioUrl={activeCard.audio_url}
+                    audioFileUrl={activeCard.audio_file_url}
+                    text={activeCard.word}
+                  />
+                </div>
               </div>
               <div className="grid gap-2 sm:grid-cols-3">
                 {(Object.keys(ratingCopy) as ReviewRating[]).map((rating) => (
