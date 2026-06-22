@@ -23,6 +23,7 @@ const MicRecorder = ({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const shouldSubmitRef = useRef(true);
   const startedAtRef = useRef<number>(0);
   const elapsedBeforePauseRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
@@ -57,6 +58,7 @@ const MicRecorder = ({
   const start = async () => {
     setError("");
     chunksRef.current = [];
+    shouldSubmitRef.current = true;
     elapsedBeforePauseRef.current = 0;
     setElapsed(0);
     try {
@@ -71,9 +73,15 @@ const MicRecorder = ({
       recorder.onstop = () => {
         stopTimer();
         cleanupStream();
-        if (!chunksRef.current.length) return;
+        recorderRef.current = null;
+        if (!shouldSubmitRef.current || !chunksRef.current.length) {
+          chunksRef.current = [];
+          shouldSubmitRef.current = true;
+          return;
+        }
         onStateChange("processing");
         const blob = new Blob(chunksRef.current, { type: mimeType });
+        chunksRef.current = [];
         onRecordingComplete(blob, Math.max(1, Math.round(elapsed)));
       };
       recorder.start();
@@ -103,14 +111,17 @@ const MicRecorder = ({
   };
 
   const stop = () => {
+    shouldSubmitRef.current = true;
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
   };
 
   const cancel = () => {
+    shouldSubmitRef.current = false;
     chunksRef.current = [];
     if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
+    recorderRef.current = null;
     stopTimer();
     cleanupStream();
     elapsedBeforePauseRef.current = 0;
