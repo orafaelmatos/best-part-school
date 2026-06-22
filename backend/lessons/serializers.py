@@ -203,9 +203,53 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
 
 class HomeworkQuestionSerializer(serializers.ModelSerializer):
+    image_url = serializers.FileField(source='image', read_only=True)
+    audio_url = serializers.FileField(source='audio', read_only=True)
+    image_path = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    audio_path = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    remove_image = serializers.BooleanField(write_only=True, required=False, default=False)
+    remove_audio = serializers.BooleanField(write_only=True, required=False, default=False)
+
     class Meta:
         model = HomeworkQuestion
-        fields = ['id', 'type', 'prompt', 'options', 'correct_option_index', 'order']
+        fields = [
+            'id', 'type', 'prompt', 'image', 'image_url', 'image_path',
+            'audio', 'audio_url', 'audio_path', 'audio_transcript',
+            'remove_image', 'remove_audio', 'options', 'correct_option_index', 'order',
+        ]
+        extra_kwargs = {
+            'image': {'required': False, 'allow_null': True},
+            'audio': {'required': False, 'allow_null': True},
+            'audio_transcript': {'required': False, 'allow_blank': True},
+        }
+
+    def validate_image(self, value):
+        if not value:
+            return value
+        content_type = getattr(value, 'content_type', '') or ''
+        if content_type and not content_type.startswith('image/'):
+            raise serializers.ValidationError('Envie um arquivo de imagem válido.')
+        return value
+
+    def validate_audio(self, value):
+        if not value:
+            return value
+        allowed_types = {
+            'audio/webm',
+            'audio/wav',
+            'audio/wave',
+            'audio/x-wav',
+            'audio/mpeg',
+            'audio/mp3',
+            'audio/ogg',
+            'audio/mp4',
+            'audio/x-m4a',
+            'audio/aac',
+        }
+        content_type = getattr(value, 'content_type', '') or ''
+        if content_type and content_type not in allowed_types and not content_type.startswith('audio/'):
+            raise serializers.ValidationError('Envie um arquivo de áudio válido.')
+        return value
 
 class HomeworkAnswerSerializer(serializers.ModelSerializer):
     question_prompt = serializers.CharField(source='question.prompt', read_only=True)
@@ -238,15 +282,53 @@ class HomeworkSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
+    def _transcribe_audio(self, audio_file):
+        if not audio_file:
+            return ''
+        try:
+            from ai_study.services import AIStudyOpenAIService
+
+            audio_file.seek(0)
+            transcript = AIStudyOpenAIService.transcribe(audio_file)
+            audio_file.seek(0)
+            return transcript or ''
+        except Exception:
+            try:
+                audio_file.seek(0)
+            except Exception:
+                pass
+            return ''
+
+    def _question_kwargs(self, question_data, index):
+        question_payload = dict(question_data)
+        image_path = question_payload.pop('image_path', '')
+        audio_path = question_payload.pop('audio_path', '')
+        remove_image = question_payload.pop('remove_image', False)
+        remove_audio = question_payload.pop('remove_audio', False)
+        image = question_payload.get('image')
+        audio = question_payload.get('audio')
+
+        if remove_image:
+            question_payload['image'] = None
+        elif not image and image_path:
+            question_payload['image'] = image_path
+
+        if remove_audio:
+            question_payload['audio'] = None
+            question_payload['audio_transcript'] = ''
+        elif not audio and audio_path:
+            question_payload['audio'] = audio_path
+        elif audio and not question_payload.get('audio_transcript'):
+            question_payload['audio_transcript'] = self._transcribe_audio(audio)
+
+        question_payload['order'] = question_payload.get('order', index)
+        return question_payload
+
     def create(self, validated_data):
         questions_data = validated_data.pop('questions', [])
         homework = Homework.objects.create(**validated_data)
         for index, question_data in enumerate(questions_data):
-            HomeworkQuestion.objects.create(
-                homework=homework,
-                order=question_data.get('order', index),
-                **{key: value for key, value in question_data.items() if key != 'order'}
-            )
+            HomeworkQuestion.objects.create(homework=homework, **self._question_kwargs(question_data, index))
         return homework
 
     def update(self, instance, validated_data):
@@ -258,11 +340,8 @@ class HomeworkSerializer(serializers.ModelSerializer):
         if questions_data is not None:
             instance.questions.all().delete()
             for index, question_data in enumerate(questions_data):
-                HomeworkQuestion.objects.create(
-                    homework=instance,
-                    order=question_data.get('order', index),
-                    **{key: value for key, value in question_data.items() if key not in ['id', 'order']}
-                )
+                sanitized = {key: value for key, value in question_data.items() if key != 'id'}
+                HomeworkQuestion.objects.create(homework=instance, **self._question_kwargs(sanitized, index))
         return instance
 
 class HomeworkTemplateSerializer(serializers.ModelSerializer):

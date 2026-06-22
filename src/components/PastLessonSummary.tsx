@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertTriangle,
@@ -41,6 +42,9 @@ type HomeworkQuestion = {
   id: string;
   type: "open_text" | "multiple_choice";
   prompt: string;
+  image_url?: string | null;
+  audio_url?: string | null;
+  audio_transcript?: string;
   options: string[];
 };
 
@@ -585,6 +589,7 @@ const HomeworkCorrectionCard = ({ homework, answerFeedback, homeworkFeedback, se
           return (
             <div key={question.id} className="rounded-lg border border-border p-3">
               <p className="whitespace-pre-wrap text-sm font-medium leading-6">{index + 1}. {question.prompt}</p>
+              <HomeworkQuestionMedia className="mt-2" imageUrl={question.image_url} audioUrl={question.audio_url} />
               <p className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm leading-6">{answerText(question, answer)}</p>
               {answer?.id && (
                 <Textarea

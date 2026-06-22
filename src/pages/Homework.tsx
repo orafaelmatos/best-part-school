@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
+import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import PageHeader from "@/components/PageHeader";
 import VocabularyDashboard from "@/components/VocabularyDashboard";
 import { api } from "@/lib/api";
@@ -30,6 +31,9 @@ type HomeworkQuestion = {
   id: string;
   type: QuestionType;
   prompt: string;
+  image_url?: string | null;
+  audio_url?: string | null;
+  audio_transcript?: string;
   options: string[];
   order: number;
 };
@@ -229,6 +233,11 @@ const HomeworkLessons = () => {
             {selectedHomework.questions.map((question, index) => (
               <div key={question.id} className="rounded-lg border border-border bg-background p-4">
                 <p className="mb-3 whitespace-pre-wrap text-sm font-semibold leading-6">{index + 1}. {question.prompt}</p>
+                <HomeworkQuestionMedia
+                  className="mb-3"
+                  imageUrl={question.image_url}
+                  audioUrl={question.audio_url}
+                />
                 {canAnswer ? (
                   question.type === "open_text" ? (
                     <Textarea

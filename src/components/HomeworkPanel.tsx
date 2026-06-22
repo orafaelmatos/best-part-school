@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { BookOpen, Copy, GripVertical, Plus, Save, Send, Trash2 } from "lucide-react";
+import { BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, X } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
 type HomeworkStatus = "draft" | "pending" | "sent" | "corrected";
@@ -14,6 +15,17 @@ type HomeworkQuestion = {
   id?: string;
   type: QuestionType;
   prompt: string;
+  image?: File | string | null;
+  image_url?: string | null;
+  image_path?: string;
+  image_file?: File | null;
+  remove_image?: boolean;
+  audio?: File | string | null;
+  audio_url?: string | null;
+  audio_path?: string;
+  audio_file?: File | null;
+  audio_transcript?: string;
+  remove_audio?: boolean;
   options: string[];
   correct_option_index: number | null;
   order: number;
@@ -53,6 +65,17 @@ type HomeworkTemplate = {
 const emptyQuestion = (order: number): HomeworkQuestion => ({
   type: "open_text",
   prompt: "",
+  image: null,
+  image_url: "",
+  image_path: "",
+  image_file: null,
+  remove_image: false,
+  audio: null,
+  audio_url: "",
+  audio_path: "",
+  audio_file: null,
+  audio_transcript: "",
+  remove_audio: false,
   options: ["", ""],
   correct_option_index: null,
   order,
@@ -82,23 +105,44 @@ const normalizeDateInput = (value?: string | null) => {
   return value.slice(0, 16);
 };
 
-const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] }, status: HomeworkStatus) => ({
-  title: form.title || "Lição de Casa sem título",
-  description: form.description || "",
-  classification: form.classification || "",
-  status,
-  due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
-  teacher: form.teacher,
-  student: form.student,
-  lesson: form.lesson,
-  questions: form.questions.map((question, index) => ({
-    type: question.type,
-    prompt: question.prompt,
-    options: question.type === "multiple_choice" ? question.options.filter(Boolean) : [],
-    correct_option_index: question.type === "multiple_choice" ? question.correct_option_index : null,
-    order: index,
-  })),
-});
+const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] }, status: HomeworkStatus) => {
+  const payload = new FormData();
+  payload.append("title", form.title || "Lição de Casa sem título");
+  payload.append("description", form.description || "");
+  payload.append("classification", form.classification || "");
+  payload.append("status", status);
+  payload.append("due_date", form.due_date ? new Date(form.due_date).toISOString() : "");
+  if (form.teacher) payload.append("teacher", form.teacher);
+  if (form.student) payload.append("student", form.student);
+  if (form.lesson) payload.append("lesson", form.lesson);
+
+  const questions = form.questions.map((question, index) => {
+    if (question.image_file) {
+      payload.append(`question_image_${index}`, question.image_file);
+    }
+    if (question.audio_file) {
+      payload.append(`question_audio_${index}`, question.audio_file);
+    }
+    return {
+      id: question.id,
+      type: question.type,
+      prompt: question.prompt,
+      image_path: question.remove_image ? "" : (question.image_path || ""),
+      image_url: question.remove_image ? "" : (question.image_url || ""),
+      remove_image: Boolean(question.remove_image),
+      audio_path: question.remove_audio ? "" : (question.audio_path || ""),
+      audio_url: question.remove_audio ? "" : (question.audio_url || ""),
+      audio_transcript: question.audio_transcript || "",
+      remove_audio: Boolean(question.remove_audio),
+      options: question.type === "multiple_choice" ? question.options.filter(Boolean) : [],
+      correct_option_index: question.type === "multiple_choice" ? question.correct_option_index : null,
+      order: index,
+    };
+  });
+
+  payload.append("questions_payload", JSON.stringify(questions));
+  return payload;
+};
 
 export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: () => void }) => {
   const { user } = useAuth();
@@ -170,7 +214,17 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       setForm({
         ...homework,
         due_date: normalizeDateInput(homework.due_date),
-        questions: homework.questions.length ? homework.questions : [emptyQuestion(0)],
+        questions: homework.questions.length
+          ? homework.questions.map((question, index) => ({
+              ...question,
+              options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
+              order: question.order ?? index,
+              image_file: null,
+              audio_file: null,
+              remove_image: false,
+              remove_audio: false,
+            }))
+          : [emptyQuestion(0)],
       });
     } else {
       setEditing(null);
@@ -202,7 +256,18 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       title: template.title,
       description: template.description || "",
       classification: template.classification || "",
-      questions: template.questions.length ? template.questions.map((question, index) => ({ ...question, order: index })) : [emptyQuestion(0)],
+      questions: template.questions.length
+        ? template.questions.map((question, index) => ({
+            ...emptyQuestion(index),
+            ...question,
+            options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
+            order: index,
+            image_file: null,
+            audio_file: null,
+            remove_image: false,
+            remove_audio: false,
+          }))
+        : [emptyQuestion(0)],
     }));
   };
 
@@ -321,7 +386,7 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
 
         {form.questions.map((question, index) => (
           <div
-            key={index}
+            key={question.id || index}
             draggable
             onDragStart={() => setDragIndex(index)}
             onDragOver={(event) => event.preventDefault()}
@@ -342,6 +407,10 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
               </Button>
             </div>
             <Textarea placeholder={`Pergunta ${index + 1}`} value={question.prompt} onChange={(event) => onQuestionChange(index, { prompt: event.target.value })} />
+            <QuestionAttachmentsEditor
+              question={question}
+              onChange={(patch) => onQuestionChange(index, patch)}
+            />
             {question.type === "multiple_choice" && (
               <div className="space-y-2">
                 {question.options.map((option, optionIndex) => (
@@ -442,6 +511,11 @@ const HomeworkCard = ({ homework, isTeacher, isStudent, onEdit, onDuplicate, onS
           return (
             <div key={question.id || index} className="rounded-lg border border-border p-3">
               <p className="mb-2 whitespace-pre-wrap text-sm font-medium leading-6">{index + 1}. {question.prompt}</p>
+              <HomeworkQuestionMedia
+                className="mb-3"
+                imageUrl={question.image_url}
+                audioUrl={question.audio_url}
+              />
               {isStudent && homework.status !== "corrected" ? (
                 question.type === "open_text" ? (
                   <Textarea value={answer?.answer_text || ""} onChange={(event) => setAnswers((current) => ({ ...current, [question.id || ""]: { ...answer, question: question.id || "", id: answer?.id || "", answer_text: event.target.value } }))} />
@@ -494,4 +568,140 @@ const AnswerPreview = ({ question, answer }: { question: HomeworkQuestion; answe
   }, [answer, question]);
 
   return <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{text}</p>;
+};
+
+const QuestionAttachmentsEditor = ({
+  question,
+  onChange,
+}: {
+  question: HomeworkQuestion;
+  onChange: (patch: Partial<HomeworkQuestion>) => void;
+}) => {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!question.image_file) {
+      setImagePreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(question.image_file);
+    setImagePreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [question.image_file]);
+
+  useEffect(() => {
+    if (!question.audio_file) {
+      setAudioPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(question.audio_file);
+    setAudioPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [question.audio_file]);
+
+  const currentImageUrl = question.remove_image ? "" : (imagePreviewUrl || question.image_url || "");
+  const currentAudioUrl = question.remove_audio ? "" : (audioPreviewUrl || question.audio_url || "");
+
+  return (
+    <div className="space-y-3 rounded-lg border border-dashed border-border bg-background p-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Imagem da pergunta</p>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              onChange({
+                image_file: file,
+                image_path: file ? "" : question.image_path || "",
+                image_url: file ? "" : question.image_url || "",
+                remove_image: false,
+              });
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
+              <ImageIcon className="mr-2 h-4 w-4" /> {currentImageUrl ? "Trocar imagem" : "Adicionar imagem"}
+            </Button>
+            {currentImageUrl ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onChange({ image_file: null, image_path: "", image_url: "", remove_image: true })}
+              >
+                <X className="mr-2 h-4 w-4" /> Remover
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Áudio da pergunta</p>
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              onChange({
+                audio_file: file,
+                audio_path: file ? "" : question.audio_path || "",
+                audio_url: file ? "" : question.audio_url || "",
+                audio_transcript: file ? "" : question.audio_transcript || "",
+                remove_audio: false,
+              });
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => audioInputRef.current?.click()}>
+              <Headphones className="mr-2 h-4 w-4" /> {currentAudioUrl ? "Trocar áudio" : "Adicionar áudio"}
+            </Button>
+            {currentAudioUrl ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onChange({ audio_file: null, audio_path: "", audio_url: "", audio_transcript: "", remove_audio: true })}
+              >
+                <X className="mr-2 h-4 w-4" /> Remover
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {(currentImageUrl || currentAudioUrl || question.audio_transcript) ? (
+        <HomeworkQuestionMedia
+          imageUrl={currentImageUrl}
+          audioUrl={currentAudioUrl}
+          audioTranscript={question.audio_transcript}
+          showTranscript={Boolean(question.audio_transcript)}
+        />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          O aluno verá a imagem e poderá ouvir o áudio na pergunta. A transcrição do áudio será sugerida depois de salvar.
+        </p>
+      )}
+
+      {(currentAudioUrl || question.audio_file || question.audio_transcript) ? (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Transcrição sugerida do áudio</label>
+          <Textarea
+            value={question.audio_transcript || ""}
+            onChange={(event) => onChange({ audio_transcript: event.target.value })}
+            placeholder="A transcrição será preenchida automaticamente ao salvar, mas você pode editar manualmente."
+            rows={3}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 };

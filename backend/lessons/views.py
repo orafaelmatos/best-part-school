@@ -6,10 +6,12 @@ from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlo
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from collections import defaultdict
 from rest_framework.views import APIView
 from django.utils import timezone
 import datetime
+import json
 from .scheduling import (
     insert_custom_lesson_into_student_sequence,
     parse_lesson_datetime,
@@ -236,10 +238,50 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
 class HomeworkViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['teacher', 'student', 'lesson', 'status', 'classification']
     ordering_fields = ['due_date', 'created_at', 'updated_at']
     ordering = ['-created_at']
+
+    def _prepare_request_data(self, request):
+        if 'questions_payload' not in request.data:
+            return request.data
+
+        payload = {
+            'title': request.data.get('title'),
+            'description': request.data.get('description', ''),
+            'classification': request.data.get('classification', ''),
+            'status': request.data.get('status'),
+            'due_date': request.data.get('due_date') or None,
+            'teacher': request.data.get('teacher') or None,
+            'student': request.data.get('student') or None,
+            'lesson': request.data.get('lesson') or None,
+            'template': request.data.get('template') or None,
+        }
+        try:
+            questions = json.loads(request.data.get('questions_payload') or '[]')
+        except json.JSONDecodeError:
+            raise exceptions.ValidationError({'questions_payload': 'JSON inválido.'})
+
+        if not isinstance(questions, list):
+            raise exceptions.ValidationError({'questions_payload': 'Envie uma lista de perguntas.'})
+
+        prepared_questions = []
+        for index, question in enumerate(questions):
+            if not isinstance(question, dict):
+                raise exceptions.ValidationError({'questions_payload': 'Cada pergunta deve ser um objeto.'})
+            item = dict(question)
+            image_file = request.FILES.get(f'question_image_{index}')
+            audio_file = request.FILES.get(f'question_audio_{index}')
+            if image_file:
+                item['image'] = image_file
+            if audio_file:
+                item['audio'] = audio_file
+            prepared_questions.append(item)
+
+        payload['questions'] = prepared_questions
+        return payload
 
     def get_queryset(self):
         user = self.request.user
@@ -252,6 +294,25 @@ class HomeworkViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save()
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=self._prepare_request_data(request))
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=self._prepare_request_data(request), partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def duplicate(self, request, pk=None):
@@ -270,6 +331,11 @@ class HomeworkViewSet(viewsets.ModelViewSet):
                 {
                     'type': question.type,
                     'prompt': question.prompt,
+                    'image_path': question.image.name if question.image else '',
+                    'image_url': question.image.url if question.image else '',
+                    'audio_path': question.audio.name if question.audio else '',
+                    'audio_url': question.audio.url if question.audio else '',
+                    'audio_transcript': question.audio_transcript,
                     'options': question.options,
                     'correct_option_index': question.correct_option_index,
                     'order': question.order,
@@ -295,6 +361,11 @@ class HomeworkViewSet(viewsets.ModelViewSet):
                 {
                     'type': question.type,
                     'prompt': question.prompt,
+                    'image_path': question.image.name if question.image else '',
+                    'image_url': question.image.url if question.image else '',
+                    'audio_path': question.audio.name if question.audio else '',
+                    'audio_url': question.audio.url if question.audio else '',
+                    'audio_transcript': question.audio_transcript,
                     'options': question.options,
                     'correct_option_index': question.correct_option_index,
                     'order': question.order,

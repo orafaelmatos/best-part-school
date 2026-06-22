@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
+import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,9 @@ type HomeworkQuestion = {
   id: string;
   type: QuestionType;
   prompt: string;
+  image_url?: string | null;
+  audio_url?: string | null;
+  audio_transcript?: string;
   options: string[];
   order: number;
 };
@@ -192,6 +196,7 @@ export default function CorrigirHomework() {
                 return (
                   <div key={q.id} className="border border-border rounded-lg p-4 bg-background">
                     <p className="font-semibold text-sm mb-2">{idx + 1}. {q.prompt}</p>
+                    <HomeworkQuestionMedia className="mb-3" imageUrl={q.image_url} audioUrl={q.audio_url} />
                     
                     {answer ? (
                       <div className="bg-muted/50 p-3 rounded-md mb-3 border border-border text-sm">

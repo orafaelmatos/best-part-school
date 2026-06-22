@@ -1,9 +1,12 @@
 from django.test import TestCase
 from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework import status
 from rest_framework.test import APIClient
 from django.utils import timezone
 import datetime
+from unittest.mock import patch
+import json
 from accounts.models import User
 from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, TeacherAvailability, VocabularyCard
 from .vocabulary import schedule_card, vocabulary_stats
@@ -420,6 +423,70 @@ class HomeworkSubmissionTests(TestCase):
         answers = HomeworkAnswer.objects.filter(homework=self.homework, question=self.question, student=self.student)
         self.assertEqual(answers.count(), 1)
         self.assertEqual(answers.first().answer_text, 'Updated version for the teacher.')
+
+
+class HomeworkQuestionMediaTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(email='media-homework-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(email='media-homework-student@test.com', password='123', role='student', name='Student')
+        self.lesson = Lesson.objects.create(
+            title='Listening lesson',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            status='completed',
+            date=timezone.now(),
+        )
+
+    @patch('ai_study.services.AIStudyOpenAIService.transcribe', return_value='Hello from the uploaded audio.')
+    def test_teacher_can_create_homework_question_with_image_and_audio(self, transcribe_mock):
+        self.client.force_authenticate(user=self.teacher)
+
+        image = SimpleUploadedFile(
+            'prompt.png',
+            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR',
+            content_type='image/png',
+        )
+        audio = SimpleUploadedFile(
+            'prompt.webm',
+            b'audio bytes',
+            content_type='audio/webm',
+        )
+        questions_payload = json.dumps([
+            {
+                'type': 'open_text',
+                'prompt': 'Listen and describe the picture.',
+                'options': [],
+                'correct_option_index': None,
+                'order': 0,
+            }
+        ])
+
+        response = self.client.post('/api/homework/', {
+            'title': 'Listening prompt',
+            'description': 'Use the attached media.',
+            'classification': 'listening',
+            'status': 'pending',
+            'teacher': str(self.teacher.id),
+            'student': str(self.student.id),
+            'lesson': str(self.lesson.id),
+            'questions_payload': questions_payload,
+            'question_image_0': image,
+            'question_audio_0': audio,
+        }, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        homework = Homework.objects.get(id=response.data['id'])
+        question = homework.questions.get()
+
+        self.assertTrue(bool(question.image))
+        self.assertTrue(bool(question.audio))
+        self.assertEqual(question.audio_transcript, 'Hello from the uploaded audio.')
+        self.assertTrue(response.data['questions'][0]['image_url'])
+        self.assertTrue(response.data['questions'][0]['audio_url'])
+        self.assertEqual(response.data['questions'][0]['audio_transcript'], 'Hello from the uploaded audio.')
+        transcribe_mock.assert_called_once()
 
 
 class VocabularySpacedRepetitionTests(TestCase):
