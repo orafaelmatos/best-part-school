@@ -1,6 +1,7 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import SidebarBadge, { useSidebarBadges } from "./SidebarBadges";
+import AIConversationSidebar from "./AIConversationSidebar";
 import {
   LayoutDashboard,
   BookOpen,
@@ -14,12 +15,19 @@ import {
   Target,
   MessageSquare
 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  AI_WORKSPACE_SIDEBAR_WIDTH_CLASS,
+  DEFAULT_SIDEBAR_WIDTH_CLASS,
+  isAiWorkspacePath,
+} from "@/lib/appSidebar";
 
 const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { data: badges } = useSidebarBadges(user?.role === "student");
+  const isAiWorkspace = user?.role === "student" && isAiWorkspacePath(location.pathname);
 
   const adminTeacherMenuItems = [
     { label: "Painel Geral", icon: LayoutDashboard, path: "/" },
@@ -68,7 +76,12 @@ const AppSidebar = () => {
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 flex flex-col border-r border-border bg-sidebar z-50">
+    <aside
+      className={cn(
+        "fixed left-0 top-0 z-50 flex h-screen flex-col overflow-hidden border-r border-border bg-sidebar transition-[width] duration-200",
+        isAiWorkspace ? AI_WORKSPACE_SIDEBAR_WIDTH_CLASS : DEFAULT_SIDEBAR_WIDTH_CLASS,
+      )}
+    >
       {/* Logo */}
       <div className="px-6 py-8">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">BPS</h1>
@@ -76,7 +89,7 @@ const AppSidebar = () => {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+      <nav className={cn("px-3 space-y-0.5", isAiWorkspace ? "flex-none" : "flex-1 overflow-y-auto")}>
         {menuItems.map((item) => {
           const isActive = isItemActive(item.path);
           return (
@@ -97,6 +110,12 @@ const AppSidebar = () => {
           );
         })}
       </nav>
+
+      {isAiWorkspace ? (
+        <div className="min-h-0 flex-1 px-3 pb-4 pt-4">
+          <AIConversationSidebar />
+        </div>
+      ) : null}
 
       {/* User */}
       <div className="p-4 border-t border-border">

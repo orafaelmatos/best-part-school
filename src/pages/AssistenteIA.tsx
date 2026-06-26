@@ -7,6 +7,19 @@ import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import WritingFeedbackCard, { WritingFeedback } from "@/components/WritingFeedbackCard";
 import { useToast } from "@/hooks/use-toast";
+import {
+  aiStudySessionsQueryKey,
+  buildNewModePath,
+  buildSessionPath,
+  fetchAiStudySessions,
+  formatDateTime,
+  LessonReference,
+  ListResponse,
+  modeLabel,
+  PracticeMode,
+  SessionSummary,
+  unwrapListResponse,
+} from "@/lib/aiStudy";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -18,7 +31,6 @@ import {
   Clock3,
   GraduationCap,
   Loader2,
-  MessageSquarePlus,
   Mic,
   Pencil,
   Search,
@@ -26,17 +38,6 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-
-type PracticeMode = "review" | "speaking" | "writing";
-
-type LessonReference = {
-  id: string;
-  title: string;
-  level: string;
-  date?: string | null;
-  status?: string;
-  teacher_name?: string;
-};
 
 type LessonOption = {
   id: string;
@@ -70,20 +71,6 @@ type AIMessage = {
   writing_feedback_detail?: WritingFeedback | null;
   created_at?: string;
   pending?: boolean;
-};
-
-type SessionSummary = {
-  id: string;
-  mode: PracticeMode;
-  title: string;
-  title_source: "auto" | "manual";
-  status: string;
-  lesson?: string | null;
-  lesson_detail?: LessonReference | null;
-  message_count: number;
-  last_interaction_at?: string;
-  created_at: string;
-  updated_at: string;
 };
 
 type SessionDetail = SessionSummary & {
@@ -132,17 +119,6 @@ type ProgressOverview = {
   }>;
 };
 
-type ListResponse<T> =
-  | T[]
-  | {
-      results?: T[];
-    };
-
-const unwrapListResponse = <T,>(data: ListResponse<T> | null | undefined): T[] => {
-  if (Array.isArray(data)) return data;
-  return Array.isArray(data?.results) ? data.results : [];
-};
-
 const formatShortDate = (value?: string | null) => {
   if (!value) return "Sem data";
   return new Date(value).toLocaleDateString("pt-BR", {
@@ -157,16 +133,6 @@ const formatLongDate = (value?: string | null) => {
     day: "2-digit",
     month: "long",
     year: "numeric",
-  });
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "Agora";
-  return new Date(value).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 };
 
@@ -203,15 +169,6 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
   ...summary,
 });
 
-const buildSessionPath = (sessionId: string) => `/treinar-ia/conversa/${sessionId}`;
-const buildNewModePath = (mode?: PracticeMode) => (mode ? `/treinar-ia?mode=new&practiceMode=${mode}` : "/treinar-ia?mode=new");
-
-const modeLabel: Record<PracticeMode, string> = {
-  review: "Revisar Aula",
-  speaking: "Speaking",
-  writing: "Writing",
-};
-
 const modeDescription: Record<PracticeMode, string> = {
   review: "Converse usando a aula como contexto principal e revise gramática, vocabulário e exercícios do conteúdo estudado.",
   speaking: "Envie áudio, receba nota de pronúncia, fluência, entonação e clareza, e treine com exercícios focados nos erros.",
@@ -223,66 +180,6 @@ const composerPlaceholderByMode: Record<PracticeMode, string> = {
   speaking: "Escreva um pedido rápido ou grave um áudio em inglês para avaliar sua pronúncia.",
   writing: "Cole seu texto em inglês para correção, score e reescritas por nível.",
 };
-
-const ConversationListItem = ({
-  session,
-  active,
-  onClick,
-}: {
-  session: SessionSummary;
-  active: boolean;
-  onClick: () => void;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      "w-full rounded-2xl border px-4 py-3 text-left transition",
-      active
-        ? "border-primary bg-primary text-primary-foreground shadow-sm"
-        : "border-border bg-card hover:border-primary/20 hover:bg-muted/50",
-    )}
-  >
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{session.title || "Nova conversa"}</p>
-        <p
-          className={cn(
-            "mt-1 truncate text-xs",
-            active ? "text-primary-foreground/75" : "text-muted-foreground",
-          )}
-        >
-          {session.lesson_detail?.title || "Aula não vinculada"}
-        </p>
-        <p
-          className={cn(
-            "mt-2 text-[11px] font-medium",
-            active ? "text-primary-foreground/75" : "text-muted-foreground",
-          )}
-        >
-          {modeLabel[session.mode]}
-        </p>
-      </div>
-      <span
-        className={cn(
-          "shrink-0 rounded-full px-2 py-1 text-[10px] font-medium",
-          active ? "bg-primary-foreground/15 text-primary-foreground" : "bg-muted text-muted-foreground",
-        )}
-      >
-        {session.message_count}
-      </span>
-    </div>
-    <div
-      className={cn(
-        "mt-3 flex items-center justify-between text-[11px]",
-        active ? "text-primary-foreground/75" : "text-muted-foreground",
-      )}
-    >
-      <span>{session.lesson_detail?.level || "Sem nível"}</span>
-      <span>{formatDateTime(session.last_interaction_at)}</span>
-    </div>
-  </button>
-);
 
 const ModeCard = ({
   mode,
@@ -475,7 +372,6 @@ const AssistenteIA = () => {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [sessionDraft, setSessionDraft] = useState<SessionDetail | null>(null);
-  const [conversationSearch, setConversationSearch] = useState("");
   const [lessonSearch, setLessonSearch] = useState("");
   const [isChangingLesson, setIsChangingLesson] = useState(false);
   const [input, setInput] = useState("");
@@ -486,7 +382,6 @@ const AssistenteIA = () => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const messageListRef = useRef<HTMLDivElement | null>(null);
-  const deferredConversationSearch = useDeferredValue(conversationSearch);
   const deferredLessonSearch = useDeferredValue(lessonSearch);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -496,16 +391,8 @@ const AssistenteIA = () => {
   const pickerMode: PickerMode = isChangingLesson ? "change" : isNewConversationFlow ? "new" : null;
 
   const sessionsQuery = useQuery({
-    queryKey: ["ai-study-sessions", deferredConversationSearch],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (deferredConversationSearch.trim()) {
-        params.set("search", deferredConversationSearch.trim());
-      }
-      const suffix = params.toString() ? `?${params.toString()}` : "";
-      const response = await api.get(`/ai-study/sessions/${suffix}`);
-      return unwrapListResponse<SessionSummary>(response.data as ListResponse<SessionSummary>);
-    },
+    queryKey: aiStudySessionsQueryKey(),
+    queryFn: () => fetchAiStudySessions(),
   });
 
   const sessionDetailQuery = useQuery({
@@ -739,7 +626,7 @@ const AssistenteIA = () => {
       setIsChangingLesson(false);
       setIsRenaming(false);
       await invalidateSessionList();
-      const remainingSessions = (queryClient.getQueryData(["ai-study-sessions", deferredConversationSearch]) as SessionSummary[] | undefined) || [];
+      const remainingSessions = (queryClient.getQueryData(aiStudySessionsQueryKey()) as SessionSummary[] | undefined) || [];
       const nextSession = remainingSessions.find((session) => session.id !== deletedId);
       if (nextSession) {
         startTransition(() => navigate(buildSessionPath(nextSession.id)));
@@ -930,68 +817,12 @@ const AssistenteIA = () => {
           </section>
         ) : null}
 
-        <div
+        <section
           className={cn(
-            "grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]",
-            isConversationPage && "gap-3",
+            "relative flex flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98)_16%,rgba(255,255,255,0.98))] shadow-sm",
             isConversationPage ? "h-full min-h-0" : "min-h-[calc(100vh-12rem)]",
           )}
         >
-          <aside className="flex h-full flex-col overflow-hidden rounded-[28px] border border-border bg-card/95 p-4 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">Conversas</h2>
-                <p className="text-xs text-muted-foreground">Histórico permanente por aula</p>
-              </div>
-              <button
-                type="button"
-                onClick={openNewConversationPicker}
-                className="rounded-xl border border-border p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                aria-label="Nova conversa"
-              >
-                <MessageSquarePlus className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="relative mb-4">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={conversationSearch}
-                onChange={(event) => setConversationSearch(event.target.value)}
-                placeholder="Pesquisar conversa"
-                className="w-full rounded-xl border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-              />
-            </div>
-
-            <div className="flex-1 space-y-2 overflow-y-auto pr-1">
-              {sessionsQuery.isLoading ? (
-                <div className="flex items-center gap-2 rounded-2xl border border-border bg-muted/50 px-4 py-5 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Carregando conversas...
-                </div>
-              ) : sessionsQuery.data?.length ? (
-                sessionsQuery.data.map((session) => (
-                  <ConversationListItem
-                    key={session.id}
-                    session={session}
-                    active={session.id === selectedSessionId}
-                    onClick={() => handleSelectSession(session.id)}
-                  />
-                ))
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-border bg-muted/40 p-5 text-sm text-muted-foreground">
-                  Nenhuma conversa salva ainda. Escolha uma aula para abrir o primeiro chat.
-                </div>
-              )}
-            </div>
-          </aside>
-
-          <section
-            className={cn(
-              "relative flex flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98)_16%,rgba(255,255,255,0.98))] shadow-sm",
-              isConversationPage ? "min-h-0 h-full" : "min-h-[760px]",
-            )}
-          >
             {isPickerVisible ? (
               <div className="flex h-full flex-col">
                 <div className="border-b border-border px-6 py-5">
@@ -1368,7 +1199,7 @@ const AssistenteIA = () => {
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {hasSavedSessions
-                      ? "Abra uma conversa pelo histórico à esquerda ou inicie uma nova prática escolhendo o modo primeiro."
+                      ? "Abra uma conversa pelo histórico na sidebar ou inicie uma nova prática escolhendo o modo primeiro."
                       : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
@@ -1394,7 +1225,6 @@ const AssistenteIA = () => {
               </div>
             )}
           </section>
-        </div>
       </div>
     </DashboardLayout>
   );
