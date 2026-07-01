@@ -21,6 +21,7 @@ import LessonSummarySection from "@/components/LessonSummarySection";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import StatusBadge from "@/components/StatusBadge";
 import { useAuth } from "@/contexts/AuthContext";
+import { APP_PATHS } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import {
   LessonHistoryHomework,
@@ -207,7 +208,7 @@ const LessonExperienceCard = ({
               )}
               {isTeacher && (
                 <Link
-                  to={`/aulas/${lesson.id}/anotar`}
+                  to={APP_PATHS.annotateLesson(lesson.id)}
                   className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent"
                 >
                   <NotebookPen size={16} /> Abrir editor completo

@@ -121,8 +121,8 @@ class AIStudySessionListSerializer(serializers.ModelSerializer):
     class Meta:
         model = AIStudySession
         fields = [
-            'id', 'student', 'lesson', 'lesson_detail', 'mode', 'title', 'title_source', 'status',
-            'message_count', 'last_interaction_at', 'created_at', 'updated_at'
+            'id', 'student', 'lesson', 'lesson_detail', 'mode', 'title', 'title_source', 'is_pinned', 'status',
+            'message_count', 'guided_state', 'last_interaction_at', 'created_at', 'updated_at'
         ]
         read_only_fields = fields
 
@@ -152,14 +152,27 @@ class AIStudySessionDetailSerializer(AIStudySessionListSerializer):
 
 
 class AIStudySessionCreateSerializer(serializers.Serializer):
-    mode = serializers.ChoiceField(choices=['review', 'speaking', 'writing'], default='review', required=False)
+    mode = serializers.ChoiceField(choices=['review', 'speaking', 'writing', 'listening'], default='review', required=False)
     lesson_id = serializers.UUIDField(required=False, allow_null=True)
+    scenario_key = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    scenario_label = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    level = serializers.ChoiceField(choices=['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], required=False)
 
     def validate(self, attrs):
         mode = attrs.get('mode') or 'review'
         lesson_id = attrs.get('lesson_id')
         if mode == 'review' and not lesson_id:
             raise serializers.ValidationError({'lesson_id': 'lesson_id is required for review mode.'})
+        if mode == 'listening':
+            scenario_label = ' '.join(str(attrs.get('scenario_label') or '').split())
+            scenario_key = ' '.join(str(attrs.get('scenario_key') or '').split())
+            level = attrs.get('level')
+            if not scenario_label:
+                raise serializers.ValidationError({'scenario_label': 'scenario_label is required for listening mode.'})
+            if not level:
+                raise serializers.ValidationError({'level': 'level is required for listening mode.'})
+            attrs['scenario_label'] = scenario_label
+            attrs['scenario_key'] = scenario_key or 'custom'
         return attrs
 
 
@@ -289,6 +302,10 @@ class RenameConversationSerializer(serializers.Serializer):
         return cleaned
 
 
+class PinConversationSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField()
+
+
 class TextMessageSerializer(serializers.Serializer):
     text = serializers.CharField(required=False, allow_blank=True)
     text_type = serializers.ChoiceField(
@@ -296,6 +313,50 @@ class TextMessageSerializer(serializers.Serializer):
         required=False,
         default='free',
     )
+    guided_action = serializers.JSONField(required=False)
+
+    def validate_guided_action(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('guided_action must be an object.')
+        action_type = ' '.join(str(value.get('action_type') or '').split())
+        action_value = ' '.join(str(value.get('value') or '').split())
+        label = ' '.join(str(value.get('label') or '').split())
+        if not action_type or not action_value:
+            raise serializers.ValidationError('guided_action requires action_type and value.')
+        return {
+            'action_type': action_type,
+            'value': action_value,
+            'label': label,
+        }
+
+
+class TextSelectionTranslationSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=280)
+
+    def validate_text(self, value):
+        cleaned = ' '.join(str(value or '').split())
+        if len(cleaned) < 2:
+            raise serializers.ValidationError('text must contain at least 2 characters.')
+        return cleaned
+
+
+class ListeningAnswerSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField()
+    response_mode = serializers.ChoiceField(choices=['multiple_choice', 'transcription'])
+    selected_option_id = serializers.CharField(required=False, allow_blank=True, max_length=80)
+    answer_text = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+    def validate(self, attrs):
+        response_mode = attrs.get('response_mode')
+        selected_option_id = ' '.join(str(attrs.get('selected_option_id') or '').split())
+        answer_text = ' '.join(str(attrs.get('answer_text') or '').split())
+        if response_mode == 'multiple_choice' and not selected_option_id:
+            raise serializers.ValidationError({'selected_option_id': 'selected_option_id is required for multiple_choice mode.'})
+        if response_mode == 'transcription' and not answer_text:
+            raise serializers.ValidationError({'answer_text': 'answer_text is required for transcription mode.'})
+        attrs['selected_option_id'] = selected_option_id
+        attrs['answer_text'] = answer_text
+        return attrs
 
 
 class SpeakingAudioUploadSerializer(serializers.Serializer):

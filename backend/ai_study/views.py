@@ -17,10 +17,13 @@ from .serializers import (
     AIStudySessionDetailSerializer,
     AIStudySessionListSerializer,
     LessonContextOptionSerializer,
+    ListeningAnswerSerializer,
+    PinConversationSerializer,
     RenameConversationSerializer,
     SetContextLessonsSerializer,
     SpeakingAudioUploadSerializer,
     SpeakingFeedbackSerializer,
+    TextSelectionTranslationSerializer,
     TextMessageSerializer,
 )
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService
@@ -41,7 +44,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             message_count=Count('messages', distinct=True),
         )
 
-        if self.action in ['retrieve', 'history', 'audio', 'message', 'contexts']:
+        if self.action in ['retrieve', 'history', 'audio', 'message', 'contexts', 'listening_next', 'listening_answer']:
             base_qs = base_qs.prefetch_related(
                 'messages__audio',
                 'messages__feedback__reviews',
@@ -64,7 +67,16 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
                 Q(lesson__title__icontains=search) |
                 Q(context_lessons__lesson__title__icontains=search)
             ).distinct()
-        return qs.order_by('-last_interaction_at', '-created_at')
+        modes = []
+        modes.extend([item.strip() for item in self.request.query_params.getlist('mode') if item.strip()])
+        modes.extend([
+            item.strip()
+            for item in (self.request.query_params.get('modes') or '').split(',')
+            if item.strip()
+        ])
+        if modes:
+            qs = qs.filter(mode__in=list(dict.fromkeys(modes)))
+        return qs.order_by('-is_pinned', '-last_interaction_at', '-created_at')
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -95,7 +107,16 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         )
         if lesson:
             AIStudyContextService.sync_session_lesson(session, lesson)
-        AIConversationMessage.objects.create(**AIStudyWorkflowService.initial_message_payload(session, lesson))
+        if mode == 'listening':
+            AIStudyWorkflowService.prepare_listening_session(
+                session,
+                serializer.validated_data.get('scenario_key'),
+                serializer.validated_data.get('scenario_label'),
+                serializer.validated_data.get('level'),
+            )
+            AIStudyWorkflowService.create_listening_challenge(session)
+        else:
+            AIConversationMessage.objects.create(**AIStudyWorkflowService.initial_message_payload(session, lesson))
         detail_serializer = AIStudySessionDetailSerializer(session, context={'request': request})
         return Response(detail_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -129,6 +150,16 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session.save(update_fields=['title', 'title_source', 'updated_at'])
         return Response(AIStudySessionListSerializer(session, context={'request': request}).data)
 
+    @action(detail=True, methods=['post'])
+    def pin(self, request, pk=None):
+        session = self.get_object()
+        serializer = PinConversationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session.is_pinned = serializer.validated_data['pinned']
+        session.updated_at = timezone.now()
+        session.save(update_fields=['is_pinned', 'updated_at'])
+        return Response(AIStudySessionListSerializer(session, context={'request': request}).data)
+
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
         session = self.get_object()
@@ -138,6 +169,12 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def audio(self, request, pk=None):
         session = self.get_object()
+        guided_state = AIStudyWorkflowService.ensure_guided_state(session) if session.mode == 'speaking' else {}
+        if session.mode == 'speaking' and guided_state.get('stage') != 'active':
+            return Response(
+                {'error': 'Complete o onboarding de cenário e nível antes de enviar áudio.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = SpeakingAudioUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         feedback = AIStudyWorkflowService.handle_audio_upload(
@@ -157,12 +194,25 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def message(self, request, pk=None):
         session = self.get_object()
+        if session.mode == 'listening':
+            return Response(
+                {'error': 'Use the listening-specific actions for this session.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = TextMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         text = serializer.validated_data.get('text', '').strip()
-        if not text:
+        guided_action = serializer.validated_data.get('guided_action')
+        if not text and not guided_action:
             return Response({'error': 'text is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if session.mode == 'writing':
+        if AIStudyWorkflowService.is_guided_mode(session):
+            user_message, assistant_message = AIStudyWorkflowService.handle_guided_message(
+                session,
+                text=text,
+                text_type=serializer.validated_data.get('text_type', 'free'),
+                guided_action=guided_action,
+            )
+        elif session.mode == 'writing':
             user_message, assistant_message = AIStudyWorkflowService.handle_writing_submission(
                 session,
                 text=text,
@@ -185,6 +235,48 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
             'session': AIStudySessionListSerializer(session, context={'request': request}).data,
         })
+
+    @action(detail=True, methods=['post'], url_path='listening/next')
+    def listening_next(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'listening':
+            return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        assistant_message = AIStudyWorkflowService.create_listening_challenge(session)
+        return Response({
+            'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
+            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='listening/answer')
+    def listening_answer(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'listening':
+            return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = ListeningAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            user_message, assistant_message = AIStudyWorkflowService.handle_listening_answer(
+                session,
+                serializer.validated_data['message_id'],
+                serializer.validated_data['response_mode'],
+                serializer.validated_data.get('selected_option_id', ''),
+                serializer.validated_data.get('answer_text', ''),
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data,
+            'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
+            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='translate-selection')
+    def translate_selection(self, request, pk=None):
+        self.get_object()
+        serializer = TextSelectionTranslationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        translation = AIStudyOpenAIService.translate_selection(serializer.validated_data['text'])
+        return Response({'translation': translation})
 
 
 class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpenCheck,
@@ -15,12 +15,13 @@ import {
 } from "lucide-react";
 
 import DashboardLayout from "@/components/DashboardLayout";
-import PageHeader from "@/components/PageHeader";
 import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { fetchAllPages } from "@/lib/fetchAllPages";
+import { APP_PATHS } from "@/lib/routes";
+import { cn } from "@/lib/utils";
 import {
   LessonHistoryHomework,
   LessonHistoryLesson,
@@ -48,9 +49,11 @@ type VocabularyStats = {
 
 const MinhasAulas = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const upcomingSectionRef = useRef<HTMLElement | null>(null);
   const completedSectionRef = useRef<HTMLElement | null>(null);
+  const trailSectionRef = useRef<HTMLDivElement | null>(null);
 
   const studentId = user?.user_id || "";
 
@@ -93,9 +96,9 @@ const MinhasAulas = () => {
     enabled: user?.role === "student",
   });
 
-  const lessons = (lessonsQuery.data || []) as LessonHistoryLesson[];
-  const summaries = summariesQuery.data || [];
-  const homeworkItems = homeworkQuery.data || [];
+  const lessons = useMemo(() => (lessonsQuery.data || []) as LessonHistoryLesson[], [lessonsQuery.data]);
+  const summaries = useMemo(() => summariesQuery.data || [], [summariesQuery.data]);
+  const homeworkItems = useMemo(() => homeworkQuery.data || [], [homeworkQuery.data]);
   const vocabularyStats = vocabularyStatsQuery.data;
 
   const summaryByLesson = useMemo(
@@ -177,9 +180,15 @@ const MinhasAulas = () => {
       block: "start",
     });
   };
+  const scrollToTrailSection = () => {
+    trailSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
   if (user?.role !== "student") {
-    return <Navigate to="/alunos" replace />;
+    return <Navigate to={APP_PATHS.students} replace />;
   }
 
   const isLoading =
@@ -190,110 +199,121 @@ const MinhasAulas = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-8">
-        <PageHeader
-          title="Minhas Aulas"
-          description="Acompanhe suas próximas aulas, o que já foi concluído e o que ainda falta na trilha."
-        />
-
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_380px]">
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Veja rapidamente o que vem a seguir, o que já foi feito e como sua trilha está avançando.
+      <div className="space-y-7">
+        <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_52%,rgba(236,253,245,0.9))] p-5 text-slate-900 shadow-[0_26px_70px_-46px_rgba(14,116,144,0.26)] sm:p-6">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.1),transparent_24%)]" />
+          <div className="relative z-10 space-y-5">
+            <div className="max-w-4xl space-y-2 text-slate-950">
+              <h1 className="text-3xl font-bold tracking-tight sm:text-[2.2rem]">Minhas Aulas</h1>
+              <p className="max-w-3xl text-sm font-medium leading-6 text-slate-900/80 sm:text-[0.98rem]">
+                Acompanhe suas proximas aulas, o que ja foi concluido e o que ainda falta na trilha.
               </p>
+            </div>
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                <HeroSnapshot
-                  eyebrow="Proxima aula"
-                  title={nextLesson ? nextLesson.title : "Nenhuma aula agendada"}
-                  description={nextLesson ? formatLessonDate(nextLesson.date) : "Quando uma nova aula for marcada, ela aparecera aqui."}
-                  icon={CalendarDays}
-                  onClick={scrollToUpcomingLessons}
-                />
-                <HeroSnapshot
-                  eyebrow="Aulas feitas"
-                  title={`${completedCount} concluida${completedCount === 1 ? "" : "s"}`}
-                  description={
-                    latestCompletedLesson
-                      ? `Ultima aula: ${latestCompletedLesson.title} em ${formatLessonDate(latestCompletedLesson.date, { weekday: undefined })}`
-                      : "Suas aulas concluidas vao aparecer aqui conforme voce avanca."
-                  }
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
+              <div className="space-y-4">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <HeroSnapshot
+                    eyebrow="Proxima aula"
+                    title={nextLesson ? nextLesson.title : "Nenhuma aula agendada"}
+                    description={nextLesson ? formatLessonDate(nextLesson.date) : "Quando uma nova aula for marcada, ela aparecera aqui."}
+                    icon={CalendarDays}
+                    onClick={scrollToUpcomingLessons}
+                    tone="lesson"
+                    actionLabel={nextLesson ? "Ver agenda" : undefined}
+                  />
+                  <HeroSnapshot
+                    eyebrow="Aulas feitas"
+                    title={`${completedCount} concluida${completedCount === 1 ? "" : "s"}`}
+                    description={
+                      latestCompletedLesson
+                        ? `Ultima aula: ${latestCompletedLesson.title} em ${formatLessonDate(latestCompletedLesson.date, { weekday: undefined })}`
+                        : "Suas aulas concluidas vao aparecer aqui conforme voce avanca."
+                    }
+                    icon={CheckCircle2}
+                    onClick={scrollToCompletedLessons}
+                    tone="completed"
+                  />
+                  <HeroSnapshot
+                    eyebrow="Andamento da trilha"
+                    title={`${progressPercent}% concluido`}
+                    description={
+                      visibleLessons.length
+                        ? `${remainingLessonsCount} aula${remainingLessonsCount === 1 ? "" : "s"} restante${remainingLessonsCount === 1 ? "" : "s"} nesta trilha`
+                        : "Sua trilha aparecera aqui assim que as aulas forem organizadas."
+                    }
+                    icon={Flag}
+                    tone="progress"
+                    onClick={scrollToTrailSection}
+                    progressValue={progressPercent}
+                  />
+                </div>
+
+                <div className="rounded-[18px] border border-sky-200/70 bg-white/72 px-4 py-3 text-sm text-slate-700 shadow-sm backdrop-blur-[2px]">
+                  Se precisar mudar um horario, fale com seu professor. O reagendamento e feito apenas pelo professor.
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetricCard
+                  title="Concluidas"
+                  value={completedCount}
+                  description="Aulas finalizadas no seu historico"
                   icon={CheckCircle2}
+                  tone="sky"
                   onClick={scrollToCompletedLessons}
                 />
-                <HeroSnapshot
-                  eyebrow="Andamento da trilha"
-                  title={`${progressPercent}% concluido`}
-                  description={
-                    visibleLessons.length
-                      ? `${remainingLessonsCount} aula${remainingLessonsCount === 1 ? "" : "s"} restante${remainingLessonsCount === 1 ? "" : "s"} nesta trilha`
-                      : "Sua trilha aparecera aqui assim que as aulas forem organizadas."
-                  }
-                  icon={Flag}
+                <MetricCard
+                  title="Palavras"
+                  value={learnedWords}
+                  description="Vocabulos registrados ao longo das aulas"
+                  icon={BookOpenCheck}
+                  tone="indigo"
+                  onClick={() => navigate(APP_PATHS.learnedWords)}
                 />
-              </div>
-
-              <div className="mt-4 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                Se precisar mudar um horario, fale com seu professor. O reagendamento e feito apenas pelo professor.
-              </div>
-
-              <div className="mt-4 rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Resumo do ciclo atual</p>
-                    <p className="mt-2 text-lg font-semibold text-foreground">
-                      {visibleLessons.length ? `${completedCount} de ${visibleLessons.length} aulas concluidas` : "Ainda sem aulas visiveis"}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Use a trilha ao lado para entender rapidamente o que ja passou e o que vem depois.
-                    </p>
-                  </div>
-
-                  <div className="min-w-[220px]">
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Progresso do ciclo atual</span>
-                      <span className="font-semibold text-foreground">{progressPercent}%</span>
-                    </div>
-                    <Progress value={progressPercent} className="h-3 bg-slate-200" />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {remainingLessonsCount} proxima{remainingLessonsCount === 1 ? "" : "s"} etapa{remainingLessonsCount === 1 ? "" : "s"} pela frente
-                    </p>
-                  </div>
-                </div>
+                <MetricCard
+                  title="Homework"
+                  value={pendingHomeworkCount}
+                  description={`${correctedHomeworkCount} tarefas ja corrigidas`}
+                  icon={NotebookText}
+                  tone="sand"
+                  onClick={() => navigate(APP_PATHS.homework)}
+                />
+                <MetricCard
+                  title="Revisoes"
+                  value={dueReviewCount}
+                  description={`${vocabularyStats?.study_streak || 0} dias de sequencia`}
+                  icon={BrainCircuit}
+                  tone="coral"
+                  onClick={() => navigate(APP_PATHS.learnedWords)}
+                />
               </div>
             </div>
           </div>
+        </section>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <MetricCard
-              title="Concluidas"
-              value={completedCount}
-              description="Aulas finalizadas no seu historico"
-              icon={CheckCircle2}
-              tone="success"
-            />
-            <MetricCard
-              title="Palavras"
-              value={learnedWords}
-              description="Vocabulos registrados ao longo das aulas"
-              icon={BookOpenCheck}
-              tone="default"
-            />
-            <MetricCard
-              title="Homework"
-              value={pendingHomeworkCount}
-              description={`${correctedHomeworkCount} tarefas ja corrigidas`}
-              icon={NotebookText}
-              tone={pendingHomeworkCount > 0 ? "warning" : "default"}
-            />
-            <MetricCard
-              title="Revisoes"
-              value={dueReviewCount}
-              description={`${vocabularyStats?.study_streak || 0} dias de sequencia`}
-              icon={BrainCircuit}
-              tone={dueReviewCount > 0 ? "warning" : "success"}
-            />
+        <section className="rounded-[24px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.28)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Resumo do ciclo atual</p>
+              <p className="mt-2 text-xl font-semibold text-foreground">
+                {visibleLessons.length ? `${completedCount} de ${visibleLessons.length} aulas concluidas` : "Ainda sem aulas visiveis"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Use a trilha ao lado para entender rapidamente o que ja passou e o que vem depois.
+              </p>
+            </div>
+
+            <div className="min-w-[240px] rounded-[22px] bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-slate-600">Progresso do ciclo atual</span>
+                <span className="font-semibold text-foreground">{progressPercent}%</span>
+              </div>
+              <Progress value={progressPercent} className="h-3 bg-slate-200" />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {remainingLessonsCount} proxima{remainingLessonsCount === 1 ? "" : "s"} etapa{remainingLessonsCount === 1 ? "" : "s"} pela frente
+              </p>
+            </div>
           </div>
         </section>
 
@@ -308,35 +328,36 @@ const MinhasAulas = () => {
               </div>
 
               {isLoading ? (
-                <div className="rounded-[26px] border border-border bg-card p-6 text-sm text-muted-foreground">
+                <div className="school-surface p-6 text-sm text-muted-foreground">
                   Carregando suas aulas...
                 </div>
               ) : upcomingLessons.length === 0 ? (
-                <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+                <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
                   Nenhuma aula futura encontrada.
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-[26px] border border-border bg-card shadow-sm">
+                <div className="school-surface overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-border text-sm">
-                      <thead className="bg-muted/40">
+                      <thead className="bg-slate-50/90">
                         <tr className="text-left">
-                          <th className="px-4 py-3 font-medium text-muted-foreground">Aula</th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">Data</th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">Nivel</th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">Status</th>
-                          <th className="px-4 py-3 text-right font-medium text-muted-foreground">Detalhes</th>
+                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Aula</th>
+                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Data</th>
+                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Nivel</th>
+                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Status</th>
+                          <th className="px-4 py-3.5 text-right font-medium text-muted-foreground">Detalhes</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {upcomingLessons.map((lesson) => {
+                        {upcomingLessons.map((lesson, index) => {
                           const isExpanded = expandedId === lesson.id;
                           return (
                             <Fragment key={lesson.id}>
                               <tr
                                 className={[
-                                  "transition hover:bg-muted/30",
-                                  isExpanded ? "bg-muted/20" : "",
+                                  "transition",
+                                  index % 2 === 0 ? "bg-sky-50/55" : "bg-emerald-50/45",
+                                  isExpanded ? "bg-slate-50" : "hover:bg-slate-50/90",
                                 ].join(" ")}
                               >
                                 <td className="px-4 py-3 align-top">
@@ -356,7 +377,7 @@ const MinhasAulas = () => {
                                   {lesson.level || "Nao informado"}
                                 </td>
                                 <td className="px-4 py-3 align-top">
-                                  <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                                  <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
                                     {formatStatusLabel(lesson.status)}
                                   </span>
                                 </td>
@@ -364,7 +385,7 @@ const MinhasAulas = () => {
                                   <button
                                     type="button"
                                     onClick={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                                    className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                                    className="rounded-full bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-800"
                                   >
                                     {isExpanded ? "Ocultar" : "Ver detalhes"}
                                   </button>
@@ -405,15 +426,15 @@ const MinhasAulas = () => {
               </div>
 
               {completedLessons.length === 0 ? (
-                <div className="rounded-[26px] border border-dashed border-border bg-card p-6 text-sm text-muted-foreground">
+                <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
                   Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
                 </div>
               ) : (
-                <div className="relative pl-6 before:absolute before:bottom-4 before:left-2 before:top-4 before:w-px before:bg-slate-200">
+                <div className="relative rounded-[30px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.22)] before:absolute before:bottom-6 before:left-8 before:top-6 before:w-px before:bg-gradient-to-b before:from-sky-200 before:via-emerald-200 before:to-slate-200">
                   <div className="space-y-6">
                     {completedLessons.map((lesson) => (
-                      <div key={lesson.id} className="relative">
-                        <span className="absolute -left-[1.55rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
+                      <div key={lesson.id} className="relative pl-8">
+                        <span className="absolute left-[0.2rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
                         <LessonExperienceCard
                           lesson={lesson}
                           summary={summaryByLesson.get(lesson.id)}
@@ -433,8 +454,11 @@ const MinhasAulas = () => {
           </div>
 
           <aside className="space-y-4">
-            <div className="rounded-[28px] border border-border bg-card p-5 shadow-sm">
-              <div className="flex items-center gap-2 text-primary">
+            <div
+              ref={trailSectionRef}
+              className="overflow-hidden rounded-[30px] border border-orange-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,245,240,0.96))] p-5 shadow-[0_24px_60px_-40px_rgba(154,52,18,0.35)]"
+            >
+              <div className="flex items-center gap-2 text-orange-700">
                 <Target className="h-4 w-4" />
                 <h3 className="font-semibold text-card-foreground">Andamento da trilha</h3>
               </div>
@@ -442,12 +466,12 @@ const MinhasAulas = () => {
                 A trilha abaixo mostra a ordem das aulas e deixa claro o que ja foi concluido e o que ainda esta por vir.
               </p>
 
-              <div className="mt-4 rounded-[22px] bg-muted/40 p-4">
+              <div className="mt-4 rounded-[24px] bg-white/95 p-4 ring-1 ring-orange-100">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Progresso</span>
                   <span className="font-semibold text-foreground">{progressPercent}%</span>
                 </div>
-                <Progress value={progressPercent} className="mt-3 h-3 bg-slate-200" />
+                <Progress value={progressPercent} className="mt-3 h-3 bg-orange-100" />
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
                   <TrailMetric label="Feitas" value={completedCount} />
                   <TrailMetric label="Proximas" value={remainingLessonsCount} />
@@ -472,8 +496,8 @@ const MinhasAulas = () => {
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-border bg-card p-5 shadow-sm">
-              <div className="flex items-center gap-2 text-primary">
+            <div className="school-surface p-5">
+              <div className="flex items-center gap-2 text-sky-700">
                 <Target className="h-4 w-4" />
                 <h3 className="font-semibold text-card-foreground">Leitura rapida</h3>
               </div>
@@ -485,7 +509,7 @@ const MinhasAulas = () => {
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-border bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(255,255,255,0.98))] p-5 shadow-sm">
+            <div className="rounded-[30px] border border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.98),rgba(255,255,255,0.98))] p-5 shadow-[0_24px_60px_-42px_rgba(5,150,105,0.28)]">
               <div className="flex items-center gap-2 text-sky-700">
                 <Sparkles className="h-4 w-4" />
                 <h3 className="font-semibold text-card-foreground">Proximo foco</h3>
@@ -512,7 +536,7 @@ const MinhasAulas = () => {
             </div>
 
             {archivedLessons.length > 0 && (
-              <div className="rounded-[28px] border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
+              <div className="rounded-[30px] border border-amber-200 bg-amber-50/80 p-5 shadow-[0_20px_60px_-42px_rgba(217,119,6,0.35)]">
                 <div className="flex items-center gap-2 text-amber-700">
                   <CircleDashed className="h-4 w-4" />
                   <h3 className="font-semibold text-card-foreground">Aulas arquivadas</h3>
@@ -555,29 +579,80 @@ const HeroSnapshot = ({
   description,
   icon: Icon,
   onClick,
+  tone,
+  actionLabel,
+  progressValue,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   icon: typeof CalendarDays;
   onClick?: () => void;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={[
-      "w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm",
-      onClick ? "transition hover:border-primary/30 hover:bg-muted/30" : "cursor-default",
-    ].join(" ")}
-  >
-    <div className="flex items-center justify-between gap-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{eyebrow}</p>
-      <Icon className="h-4 w-4 text-primary" />
-    </div>
-    <p className="mt-3 text-lg font-semibold text-foreground">{title}</p>
-    <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
-  </button>
-);
+  tone: "lesson" | "completed" | "progress";
+  actionLabel?: string;
+  progressValue?: number;
+}) => {
+  const toneClasses = {
+    lesson: "border-amber-200/90 bg-[linear-gradient(135deg,rgba(255,225,124,0.97),rgba(239,193,67,0.94))] text-slate-950",
+    completed: "border-emerald-200/90 bg-[linear-gradient(135deg,rgba(209,245,198,0.98),rgba(155,221,158,0.94))] text-slate-950",
+    progress: "border-orange-200/90 bg-[linear-gradient(135deg,rgba(236,128,102,0.96),rgba(220,97,79,0.94))] text-white",
+  } as const;
+
+  const iconClasses = {
+    lesson: "bg-white/70 text-amber-700",
+    completed: "bg-white/70 text-emerald-700",
+    progress: "bg-white/18 text-white ring-1 ring-white/25",
+  } as const;
+
+  const eyebrowClasses = {
+    lesson: "text-slate-900/65",
+    completed: "text-slate-900/65",
+    progress: "text-white/72",
+  } as const;
+
+  const titleClasses = {
+    lesson: "text-slate-950",
+    completed: "text-slate-950",
+    progress: "text-white",
+  } as const;
+
+  const descriptionClasses = {
+    lesson: "text-slate-900/78",
+    completed: "text-slate-900/78",
+    progress: "text-white/82",
+  } as const;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full rounded-[20px] border p-4 text-left shadow-[0_18px_38px_-30px_rgba(15,23,42,0.28)]",
+        toneClasses[tone],
+        onClick ? "transition hover:-translate-y-0.5 hover:shadow-[0_24px_48px_-30px_rgba(15,23,42,0.42)]" : "cursor-default",
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", eyebrowClasses[tone])}>{eyebrow}</p>
+        <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl", iconClasses[tone])}>
+          <Icon className="h-4 w-4" />
+        </span>
+      </div>
+      <p className={cn("mt-3 text-lg font-semibold leading-6", titleClasses[tone])}>{title}</p>
+      <p className={cn("mt-2 text-sm leading-5", descriptionClasses[tone])}>{description}</p>
+      {typeof progressValue === "number" ? (
+        <div className="mt-3 space-y-2">
+          <Progress value={progressValue} className="h-2 bg-white/30 [&>div]:bg-white" />
+        </div>
+      ) : null}
+      {actionLabel ? (
+        <span className="mt-3 inline-flex rounded-full bg-slate-900/80 px-3 py-1.5 text-xs font-semibold text-white">
+          {actionLabel}
+        </span>
+      ) : null}
+    </button>
+  );
+};
 
 const MetricCard = ({
   title,
@@ -585,41 +660,80 @@ const MetricCard = ({
   description,
   icon: Icon,
   tone,
+  onClick,
 }: {
   title: string;
   value: number;
   description: string;
   icon: typeof CheckCircle2;
-  tone: "default" | "success" | "warning";
+  tone: "sky" | "indigo" | "sand" | "coral" | "mint";
+  onClick?: () => void;
 }) => {
-  const toneClass =
-    tone === "success"
-      ? "text-emerald-600"
-      : tone === "warning"
-        ? "text-amber-600"
-        : "text-slate-700";
+  const toneClasses = {
+    sky: {
+      card: "border-cyan-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(239,250,255,0.94))] text-slate-950",
+      icon: "bg-cyan-100 text-cyan-700",
+      title: "text-cyan-700",
+      description: "text-slate-600",
+    },
+    indigo: {
+      card: "border-indigo-400/40 bg-[linear-gradient(180deg,rgba(77,89,184,0.98),rgba(60,70,159,0.96))] text-white",
+      icon: "bg-white/16 text-white",
+      title: "text-white/88",
+      description: "text-white/72",
+    },
+    sand: {
+      card: "border-amber-200/90 bg-[linear-gradient(180deg,rgba(255,249,232,0.98),rgba(251,236,188,0.94))] text-slate-950",
+      icon: "bg-white/70 text-amber-700",
+      title: "text-amber-800",
+      description: "text-slate-700/75",
+    },
+    coral: {
+      card: "border-rose-300/80 bg-[linear-gradient(180deg,rgba(229,95,95,0.98),rgba(211,67,67,0.95))] text-white",
+      icon: "bg-white/16 text-white",
+      title: "text-white/88",
+      description: "text-white/72",
+    },
+    mint: {
+      card: "border-emerald-200/90 bg-[linear-gradient(180deg,rgba(240,253,247,0.98),rgba(213,250,228,0.94))] text-slate-950",
+      icon: "bg-emerald-100 text-emerald-700",
+      title: "text-emerald-800",
+      description: "text-slate-700/75",
+    },
+  } as const;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "rounded-[18px] border p-4 text-left shadow-[0_14px_30px_-26px_rgba(15,23,42,0.28)]",
+        toneClasses[tone].card,
+        onClick ? "cursor-pointer transition hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-28px_rgba(15,23,42,0.32)]" : "cursor-default",
+      )}
+    >
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{title}</p>
-        <Icon className={`h-4 w-4 ${toneClass}`} />
+        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em]", toneClasses[tone].title)}>{title}</p>
+        <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl", toneClasses[tone].icon)}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
-      <p className="mt-2 text-2xl font-bold text-foreground">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-    </div>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
+      <p className={cn("mt-1 text-xs leading-5", toneClasses[tone].description)}>{description}</p>
+    </button>
   );
 };
 
 const TrailMetric = ({ label, value }: { label: string; value: number }) => (
-  <div className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
+  <div className="rounded-[18px] bg-white px-3 py-2 shadow-sm ring-1 ring-orange-100">
     <p className="text-xs text-muted-foreground">{label}</p>
     <p className="mt-1 font-semibold text-foreground">{value}</p>
   </div>
 );
 
 const QuickRow = ({ label, value }: { label: string; value: number }) => (
-  <div className="flex items-center justify-between rounded-2xl bg-muted/40 px-3 py-2">
+  <div className="flex items-center justify-between rounded-[18px] bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
     <span className="text-muted-foreground">{label}</span>
     <span className="font-semibold text-foreground">{value}</span>
   </div>
@@ -632,8 +746,8 @@ const SignalPill = ({
   icon: typeof CalendarClock;
   label: string;
 }) => (
-  <div className="flex items-center gap-2 rounded-2xl bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm ring-1 ring-slate-100">
-    <Icon className="h-4 w-4 text-sky-700" />
+  <div className="flex items-center gap-2 rounded-[18px] bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm ring-1 ring-emerald-100">
+    <Icon className="h-4 w-4 text-emerald-700" />
     <span>{label}</span>
   </div>
 );
@@ -651,21 +765,21 @@ const TrailStep = ({
 
   return (
     <div
-      className={[
-        "rounded-[22px] border px-4 py-3 shadow-sm",
+      className={cn(
+        "rounded-[24px] border px-4 py-3 shadow-sm",
         completed
-          ? "border-emerald-200 bg-emerald-50/70"
+          ? "border-emerald-200 bg-emerald-50/80"
           : archived
             ? "border-slate-200 bg-slate-50"
             : isNext
-              ? "border-sky-200 bg-sky-50/80"
-              : "border-border bg-background",
-      ].join(" ")}
+              ? "border-sky-200 bg-sky-50/85"
+              : "border-slate-200 bg-white",
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={[
-            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+          className={cn(
+            "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
             completed
               ? "bg-emerald-500 text-white"
               : archived
@@ -673,7 +787,7 @@ const TrailStep = ({
                 : isNext
                   ? "bg-sky-600 text-white"
                   : "bg-slate-100 text-slate-600",
-          ].join(" ")}
+          )}
         >
           {completed ? (
             <CheckCircle2 className="h-4 w-4" />
@@ -689,15 +803,15 @@ const TrailStep = ({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {typeof lesson.order === "number" && lesson.order > 0 && (
-              <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ring-1 ring-black/5">
                 Aula {lesson.order}
               </span>
             )}
-            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-black/5">
               {formatStatusLabel(lesson.status)}
             </span>
             {isNext && (
-              <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+              <span className="rounded-full bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white">
                 Proxima
               </span>
             )}

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { curriculumData } from "@/data/curriculum";
 import { BookOpenCheck, Edit2, Search, Trash2 } from "lucide-react";
 import PastLessonSummary from "@/components/PastLessonSummary";
+import { APP_PATHS } from "@/lib/routes";
 
 const getInitials = (name: string) => {
   if (!name) return "A";
@@ -165,7 +166,7 @@ const Alunos = () => {
       <div className="flex items-center justify-between mb-6">
         <PageHeader title="Alunos" description={`${students.length} alunos cadastrados`} />
         <Button asChild>
-          <Link to="/alunos/novo">+ Novo Aluno</Link>
+          <Link to={APP_PATHS.newStudent}>+ Novo Aluno</Link>
         </Button>
       </div>
 
@@ -216,7 +217,7 @@ const Alunos = () => {
                       buttonClassName="h-auto p-1 text-muted-foreground hover:text-primary hover:bg-muted"
                     />
                     <Link
-                      to={`/alunos/${student.id}/aulas`}
+                      to={APP_PATHS.studentLessons(student.id)}
                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-primary transition-colors"
                       title="Abrir histórico do aluno"
                     >

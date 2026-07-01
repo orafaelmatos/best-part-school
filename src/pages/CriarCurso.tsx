@@ -4,6 +4,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { APP_PATHS } from "@/lib/routes";
 
 const CriarCurso = () => {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ const CriarCurso = () => {
         is_free: formData.is_free,
       });
       queryClient.invalidateQueries({ queryKey: ["courses"] });
-      navigate("/marketplace");
+      navigate(APP_PATHS.marketplace);
     } catch (err) {
       alert("Erro ao criar curso");
       console.error(err);

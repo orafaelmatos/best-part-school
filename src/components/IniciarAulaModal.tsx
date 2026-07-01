@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { APP_PATHS } from "@/lib/routes";
 
 export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
   const navigate = useNavigate();
@@ -74,7 +75,7 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
             <Button variant="outline" onClick={onClose}>Cancelar</Button>
             <Button 
               disabled={!studentId || !lessonId} 
-              onClick={() => navigate(`/aulas/${lessonId}/anotar`)}
+              onClick={() => navigate(APP_PATHS.annotateLesson(lessonId))}
             >
               Começar Aula
             </Button>

@@ -14,6 +14,7 @@ import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import CreatableSelect from "react-select/creatable";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
+import { APP_PATHS } from "@/lib/routes";
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -54,7 +55,7 @@ const Calendario = () => {
   const lessons = Array.isArray(data) ? data : [];
 
   if (user?.role === "student") {
-    return <Navigate to="/aulas" replace />;
+    return <Navigate to={APP_PATHS.lessons} replace />;
   }
 
   const { data: startingLessonOptions = [] } = useQuery({
@@ -216,7 +217,7 @@ const Calendario = () => {
       setStartingSequenceLessonId("");
       setStartingCustomLessonTitle("");
       setSelectedLesson(null);
-      navigate(`/aulas/${res.data.id}/anotar?from=calendar`);
+      navigate(`${APP_PATHS.annotateLesson(res.data.id)}?from=calendar`);
     },
     onError: (err: any) => {
       toast({
@@ -573,7 +574,7 @@ const Calendario = () => {
                 {selectedLesson.status === 'completed' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
                    <button
-                        onClick={() => navigate(`/aulas/${selectedLesson.id}/anotar`)}
+                        onClick={() => navigate(APP_PATHS.annotateLesson(selectedLesson.id))}
                         className="col-span-1 sm:col-span-2 flex items-center justify-center gap-2 w-full py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg text-sm font-medium transition"
                       >
                         <PlayCircle size={16} /> Ver Resumo da Aula
@@ -591,7 +592,7 @@ const Calendario = () => {
                     <button
                       onClick={() => {
                         if (selectedLesson.status === 'in_progress') {
-                          navigate(`/aulas/${selectedLesson.id}/anotar?from=calendar`);
+                          navigate(`${APP_PATHS.annotateLesson(selectedLesson.id)}?from=calendar`);
                         } else {
                           setStartingLesson(selectedLesson);
                           setStartingSequenceLessonId(selectedLesson.id);

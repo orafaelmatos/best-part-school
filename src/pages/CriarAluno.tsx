@@ -12,6 +12,7 @@ import { curriculumData } from "@/data/curriculum";
 import RecurringSchedulePicker from "@/components/RecurringSchedulePicker";
 import FileUploadField from "@/components/FileUploadField";
 import { cn } from "@/lib/utils";
+import { APP_PATHS } from "@/lib/routes";
 
 const STEPS = [
   { key: "personal", label: "Dados pessoais", icon: UserRound },
@@ -85,7 +86,7 @@ const CriarAluno = () => {
     },
     onSuccess: () => {
       toast({ title: "Aluno cadastrado com sucesso!" });
-      navigate("/alunos");
+      navigate(APP_PATHS.students);
     },
     onError: (err: any) => {
       toast({
@@ -138,7 +139,7 @@ const CriarAluno = () => {
     <DashboardLayout>
       <div className="mb-8 flex items-center justify-between gap-4">
         <PageHeader title="Novo Aluno" description="Cadastro guiado com agenda, financeiro e contrato em um fluxo claro." />
-        <Button type="button" variant="outline" onClick={() => navigate("/alunos")}>
+        <Button type="button" variant="outline" onClick={() => navigate(APP_PATHS.students)}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Voltar
         </Button>
@@ -295,7 +296,7 @@ const CriarAluno = () => {
           )}
 
           <div className="flex items-center justify-between border-t border-border p-6">
-            <Button type="button" variant="outline" onClick={stepIndex === 0 ? () => navigate("/alunos") : previousStep}>
+            <Button type="button" variant="outline" onClick={stepIndex === 0 ? () => navigate(APP_PATHS.students) : previousStep}>
               {stepIndex === 0 ? "Cancelar" : "Voltar"}
             </Button>
             <div className="flex gap-3">

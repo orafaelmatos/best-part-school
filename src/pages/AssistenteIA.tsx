@@ -5,14 +5,18 @@ import DashboardLayout from "@/components/DashboardLayout";
 import AudioPlayer from "@/components/AudioPlayer";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
-import WritingFeedbackCard, { WritingFeedback } from "@/components/WritingFeedbackCard";
+import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
+import type { WritingFeedback } from "@/components/WritingFeedbackCard";
 import { useToast } from "@/hooks/use-toast";
 import {
+  AIStudyMode,
   aiStudySessionsQueryKey,
   buildNewModePath,
   buildSessionPath,
   fetchAiStudySessions,
   formatDateTime,
+  GuidedChoice,
+  GuidedState,
   LessonReference,
   ListResponse,
   modeLabel,
@@ -22,12 +26,16 @@ import {
 } from "@/lib/aiStudy";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
+import { APP_PATHS } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  ArrowRight,
   ArrowLeft,
+  BookPlus,
   BookOpen,
   CalendarDays,
+  CheckCircle2,
   Clock3,
   GraduationCap,
   Loader2,
@@ -37,6 +45,7 @@ import {
   Send,
   Sparkles,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
 
 type LessonOption = {
@@ -69,6 +78,21 @@ type AIMessage = {
   } | null;
   feedback_detail?: SpeakingFeedback | null;
   writing_feedback_detail?: WritingFeedback | null;
+  metadata?: {
+    guided?: boolean;
+    stage?: string;
+    choices?: GuidedChoice[];
+    choice_layout?: string;
+    helper_text?: string;
+    allow_free_text?: boolean;
+    input_placeholder?: string;
+    expected_input?: string;
+    current_task?: string;
+    recommended_choice_id?: string;
+    summary_items?: string[];
+    supports_streaming?: boolean;
+    mode?: AIStudyMode;
+  } | null;
   created_at?: string;
   pending?: boolean;
 };
@@ -88,6 +112,12 @@ type AudioResponse = {
   user_message?: AIMessage | null;
   assistant_message?: AIMessage | null;
   session: SessionSummary;
+};
+
+type GuidedActionPayload = {
+  action_type: string;
+  value: string;
+  label: string;
 };
 
 type PickerMode = "new" | "change" | null;
@@ -117,6 +147,32 @@ type ProgressOverview = {
     writing_score: number;
     estimated_level: string;
   }>;
+};
+
+type TranslationPopoverState = {
+  text: string;
+  translation: string;
+  status: "loading" | "ready" | "error";
+  top: number;
+  left: number;
+};
+
+const normalizeSelectedText = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const isTranslatableSelection = (value: string) => {
+  if (value.length < 2 || value.length > 280) return false;
+  return (value.match(/[A-Za-z]/g) || []).length >= 2;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const getTranslationPopoverPosition = (rect: DOMRect) => {
+  const maxWidth = Math.min(window.innerWidth - 24, 360);
+  const left = clamp(rect.left + rect.width / 2 - maxWidth / 2, 12, window.innerWidth - maxWidth - 12);
+  const preferredTop = rect.bottom + 14;
+  const fallbackTop = Math.max(12, rect.top - 154);
+  const top = preferredTop <= window.innerHeight - 170 ? preferredTop : fallbackTop;
+  return { top, left };
 };
 
 const formatShortDate = (value?: string | null) => {
@@ -171,15 +227,111 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
 
 const modeDescription: Record<PracticeMode, string> = {
   review: "Converse usando a aula como contexto principal e revise gramática, vocabulário e exercícios do conteúdo estudado.",
-  speaking: "Envie áudio, receba nota de pronúncia, fluência, entonação e clareza, e treine com exercícios focados nos erros.",
-  writing: "Envie um texto para correção com nível CEFR, score, explicações, reescritas por nível e exercícios derivados.",
+  speaking: "Entre em uma aula guiada: escolha cenário, nível e pratique com desafios, correções e próximos passos claros.",
+  writing: "Entre em uma aula guiada: escolha cenário, nível e escreva com correções, exercícios e condução pedagógica contínua.",
 };
 
 const composerPlaceholderByMode: Record<PracticeMode, string> = {
   review: "Peça revisão de vocabulário, gramática ou exercícios desta aula.",
-  speaking: "Escreva um pedido rápido ou grave um áudio em inglês para avaliar sua pronúncia.",
-  writing: "Cole seu texto em inglês para correção, score e reescritas por nível.",
+  speaking: "Responda em inglês ou envie um áudio para o próximo desafio guiado.",
+  writing: "Escreva sua resposta em inglês para o próximo desafio guiado.",
 };
+
+const modeCardMeta: Record<
+  PracticeMode,
+  {
+    icon: LucideIcon;
+    eyebrow: string;
+    accent: string;
+    surface: string;
+    iconWrap: string;
+    badge: string;
+    ctaLabel: string;
+    highlights: string[];
+  }
+> = {
+  review: {
+    icon: BookOpen,
+    eyebrow: "Com aula de apoio",
+    accent: "text-sky-700",
+    surface:
+      "border-sky-200/80 bg-[linear-gradient(145deg,rgba(240,249,255,0.98),rgba(255,255,255,0.96)_44%,rgba(236,253,245,0.9))] shadow-[0_28px_65px_-45px_rgba(14,116,144,0.45)]",
+    iconWrap: "bg-sky-500/12 text-sky-700 ring-sky-300/55",
+    badge: "Ideal para revisar conteúdo estudado",
+    ctaLabel: "Selecionar revisão",
+    highlights: [
+      "Escolha uma aula já feita para manter o contexto correto.",
+      "Revise vocabulário, gramática e exercícios do conteúdo.",
+      "Retome pontos em que você teve mais dificuldade.",
+    ],
+  },
+  speaking: {
+    icon: Mic,
+    eyebrow: "Treino guiado",
+    accent: "text-amber-700",
+    surface:
+      "border-amber-200/80 bg-[linear-gradient(145deg,rgba(255,247,237,0.98),rgba(255,255,255,0.96)_40%,rgba(254,243,199,0.82))] shadow-[0_28px_65px_-45px_rgba(180,83,9,0.38)]",
+    iconWrap: "bg-amber-500/12 text-amber-700 ring-amber-300/55",
+    badge: "Mais indicado para pronúncia e fluidez",
+    ctaLabel: "Selecionar speaking",
+    highlights: [
+      "Receba desafios por cenário e nível antes de começar.",
+      "Treine respostas com correções e próximos passos claros.",
+      "Use áudio quando a atividade pedir prática de pronúncia.",
+    ],
+  },
+  writing: {
+    icon: Pencil,
+    eyebrow: "Correção orientada",
+    accent: "text-emerald-700",
+    surface:
+      "border-emerald-200/80 bg-[linear-gradient(145deg,rgba(236,253,245,0.98),rgba(255,255,255,0.96)_38%,rgba(220,252,231,0.88))] shadow-[0_28px_65px_-45px_rgba(5,150,105,0.32)]",
+    iconWrap: "bg-emerald-500/12 text-emerald-700 ring-emerald-300/55",
+    badge: "Ótimo para escrita com feedback pedagógico",
+    ctaLabel: "Selecionar writing",
+    highlights: [
+      "Escolha cenário e nível para receber uma proposta guiada.",
+      "Escreva em inglês e receba correções com explicações objetivas.",
+      "Continue com exercícios curtos, vocabulário e próximos passos.",
+    ],
+  },
+};
+
+const formatScoreLabel = (value?: number | null) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return "Sem histórico";
+  return `${Math.round(value)}/100`;
+};
+
+const formatRecentAttemptsLabel = (count: number, singular: string, plural: string) => {
+  if (count <= 0) return "Nenhuma ainda";
+  if (count === 1) return `1 ${singular}`;
+  return `${count} ${plural}`;
+};
+
+const PickerStatCard = ({
+  icon: Icon,
+  label,
+  value,
+  helper,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  helper: string;
+}) => (
+  <div className="rounded-[24px] border border-white/70 bg-white/72 p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
+    <div className="flex items-center gap-3">
+      <span className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-slate-900 text-white shadow-[0_16px_34px_-22px_rgba(15,23,42,0.6)]">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</p>
+        <p className="mt-1 text-base font-semibold text-slate-900">{value}</p>
+      </div>
+    </div>
+    <p className="mt-3 text-sm leading-6 text-slate-600">{helper}</p>
+  </div>
+);
 
 const ModeCard = ({
   mode,
@@ -189,33 +341,67 @@ const ModeCard = ({
   mode: PracticeMode;
   recommended?: boolean;
   onClick: () => void;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      "flex h-full flex-col rounded-[28px] border p-5 text-left transition",
-      recommended
-        ? "border-amber-300 bg-amber-50/60 shadow-[0_18px_50px_-34px_rgba(217,119,6,0.55)]"
-        : "border-border bg-card/95 hover:border-slate-300 hover:shadow-sm",
-    )}
-  >
-    <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-lg font-semibold text-foreground">{modeLabel[mode]}</p>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{modeDescription[mode]}</p>
+}) => {
+  const meta = modeCardMeta[mode];
+  const Icon = meta.icon;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "group relative flex h-full flex-col overflow-hidden rounded-[30px] border p-5 text-left transition-all duration-200 hover:-translate-y-1",
+        meta.surface,
+        recommended && "ring-2 ring-amber-300/75",
+      )}
+    >
+      <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-white/40 blur-3xl transition duration-200 group-hover:scale-110" />
+
+      <div className="relative flex h-full flex-col">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-3">
+            <span
+              className={cn(
+                "flex h-12 w-12 items-center justify-center rounded-[18px] ring-1 shadow-[0_16px_34px_-24px_rgba(15,23,42,0.35)]",
+                meta.iconWrap,
+              )}
+            >
+              <Icon className="h-5 w-5" />
+            </span>
+            <div>
+              <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", meta.accent)}>{meta.eyebrow}</p>
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{modeLabel[mode]}</p>
+            </div>
+          </div>
+          {recommended ? (
+            <span className="rounded-full border border-amber-300/70 bg-amber-100/85 px-3 py-1 text-[11px] font-semibold text-amber-800 shadow-[0_14px_30px_-22px_rgba(180,83,9,0.5)]">
+              Recomendado
+            </span>
+          ) : null}
+        </div>
+
+        <p className="relative mt-4 text-sm leading-6 text-slate-600">{modeDescription[mode]}</p>
+
+        <div className="relative mt-4 rounded-[22px] border border-white/70 bg-white/58 p-4 backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">O que você encontra</p>
+          <ul className="mt-3 space-y-2.5 text-sm leading-6 text-slate-700">
+            {meta.highlights.map((item) => (
+              <li key={item} className="flex items-start gap-2">
+                <CheckCircle2 className={cn("mt-0.5 h-4 w-4 shrink-0", meta.accent)} />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="relative mt-5 flex items-center justify-between gap-3 rounded-[20px] bg-slate-900 px-4 py-3 text-sm text-white shadow-[0_20px_40px_-28px_rgba(15,23,42,0.55)] transition group-hover:translate-y-0.5">
+          <span className="font-semibold">{meta.ctaLabel}</span>
+          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+        </div>
       </div>
-      {recommended ? (
-        <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-          Recomendado
-        </span>
-      ) : null}
-    </div>
-    <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-4 py-3 text-sm">
-      <span className="font-medium text-foreground">Selecionar</span>
-    </div>
-  </button>
-);
+    </button>
+  );
+};
 
 const LessonCard = ({
   lesson,
@@ -287,7 +473,83 @@ const LessonCard = ({
   </article>
 );
 
-const MessageBubble = ({ message }: { message: AIMessage }) => {
+const GuidedChoices = ({
+  choices,
+  layout,
+  helperText,
+  disabled,
+  onSelect,
+}: {
+  choices: GuidedChoice[];
+  layout?: string;
+  helperText?: string;
+  disabled?: boolean;
+  onSelect: (choice: GuidedChoice) => void;
+}) => {
+  if (!choices.length) return null;
+  const isGrid = layout === "grid";
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className={cn("gap-2", isGrid ? "grid sm:grid-cols-2" : "flex flex-wrap")}>
+        {choices.map((choice) => (
+          <button
+            key={choice.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(choice)}
+            className={cn(
+              "text-left transition disabled:opacity-50",
+              isGrid
+                ? "rounded-2xl border border-slate-200 bg-slate-50/90 p-3 hover:border-slate-300 hover:bg-white"
+                : choice.variant === "primary"
+                  ? "rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
+                  : choice.variant === "outline"
+                    ? "rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    : "rounded-full bg-slate-100 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200",
+            )}
+          >
+            {isGrid ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  {choice.emoji ? <span className="text-base">{choice.emoji}</span> : null}
+                  <span className="font-semibold text-foreground">{choice.label}</span>
+                </div>
+                {choice.description ? <p className="text-xs leading-5 text-muted-foreground">{choice.description}</p> : null}
+              </div>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                {choice.emoji ? <span>{choice.emoji}</span> : null}
+                <span>{choice.label}</span>
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {helperText ? <p className="text-xs leading-5 text-muted-foreground">{helperText}</p> : null}
+    </div>
+  );
+};
+
+const GuidedSessionOverview = ({ state, mode }: { state: GuidedState; mode: PracticeMode }) => {
+  const learnedWords = state.learned_words || [];
+  const recurringErrors = state.recurring_errors || [];
+  const summaryItems = state.summary_items || [];
+};
+
+const MessageBubble = ({
+  message,
+  isInteractive,
+  onChoiceSelect,
+  choiceDisabled,
+  onTextSelection,
+}: {
+  message: AIMessage;
+  isInteractive?: boolean;
+  onChoiceSelect?: (choice: GuidedChoice) => void;
+  choiceDisabled?: boolean;
+  onTextSelection?: (container: HTMLDivElement) => void;
+}) => {
   const isUser = message.role === "user";
   const audioMeta = message.audio_detail;
   const speakerLabel =
@@ -324,7 +586,11 @@ const MessageBubble = ({ message }: { message: AIMessage }) => {
                 <AudioPlayer src={absoluteMediaUrl(message.audio_url)} compact />
               </div>
               {message.text ? (
-                <div>
+                <div
+                  data-translatable-message={!isUser || undefined}
+                  onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
+                  onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
+                >
                   <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em]", isUser ? "text-white/70" : "text-muted-foreground")}>
                     Transcrição
                   </p>
@@ -333,7 +599,13 @@ const MessageBubble = ({ message }: { message: AIMessage }) => {
               ) : null}
             </div>
           ) : (
-            <p className="whitespace-pre-line">{message.text}</p>
+            <div
+              data-translatable-message={!isUser || undefined}
+              onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
+              onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
+            >
+              <p className="whitespace-pre-line">{message.text}</p>
+            </div>
           )}
           <div
             className={cn(
@@ -355,11 +627,14 @@ const MessageBubble = ({ message }: { message: AIMessage }) => {
             <PronunciationFeedback feedback={message.feedback_detail} />
           </div>
         ) : null}
-
-        {message.writing_feedback_detail ? (
-          <div className="rounded-[28px] border border-slate-200/80 bg-white/95 p-1 shadow-sm">
-            <WritingFeedbackCard feedback={message.writing_feedback_detail} />
-          </div>
+        {isInteractive && message.metadata?.guided && message.metadata?.choices?.length && onChoiceSelect ? (
+          <GuidedChoices
+            choices={message.metadata.choices}
+            layout={message.metadata.choice_layout}
+            helperText={message.metadata.helper_text}
+            disabled={choiceDisabled}
+            onSelect={onChoiceSelect}
+          />
         ) : null}
       </div>
     </div>
@@ -381,7 +656,12 @@ const AssistenteIA = () => {
   const [creatingLessonId, setCreatingLessonId] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [translationPopover, setTranslationPopover] = useState<TranslationPopoverState | null>(null);
+  const [isQuickCardDialogOpen, setIsQuickCardDialogOpen] = useState(false);
+  const [quickCardDraft, setQuickCardDraft] = useState({ front: "", back: "" });
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const translationCacheRef = useRef(new Map<string, string>());
+  const translationRequestIdRef = useRef(0);
   const deferredLessonSearch = useDeferredValue(lessonSearch);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -425,6 +705,10 @@ const AssistenteIA = () => {
 
   const activeSession =
     sessionDraft && sessionDraft.id === selectedSessionId ? sessionDraft : sessionDetailQuery.data ?? null;
+  const guidedState = activeSession?.guided_state ?? undefined;
+  const latestInteractiveAssistantMessage = activeSession?.messages
+    ? [...activeSession.messages].reverse().find((message) => message.role === "assistant" && (message.metadata?.choices?.length ?? 0) > 0)
+    : null;
 
   useEffect(() => {
     if (sessionDetailQuery.data) {
@@ -446,7 +730,13 @@ const AssistenteIA = () => {
       setIsRenaming(false);
       setShowRecorder(false);
       setRecordingState("idle");
+      setTranslationPopover(null);
     }
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    translationRequestIdRef.current += 1;
+    setTranslationPopover(null);
   }, [selectedSessionId]);
 
   useEffect(() => {
@@ -454,6 +744,24 @@ const AssistenteIA = () => {
       setIsChangingLesson(false);
     }
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-translation-popover='true']")) return;
+      if (target?.closest("[data-translatable-message]")) return;
+      setTranslationPopover(null);
+    };
+    const clearPopover = () => setTranslationPopover(null);
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("resize", clearPopover);
+    window.addEventListener("scroll", clearPopover, true);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("resize", clearPopover);
+      window.removeEventListener("scroll", clearPopover, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedSessionId || isNewConversationFlow || isChangingLesson || selectedPracticeMode || !recommendation?.mode) {
@@ -489,12 +797,27 @@ const AssistenteIA = () => {
   const recentWritingHistory = progressQuery.data?.writing_history || [];
 
   const hasSavedSessions = (sessionsQuery.data?.length ?? 0) > 0;
-  const isPickerVisible = pickerMode !== null || (!selectedSessionId && !sessionsQuery.isLoading && !hasSavedSessions);
+  const isPickerVisible = pickerMode !== null || !selectedSessionId;
   const isConversationPage = Boolean(selectedSessionId);
   const isBusy = isSending || sessionDetailQuery.isFetching;
-  const activeMode = activeSession?.mode;
-  const composerPlaceholder = activeMode ? composerPlaceholderByMode[activeMode] : composerPlaceholderByMode.review;
-  const canRecordAudio = activeMode === "speaking";
+  const activeMode: PracticeMode | undefined =
+    activeSession?.mode && activeSession.mode !== "listening" ? activeSession.mode : undefined;
+  const composerPlaceholder =
+    latestInteractiveAssistantMessage?.metadata?.input_placeholder ||
+    guidedState?.input_placeholder ||
+    (activeMode ? composerPlaceholderByMode[activeMode] : composerPlaceholderByMode.review);
+  const guidedExpectedInput = latestInteractiveAssistantMessage?.metadata?.expected_input || guidedState?.expected_input || "";
+  const canRecordAudio = activeMode === "speaking" && (!guidedState || guidedState.stage === "active");
+  const canUseAudioInput = canRecordAudio && (!guidedExpectedInput || guidedExpectedInput === "audio_or_text");
+
+  useEffect(() => {
+    if (!canUseAudioInput) {
+      setShowRecorder(false);
+      if (recordingState !== "uploading") {
+        setRecordingState("idle");
+      }
+    }
+  }, [canUseAudioInput, recordingState]);
 
   const syncDraft = (nextSession: SessionDetail) => {
     setSessionDraft(nextSession);
@@ -533,7 +856,7 @@ const AssistenteIA = () => {
       return;
     }
     setIsChangingLesson(false);
-    navigate("/treinar-ia");
+    navigate(APP_PATHS.aiPractice);
   };
 
   const handleSelectMode = (mode: PracticeMode) => {
@@ -631,7 +954,7 @@ const AssistenteIA = () => {
       if (nextSession) {
         startTransition(() => navigate(buildSessionPath(nextSession.id)));
       } else {
-        navigate("/treinar-ia?mode=new");
+        navigate(buildNewModePath());
       }
     } catch {
       toast({
@@ -642,20 +965,32 @@ const AssistenteIA = () => {
     }
   };
 
-  const sendText = async () => {
-    if (!activeSession || !input.trim() || isSending) return;
-    const text = input.trim();
+  const sendMessage = async ({
+    text,
+    guidedAction,
+    textType = "free",
+  }: {
+    text?: string;
+    guidedAction?: GuidedActionPayload;
+    textType?: string;
+  }) => {
+    if (!activeSession || isSending) return;
+    const trimmedText = text?.trim() || "";
+    const displayText = trimmedText || guidedAction?.label || "";
+    if (!displayText) return;
     const optimisticId = `local-${Date.now()}`;
     const optimisticMessage: AIMessage = {
       id: optimisticId,
       role: "user",
       content_type: "text",
-      text,
+      text: displayText,
       pending: true,
       created_at: new Date().toISOString(),
     };
 
-    setInput("");
+    if (trimmedText) {
+      setInput("");
+    }
     setIsSending(true);
     setSessionDraft((current) => {
       if (!current) return current;
@@ -668,7 +1003,11 @@ const AssistenteIA = () => {
     });
 
     try {
-      const response = await api.post(`/ai-study/sessions/${activeSession.id}/message/`, { text });
+      const response = await api.post(`/ai-study/sessions/${activeSession.id}/message/`, {
+        text: trimmedText,
+        text_type: textType,
+        guided_action: guidedAction,
+      });
       const data = response.data as MessageResponse;
       setSessionDraft((current) => {
         if (!current) return current;
@@ -703,6 +1042,21 @@ const AssistenteIA = () => {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const sendText = async () => {
+    if (!input.trim()) return;
+    await sendMessage({ text: input });
+  };
+
+  const handleGuidedChoice = async (choice: GuidedChoice) => {
+    await sendMessage({
+      guidedAction: {
+        action_type: choice.action_type,
+        value: choice.value,
+        label: choice.label,
+      },
+    });
   };
 
   const uploadAudio = async (blob: Blob, durationSeconds: number) => {
@@ -783,6 +1137,93 @@ const AssistenteIA = () => {
     }
   };
 
+  const translateSelectionFromContainer = async (container: HTMLDivElement) => {
+    if (!activeSession) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setTranslationPopover(null);
+      return;
+    }
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if ((anchorNode && !container.contains(anchorNode)) || (focusNode && !container.contains(focusNode))) {
+      return;
+    }
+
+    const text = normalizeSelectedText(selection.toString());
+    if (!isTranslatableSelection(text)) {
+      setTranslationPopover(null);
+      return;
+    }
+
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    if (!rect.width && !rect.height) return;
+    const position = getTranslationPopoverPosition(rect);
+    const cachedTranslation = translationCacheRef.current.get(text);
+
+    setTranslationPopover({
+      text,
+      translation: cachedTranslation || "",
+      status: cachedTranslation ? "ready" : "loading",
+      ...position,
+    });
+
+    if (cachedTranslation) return;
+
+    const requestId = ++translationRequestIdRef.current;
+    try {
+      const response = await api.post(`/ai-study/sessions/${activeSession.id}/translate-selection/`, {
+        text,
+      });
+      if (requestId !== translationRequestIdRef.current) return;
+      const translation = normalizeSelectedText(String(response.data?.translation || ""));
+      if (!translation) {
+        throw new Error("Empty translation");
+      }
+      translationCacheRef.current.set(text, translation);
+      setTranslationPopover((current) =>
+        current && current.text === text
+          ? {
+              ...current,
+              translation,
+              status: "ready",
+            }
+          : current,
+      );
+    } catch {
+      if (requestId !== translationRequestIdRef.current) return;
+      setTranslationPopover((current) =>
+        current && current.text === text
+          ? {
+              ...current,
+              status: "error",
+            }
+          : current,
+      );
+    }
+  };
+
+  const handleTextSelection = (container: HTMLDivElement) => {
+    window.setTimeout(() => {
+      void translateSelectionFromContainer(container);
+    }, 0);
+  };
+
+  const openQuickCardDialog = ({
+    front = "",
+    back = "",
+  }: {
+    front?: string;
+    back?: string;
+  } = {}) => {
+    setQuickCardDraft({
+      front: front.trim(),
+      back: back.trim(),
+    });
+    setIsQuickCardDialogOpen(true);
+  };
+
   return (
     <DashboardLayout>
       <div
@@ -791,32 +1232,6 @@ const AssistenteIA = () => {
           isConversationPage && "h-[calc(100dvh-4.5rem)] overflow-hidden space-y-0",
         )}
       >
-        {!isConversationPage ? (
-          <section className="rounded-[28px] border border-border bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_45%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-6 shadow-sm">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">Praticar com IA</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Escolha o modo de prática e treine com feedback estruturado</h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Revise uma aula, receba análise de pronúncia ou corrija sua escrita com nível CEFR, score e exercícios derivados.
-                </p>
-              </div>
-            </div>
-            {recommendation ? (
-              <div className="mt-6 rounded-[24px] border border-amber-300/80 bg-amber-50/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Recomendação do professor</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">{modeLabel[recommendation.mode]}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {recommendation.note || `Seu professor recomendou focar em ${modeLabel[recommendation.mode].toLowerCase()}.`}
-                </p>
-                {recommendation.lesson_detail ? (
-                  <p className="mt-2 text-sm font-medium text-foreground">Aula sugerida: {recommendation.lesson_detail.title}</p>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
         <section
           className={cn(
             "relative flex flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98)_16%,rgba(255,255,255,0.98))] shadow-sm",
@@ -825,61 +1240,76 @@ const AssistenteIA = () => {
         >
             {isPickerVisible ? (
               <div className="flex h-full flex-col">
-                <div className="border-b border-border px-6 py-5">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {pickerMode === "change"
-                          ? "Trocar aula de referência"
-                          : !selectedPracticeMode
-                            ? "Escolha como você quer praticar"
-                            : selectedPracticeMode === "review"
-                              ? "Selecione a aula de referência"
-                              : `Preparar modo ${modeLabel[selectedPracticeMode]}`}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {pickerMode === "change" || selectedPracticeMode === "review"
-                          ? "A revisão de aula sempre usa uma aula vinculada para manter o contexto correto."
-                          : !selectedPracticeMode
-                            ? "Você pode revisar uma aula, treinar pronúncia ou enviar um texto para correção."
-                            : modeDescription[selectedPracticeMode]}
-                      </p>
-                    </div>
-                    {pickerMode === "change" || selectedPracticeMode === "review" ? (
-                      <div className="relative w-full max-w-sm">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          value={lessonSearch}
-                          onChange={(event) => setLessonSearch(event.target.value)}
-                          placeholder="Buscar aula"
-                          className="w-full rounded-xl border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                  {pickerMode && (pickerMode === "change" || hasSavedSessions) ? (
-                    <button
-                      type="button"
-                      onClick={closeLessonPicker}
-                      className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      {pickerMode === "change" ? "Voltar para a conversa" : "Voltar"}
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-4">
                   {!selectedPracticeMode && pickerMode !== "change" ? (
-                    <div className="grid gap-4 xl:grid-cols-3">
-                      {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
-                        <ModeCard
-                          key={mode}
-                          mode={mode}
-                          recommended={recommendation?.mode === mode}
-                          onClick={() => handleSelectMode(mode)}
-                        />
-                      ))}
+                    <div className="space-y-6">
+                      <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.16),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-6 shadow-[0_28px_70px_-48px_rgba(15,23,42,0.34)] sm:p-7">
+                        <div className="absolute right-[-2rem] top-[-2rem] h-36 w-36 rounded-full bg-sky-300/18 blur-3xl" />
+                        <div className="absolute bottom-[-2rem] left-[-1rem] h-32 w-32 rounded-full bg-emerald-300/16 blur-3xl" />
+
+                        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] xl:items-start">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full border border-sky-200/80 bg-sky-100/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
+                                Praticar com IA
+                              </span>
+                              {recommendation?.mode ? (
+                                <span className="rounded-full border border-amber-200/80 bg-amber-100/80 px-3 py-1 text-[11px] font-semibold text-amber-800">
+                                  Recomendação ativa de {recommendation.teacher_name || "seu professor"}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <h2 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+                              Escolha como você quer praticar
+                            </h2>
+                            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-[15px]">
+                              Você pode revisar uma aula, treinar pronúncia ou enviar um texto para correção. Cada modo foi desenhado para combinar com o fluxo visual do portal e te colocar em prática mais rápido.
+                            </p>
+
+                            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-600">
+                              <div className="rounded-full border border-white/80 bg-white/75 px-4 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.25)]">
+                                Troque de modo sempre que precisar
+                              </div>
+                              <div className="rounded-full border border-white/80 bg-white/75 px-4 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.25)]">
+                                Continue de onde parou nas conversas salvas
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                            <PickerStatCard
+                              icon={Mic}
+                              label="Speaking"
+                              value={formatScoreLabel(recentSpeakingHistory[0]?.overall_score)}
+                              helper={formatRecentAttemptsLabel(recentSpeakingHistory.length, "treino recente", "treinos recentes")}
+                            />
+                            <PickerStatCard
+                              icon={Pencil}
+                              label="Writing"
+                              value={formatScoreLabel(recentWritingHistory[0]?.writing_score)}
+                              helper={formatRecentAttemptsLabel(recentWritingHistory.length, "envio recente", "envios recentes")}
+                            />
+                            <PickerStatCard
+                              icon={Sparkles}
+                              label="Conversas"
+                              value={`${sessionsQuery.data?.length ?? 0} salvas`}
+                              helper={hasSavedSessions ? "Você já tem histórico para retomar quando quiser." : "Sua primeira conversa pode começar por qualquer um dos modos abaixo."}
+                            />
+                          </div>
+                        </div>
+                      </section>
+
+                      <div className="grid gap-4 xl:grid-cols-3">
+                        {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
+                          <ModeCard
+                            key={mode}
+                            mode={mode}
+                            recommended={recommendation?.mode === mode}
+                            onClick={() => handleSelectMode(mode)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   ) : pickerMode === "change" || selectedPracticeMode === "review" ? (
                     lessonsQuery.isLoading ? (
@@ -910,77 +1340,88 @@ const AssistenteIA = () => {
                       </div>
                     )
                   ) : selectedPracticeMode ? (
-                    <div className="mx-auto flex h-full w-full max-w-4xl flex-col justify-center">
-                      <div className="rounded-[28px] border border-border bg-card/95 p-6 shadow-sm">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="max-w-2xl">
-                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">{modeLabel[selectedPracticeMode]}</p>
-                            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-                              {selectedPracticeMode === "speaking" ? "Treino de pronúncia com análise detalhada" : "Correção de escrita com CEFR e reescritas"}
-                            </h2>
-                            <p className="mt-3 text-sm leading-6 text-muted-foreground">{modeDescription[selectedPracticeMode]}</p>
-                            {recommendation?.mode === selectedPracticeMode ? (
-                              <p className="mt-3 text-sm font-medium text-amber-700">
-                                Recomendação ativa de {recommendation.teacher_name || "seu professor"}.
-                              </p>
-                            ) : null}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void handleCreateSession(selectedPracticeMode, recommendation?.mode === selectedPracticeMode ? recommendation.lesson || undefined : undefined)}
-                            disabled={creatingLessonId === selectedPracticeMode}
-                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                          >
-                            {creatingLessonId === selectedPracticeMode ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                            {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
-                          </button>
-                        </div>
-
-                        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                          <div className="rounded-[24px] bg-muted/40 p-4">
-                            <p className="text-sm font-semibold text-foreground">Como funciona</p>
-                            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
-                              {selectedPracticeMode === "speaking" ? (
-                                <>
-                                  <li>Envie um áudio ou use o microfone.</li>
-                                  <li>Receba score geral, nível estimado e palavras com dificuldade.</li>
-                                  <li>Pratique com exercícios derivados dos seus erros.</li>
-                                </>
-                              ) : (
-                                <>
-                                  <li>Envie um texto livre, redação, email, apresentação pessoal ou storytelling.</li>
-                                  <li>Receba correção completa, score e nível CEFR estimado.</li>
-                                  <li>Compare reescritas em B1, B2, C1 e C2.</li>
-                                </>
-                              )}
-                            </ul>
-                          </div>
-                          <div className="rounded-[24px] bg-muted/40 p-4">
-                            <p className="text-sm font-semibold text-foreground">Evolução recente</p>
-                            <div className="mt-3 space-y-2 text-sm">
-                              {selectedPracticeMode === "speaking"
-                                ? recentSpeakingHistory.slice(0, 4).map((item) => (
-                                    <div key={item.id} className="rounded-xl bg-white px-3 py-2">
-                                      <p className="font-medium text-foreground">
-                                        {new Date(item.created_at).toLocaleDateString("pt-BR")} · {item.overall_score}/100 · {item.estimated_level}
-                                      </p>
-                                      <p className="text-muted-foreground">
-                                        {(item.problem_words || []).length ? item.problem_words.join(", ") : "Sem palavras críticas registradas."}
-                                      </p>
-                                    </div>
-                                  ))
-                                : recentWritingHistory.slice(0, 4).map((item) => (
-                                    <div key={item.id} className="rounded-xl bg-white px-3 py-2">
-                                      <p className="font-medium text-foreground">
-                                        {new Date(item.created_at).toLocaleDateString("pt-BR")} · {item.writing_score}/100 · {item.estimated_level}
-                                      </p>
-                                      <p className="text-muted-foreground">{item.text_type}</p>
-                                    </div>
-                                  ))}
-                              {(selectedPracticeMode === "speaking" ? recentSpeakingHistory.length === 0 : recentWritingHistory.length === 0) ? (
-                                <p className="text-muted-foreground">Ainda não há registros neste modo.</p>
+                    <div className="mx-auto flex h-full w-full max-w-5xl flex-col justify-center">
+                      <div
+                        className={cn(
+                          "overflow-hidden rounded-[32px] border p-6 shadow-[0_28px_80px_-50px_rgba(15,23,42,0.4)] sm:p-7",
+                          modeCardMeta[selectedPracticeMode].surface,
+                        )}
+                      >
+                        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span
+                                className={cn(
+                                  "flex h-12 w-12 items-center justify-center rounded-[18px] ring-1 shadow-[0_18px_38px_-24px_rgba(15,23,42,0.35)]",
+                                  modeCardMeta[selectedPracticeMode].iconWrap,
+                                )}
+                              >
+                                {selectedPracticeMode === "speaking" ? <Mic className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
+                              </span>
+                              <span className="rounded-full border border-white/80 bg-white/78 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">
+                                {modeCardMeta[selectedPracticeMode].eyebrow}
+                              </span>
+                              {recommendation?.mode === selectedPracticeMode ? (
+                                <span className="rounded-full border border-amber-200/80 bg-amber-100/80 px-3 py-1 text-[11px] font-semibold text-amber-800">
+                                  Recomendado por {recommendation.teacher_name || "seu professor"}
+                                </span>
                               ) : null}
                             </div>
+
+                            <p className={cn("mt-5 text-xs font-semibold uppercase tracking-[0.24em]", modeCardMeta[selectedPracticeMode].accent)}>
+                              {modeLabel[selectedPracticeMode]}
+                            </p>
+                            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-[2.15rem]">
+                              {selectedPracticeMode === "speaking" ? "Tutor guiado de speaking" : "Tutor guiado de writing"}
+                            </h2>
+                            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-[15px]">
+                              {modeDescription[selectedPracticeMode]}
+                            </p>
+
+                            <div className="mt-6 rounded-[24px] border border-white/75 bg-white/68 p-5 backdrop-blur">
+                              <p className="text-sm font-semibold text-slate-900">Como funciona</p>
+                              <ul className="mt-3 space-y-2.5 text-sm leading-6 text-slate-700">
+                                {modeCardMeta[selectedPracticeMode].highlights.map((item) => (
+                                  <li key={item} className="flex items-start gap-2">
+                                    <CheckCircle2
+                                      className={cn("mt-0.5 h-4 w-4 shrink-0", modeCardMeta[selectedPracticeMode].accent)}
+                                    />
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-4 rounded-[28px] border border-white/80 bg-white/74 p-5 shadow-[0_22px_52px_-40px_rgba(15,23,42,0.28)] backdrop-blur">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Pronto para começar</p>
+                              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
+                                {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
+                              </p>
+                              <p className="mt-3 text-sm leading-6 text-slate-600">
+                                Você vai escolher cenário e nível logo no começo da conversa.
+                              </p>
+                            </div>
+
+                            <div className="rounded-[22px] bg-slate-900 px-4 py-4 text-white shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)]">
+                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Inclui</p>
+                              <div className="mt-3 space-y-2 text-sm text-white/88">
+                                <p>Correções claras e progressivas</p>
+                                <p>Atividades guiadas com contexto</p>
+                                <p>Explicações curtas e aplicáveis</p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateSession(selectedPracticeMode, recommendation?.mode === selectedPracticeMode ? recommendation.lesson || undefined : undefined)}
+                              disabled={creatingLessonId === selectedPracticeMode}
+                              className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-[0_18px_36px_-26px_rgba(15,23,42,0.35)] transition hover:-translate-y-0.5 disabled:opacity-50"
+                            >
+                              {creatingLessonId === selectedPracticeMode ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                              {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1052,9 +1493,26 @@ const AssistenteIA = () => {
                           </p>
                         </>
                       )}
+
+                      {guidedState?.enabled && activeMode && activeMode !== "review" ? (
+                        <GuidedSessionOverview state={guidedState} mode={activeMode} />
+                      ) : null}
                     </div>
 
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openQuickCardDialog({
+                            front: translationPopover?.text || "",
+                            back: translationPopover?.status === "ready" ? translationPopover.translation : "",
+                          })
+                        }
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
+                      >
+                        <BookPlus className="h-4 w-4" />
+                        Card: adicionar nova palavra
+                      </button>
                       {!isRenaming ? (
                         <button
                           type="button"
@@ -1085,7 +1543,16 @@ const AssistenteIA = () => {
                     )}
                   >
                     {activeSession.messages.length ? (
-                      activeSession.messages.map((message) => <MessageBubble key={message.id} message={message} />)
+                      activeSession.messages.map((message) => (
+                        <MessageBubble
+                          key={message.id}
+                          message={message}
+                          isInteractive={message.id === latestInteractiveAssistantMessage?.id}
+                          onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
+                          choiceDisabled={isBusy}
+                          onTextSelection={handleTextSelection}
+                        />
+                      ))
                     ) : (
                       <div className="flex flex-1 items-center justify-center px-6 py-10">
                         <div className="max-w-2xl text-center">
@@ -1112,9 +1579,73 @@ const AssistenteIA = () => {
                   </div>
                 </div>
 
+                {translationPopover ? (
+                  <div
+                    data-translation-popover="true"
+                    data-testid="translation-popover"
+                    className="pointer-events-none fixed z-50 w-[min(calc(100vw-1.5rem),22rem)]"
+                    style={{
+                      top: translationPopover.top,
+                      left: translationPopover.left,
+                    }}
+                  >
+                    <div className="pointer-events-auto overflow-hidden rounded-[24px] border border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(241,245,249,0.96))] shadow-[0_28px_60px_-34px_rgba(15,23,42,0.48)] ring-1 ring-slate-900/5 backdrop-blur">
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-sky-700">Tradução</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Trecho selecionado</p>
+                        </div>
+                        {translationPopover.status === "loading" ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                        ) : null}
+                      </div>
+                      <div className="space-y-3 px-4 py-4">
+                        <p className="line-clamp-3 text-xs leading-5 text-slate-500">“{translationPopover.text}”</p>
+                        <div className="rounded-[20px] bg-white/85 px-4 py-3 text-sm font-medium leading-6 text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+                          {translationPopover.status === "ready"
+                            ? translationPopover.translation
+                            : translationPopover.status === "error"
+                              ? "Nao foi possivel traduzir esse trecho agora."
+                              : "Traduzindo..."}
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-200/70 px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openQuickCardDialog({
+                              front: translationPopover.text,
+                              back: translationPopover.status === "ready" ? translationPopover.translation : "",
+                            });
+                            setTranslationPopover(null);
+                          }}
+                          disabled={translationPopover.status === "loading"}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <BookPlus className="h-3.5 w-3.5" />
+                          Salvar como card
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <QuickAddVocabularyCardDialog
+                  open={isQuickCardDialogOpen}
+                  onOpenChange={setIsQuickCardDialogOpen}
+                  initialFront={quickCardDraft.front}
+                  initialBack={quickCardDraft.back}
+                  lessonId={activeSession?.lesson_detail?.id}
+                  sourceTag="Praticar com IA"
+                  onCreated={() => {
+                    setQuickCardDraft({ front: "", back: "" });
+                    setTranslationPopover(null);
+                  }}
+                />
+
                 <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-3 backdrop-blur">
                   <div className="mx-auto w-full max-w-6xl space-y-3">
-                    {canRecordAudio && (showRecorder || recordingState !== "idle") ? (
+                    {canUseAudioInput && (showRecorder || recordingState !== "idle") ? (
                       <MicRecorder
                         state={recordingState}
                         onStateChange={setRecordingState}
@@ -1123,9 +1654,16 @@ const AssistenteIA = () => {
                       />
                     ) : null}
 
+                    {latestInteractiveAssistantMessage?.metadata?.helper_text &&
+                    !(latestInteractiveAssistantMessage.metadata.choices?.length ?? 0) ? (
+                      <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-3 text-sm leading-6 text-muted-foreground">
+                        {latestInteractiveAssistantMessage.metadata.helper_text}
+                      </div>
+                    ) : null}
+
                     <div className="rounded-[30px] border border-slate-200/80 bg-white/98 p-3 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.4)]">
                       <div className="flex items-end gap-3">
-                        {canRecordAudio ? (
+                        {canUseAudioInput ? (
                           <button
                             type="button"
                             onClick={() => setShowRecorder((current) => !current)}
@@ -1184,7 +1722,7 @@ const AssistenteIA = () => {
                   </p>
                   <button
                     type="button"
-                    onClick={() => navigate("/treinar-ia")}
+                    onClick={() => navigate(APP_PATHS.aiPractice)}
                     className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
                   >
                     Voltar para o assistente

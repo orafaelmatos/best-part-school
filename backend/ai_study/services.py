@@ -2,7 +2,9 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import uuid
+from difflib import SequenceMatcher
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Q
@@ -26,6 +28,30 @@ from .models import (
     SpeakingAudio,
     SpeakingFeedback,
     WritingFeedback,
+)
+from .guided_tutor import (
+    LEVEL_ASSESSMENT_QUESTIONS,
+    action_instruction_for_value,
+    build_default_guided_state,
+    build_guided_metadata,
+    custom_scenario_prompt_message,
+    default_session_objective,
+    feedback_choices_for_mode,
+    find_scenario_option,
+    follow_up_choices_for_mode,
+    guided_session_title,
+    kickoff_message,
+    level_assessment_message,
+    level_prompt_message,
+    normalize_guided_state,
+    normalize_level_choice,
+    parse_level_choice,
+    placeholder_for_expected_input,
+    scenario_prompt_message,
+    scenario_task_for_mode,
+    summary_message_text,
+    SUMMARY_ACTIONS,
+    unique_items,
 )
 
 client = OpenAI()
@@ -92,10 +118,24 @@ def normalize_rewrites(value):
     }
 
 
+def normalize_comparison_text(value):
+    normalized = re.sub(r"[^a-z0-9\s]", "", clean_context_text(value, limit=4000).lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def similarity_ratio(left, right):
+    left_text = normalize_comparison_text(left)
+    right_text = normalize_comparison_text(right)
+    if not left_text or not right_text:
+        return 0
+    return SequenceMatcher(None, left_text, right_text).ratio()
+
+
 def mode_display_name(mode):
     return {
         'review': 'Lesson Review',
         'speaking': 'Speaking Practice',
+        'listening': 'Interprete IA',
         'writing': 'Writing Lab',
     }.get(mode, 'AI Practice')
 
@@ -436,6 +476,35 @@ class AIStudyContextService:
         }
 
     @staticmethod
+    def guided_session_payload(session):
+        mode = getattr(session, 'mode', '')
+        if mode not in ['speaking', 'writing']:
+            return {}
+        guided_state = AIStudyWorkflowService.ensure_guided_state(session)
+        return {
+            'enabled': True,
+            'stage': guided_state.get('stage'),
+            'scenario': guided_state.get('scenario_label'),
+            'level': guided_state.get('level') or normalize_level_choice(getattr(session.student, 'level', 'A2')),
+            'level_source': guided_state.get('level_source'),
+            'objective': guided_state.get('objective'),
+            'difficulty': guided_state.get('difficulty'),
+            'progress_summary': guided_state.get('progress_summary'),
+            'learned_words': guided_state.get('learned_words') or [],
+            'recurring_errors': guided_state.get('recurring_errors') or [],
+            'completed_activities': guided_state.get('completed_activities') or [],
+            'current_task': guided_state.get('current_task'),
+            'expected_input': guided_state.get('expected_input'),
+            'session_status': guided_state.get('session_status'),
+            'summary_items': guided_state.get('summary_items') or [],
+        }
+
+    @staticmethod
+    def active_level(session):
+        guided_payload = AIStudyContextService.guided_session_payload(session)
+        return guided_payload.get('level') or normalize_level_choice(getattr(session.student, 'level', 'A2'))
+
+    @staticmethod
     def _compact_snapshot(snapshot):
         return {
             'lesson_id': snapshot.get('lesson_id'),
@@ -482,6 +551,7 @@ class AIStudyContextService:
     def prompt_context(session):
         selected, _ = AIStudyContextService.selected_context_payload(session, include_images=False)
         auto_context = session.auto_context or AIStudyContextService.build_auto_context(session)
+        guided_session = AIStudyContextService.guided_session_payload(session)
         selected_titles = [item.get('title') for item in selected if item.get('title')]
         priority_rules = [
             'Use selected_lessons as the primary source of truth whenever they exist.',
@@ -498,6 +568,7 @@ class AIStudyContextService:
             'selected_lessons_priority': 'primary' if selected else 'none',
             'selected_lessons': selected,
             'auto_context': auto_context,
+            'guided_session': guided_session,
         }
         instruction_block = "CONTEXT USAGE RULES:\n- " + "\n- ".join(priority_rules)
         if selected_titles:
@@ -508,10 +579,20 @@ class AIStudyContextService:
     def tutor_system_prompt(session):
         lesson = AIStudyContextService.primary_lesson(session)
         lesson_title = lesson.title if lesson else 'No lesson selected'
+        active_level = AIStudyContextService.active_level(session)
+        guided_payload = AIStudyContextService.guided_session_payload(session)
+        guided_rules = ''
+        if guided_payload:
+            guided_rules = (
+                f" Guided session scenario: {guided_payload.get('scenario') or 'Free conversation'}. "
+                f" Guided session objective: {guided_payload.get('objective') or ''}. "
+                ' You must lead the lesson proactively, alternate between practice, correction and explanation, '
+                'and always finish with clear next steps.'
+            )
         common_prefix = (
             'You are an English tutor inside an English school SaaS. '
             'Teach with precision and keep feedback practical, structured and pedagogical. '
-            f'Student level: {session.student.level or "A2"}. Current lesson: {lesson_title}. '
+            f'Student level: {active_level or "A2"}. Current lesson: {lesson_title}. '
         )
         lesson_rules = (
             'Selected lesson context is primary when it exists. '
@@ -532,7 +613,7 @@ class AIStudyContextService:
                 common_prefix +
                 'The active mode is speaking practice. '
                 'Act as a pronunciation coach. Text replies should reinforce pronunciation, fluency, intonation and clarity, and propose short targeted drills based on the student mistakes when relevant. '
-                + lesson_rules +
+                + lesson_rules + guided_rules +
                 'Keep the reply concise and actionable.'
             )
         if session.mode == 'writing':
@@ -541,7 +622,7 @@ class AIStudyContextService:
                 'The active mode is writing practice. '
                 'If the student sends short follow-up questions, answer as a writing coach using the latest corrections as reference. '
                 'Prefer concrete explanations, CEFR-oriented guidance and examples over generic motivation. '
-                + lesson_rules
+                + lesson_rules + guided_rules
             )
         return common_prefix + lesson_rules
 
@@ -726,6 +807,101 @@ class AIStudyOpenAIService:
         'strict': True,
     }
 
+    guided_tutor_schema = {
+        'name': 'guided_tutor_turn',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'assistant_response': {'type': 'string'},
+                'activity_type': {'type': 'string'},
+                'recommended_next_step': {'type': 'string'},
+                'objective': {'type': 'string'},
+                'difficulty': {'type': 'string'},
+                'progress_summary': {'type': 'string'},
+                'learned_words': {'type': 'array', 'items': {'type': 'string'}},
+                'recurring_errors': {'type': 'array', 'items': {'type': 'string'}},
+                'quick_replies': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'additionalProperties': False,
+                        'properties': {
+                            'id': {'type': 'string'},
+                            'label': {'type': 'string'},
+                            'value': {'type': 'string'},
+                            'action_type': {'type': 'string'},
+                            'variant': {'type': 'string'},
+                        },
+                        'required': ['id', 'label', 'value', 'action_type', 'variant'],
+                    },
+                },
+                'expected_input': {'type': 'string'},
+                'current_task': {'type': 'string'},
+                'input_placeholder': {'type': 'string'},
+                'should_wrap_up': {'type': 'boolean'},
+                'session_summary': {'type': 'array', 'items': {'type': 'string'}},
+            },
+            'required': [
+                'assistant_response', 'activity_type', 'recommended_next_step', 'objective',
+                'difficulty', 'progress_summary', 'learned_words', 'recurring_errors',
+                'quick_replies', 'expected_input', 'current_task', 'input_placeholder',
+                'should_wrap_up', 'session_summary',
+            ],
+        },
+        'strict': True,
+    }
+
+    level_assessment_schema = {
+        'name': 'level_assessment_result',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'estimated_level': {'type': 'string'},
+                'rationale': {'type': 'string'},
+                'focus_points': {'type': 'array', 'items': {'type': 'string'}},
+            },
+            'required': ['estimated_level', 'rationale', 'focus_points'],
+        },
+        'strict': True,
+    }
+
+    translation_schema = {
+        'name': 'selection_translation',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'translation': {'type': 'string'},
+            },
+            'required': ['translation'],
+        },
+        'strict': True,
+    }
+
+    listening_exercise_schema = {
+        'name': 'listening_exercise',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'transcript': {'type': 'string'},
+                'instructions': {'type': 'string'},
+                'alternatives': {
+                    'type': 'array',
+                    'minItems': 4,
+                    'maxItems': 4,
+                    'items': {'type': 'string'},
+                },
+                'correct_option_index': {'type': 'integer', 'minimum': 0, 'maximum': 3},
+                'focus_words': {'type': 'array', 'items': {'type': 'string'}},
+            },
+            'required': ['transcript', 'instructions', 'alternatives', 'correct_option_index', 'focus_words'],
+        },
+        'strict': True,
+    }
+
     @staticmethod
     def transcribe(audio_file):
         file_content = audio_file.read()
@@ -741,6 +917,7 @@ class AIStudyOpenAIService:
         context_text = AIStudyContextService.prompt_context(session)
         _, image_blocks = AIStudyContextService.selected_context_payload(session, include_images=True)
         lesson = AIStudyContextService.primary_lesson(session)
+        guided_payload = AIStudyContextService.guided_session_payload(session)
         messages = [
             {
                 'role': 'system',
@@ -757,7 +934,9 @@ class AIStudyOpenAIService:
                     {
                         'type': 'text',
                         'text': (
-                            f"Student level: {session.student.level or 'A2'}\n"
+                            f"Student level: {AIStudyContextService.active_level(session) or 'A2'}\n"
+                            f"Guided scenario: {guided_payload.get('scenario') or 'Free conversation'}\n"
+                            f"Guided objective: {guided_payload.get('objective') or ''}\n"
                             f"Current lesson: {lesson.title if lesson else 'Unknown lesson'}\n"
                             f"Context:\n{context_text}\n\n"
                             f"Transcript:\n{transcript}\n\n"
@@ -782,6 +961,7 @@ class AIStudyOpenAIService:
         context_text = AIStudyContextService.prompt_context(session)
         _, image_blocks = AIStudyContextService.selected_context_payload(session, include_images=True)
         lesson = AIStudyContextService.primary_lesson(session)
+        guided_payload = AIStudyContextService.guided_session_payload(session)
         messages = [
             {
                 'role': 'system',
@@ -790,7 +970,9 @@ class AIStudyOpenAIService:
                     'Analyze the student text and return only structured JSON. '
                     'Estimate the CEFR level, score the writing, correct the text, explain errors, '
                     'suggest improvements to reach the next level, generate rewritten versions for B1, B2, C1 and C2, '
-                    'and create quick study actions based on the same errors.'
+                    'and create quick study actions based on the same errors. '
+                    'The assistant_response field must be a short natural chat reply for the student, '
+                    'never JSON, never a rubric, and never a dump of scores or labels.'
                 ),
             },
             {
@@ -799,8 +981,10 @@ class AIStudyOpenAIService:
                     {
                         'type': 'text',
                         'text': (
-                            f"Student level: {session.student.level or 'A2'}\n"
+                            f"Student level: {AIStudyContextService.active_level(session) or 'A2'}\n"
                             f"Writing type: {text_type}\n"
+                            f"Guided scenario: {guided_payload.get('scenario') or 'Free conversation'}\n"
+                            f"Guided objective: {guided_payload.get('objective') or ''}\n"
                             f"Current lesson: {lesson.title if lesson else 'No lesson selected'}\n"
                             f"Context:\n{context_text}\n\n"
                             f"Student text:\n{text}"
@@ -816,6 +1000,171 @@ class AIStudyOpenAIService:
             response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.writing_schema},
         )
         return json.loads(response.choices[0].message.content)
+
+    @staticmethod
+    def generate_guided_tutor_reply(session, learner_input, action_value=''):
+        guided_payload = AIStudyContextService.guided_session_payload(session)
+        context_text = AIStudyContextService.prompt_context(session)
+        preferred_actions = follow_up_choices_for_mode(session.mode, recommended='continue')
+        action_instruction = action_instruction_for_value(session.mode, action_value) if action_value else ''
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You are a proactive private English tutor guiding the entire lesson from start to finish. '
+                    'The student should never wonder what to ask next. '
+                    'Always adapt to the current CEFR level, keep explanations practical, and alternate between dialogue, correction, explanation, vocabulary and short challenges. '
+                    'When the student asks for help, an example text, a model answer, vocabulary or a grammar explanation, answer that request directly before moving on. '
+                    'Keep assistant_response concise and conversational, like a chat tutor. '
+                    'If the student makes a mistake, show the mistake, explain briefly, give the correct form and ask the student to try again. '
+                    'Do not put JSON, score labels or evaluation rubrics inside assistant_response. '
+                    'Always end by clearly offering the next step. '
+                    'Return only JSON.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': (
+                    f"Mode: {session.mode}\n"
+                    f"Current guided session: {json.dumps(guided_payload, ensure_ascii=False)}\n"
+                    f"Available quick replies template: {json.dumps(preferred_actions, ensure_ascii=False)}\n"
+                    f"Context:\n{context_text}\n\n"
+                    f"Student input:\n{learner_input}\n\n"
+                    f"Explicit requested action:\n{action_instruction}\n"
+                ),
+            },
+        ]
+        response = client.chat.completions.create(
+            model='gpt-4o',
+            messages=messages,
+            response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.guided_tutor_schema},
+        )
+        return json.loads(response.choices[0].message.content)
+
+    @staticmethod
+    def estimate_level_from_assessment(session, scenario_label, answers):
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You estimate an English learner CEFR level from a short placement sample. '
+                    'Be practical and conservative. Return only JSON.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': json.dumps(
+                    {
+                        'mode': session.mode,
+                        'scenario': scenario_label,
+                        'student_profile_level': getattr(session.student, 'level', None),
+                        'questions': LEVEL_ASSESSMENT_QUESTIONS,
+                        'answers': answers,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=messages,
+            response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.level_assessment_schema},
+        )
+        return json.loads(response.choices[0].message.content)
+
+    @staticmethod
+    def translate_selection(text):
+        cleaned = clean_context_text(text, limit=280)
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You translate short English learning snippets into natural Brazilian Portuguese. '
+                    'Keep the translation concise, faithful to the original meaning, and useful for a student. '
+                    'Return only JSON.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': (
+                    f"Translate this selection to pt-BR:\n{cleaned}\n\n"
+                    'Preserve tone when possible. Do not explain, annotate, or add quotes.'
+                ),
+            },
+        ]
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=messages,
+            response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.translation_schema},
+        )
+        payload = json.loads(response.choices[0].message.content)
+        return clean_context_text(payload.get('translation', ''), limit=400)
+
+    @staticmethod
+    def generate_listening_exercise(session, state):
+        scenario_label = clean_context_text(state.get('scenario_label') or 'Conversacao livre', limit=120)
+        level = clean_context_text(state.get('level') or getattr(session.student, 'level', 'A2') or 'A2', limit=10)
+        previous_transcripts = [
+            clean_context_text(message.text, limit=280)
+            for message in session.messages.order_by('-created_at')[:8]
+            if isinstance(message.metadata, dict) and message.metadata.get('interpreter_exercise') and message.text
+        ]
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You create listening transcription exercises for English learners. '
+                    'Return only JSON. '
+                    'The transcript must be natural spoken English, short enough for TTS, and suitable for a dictation activity. '
+                    'Provide exactly 4 alternatives in English, including the exact transcript once and 3 plausible distractors.'
+                ),
+            },
+            {
+                'role': 'user',
+                'content': json.dumps(
+                    {
+                        'mode': 'listening',
+                        'scenario': scenario_label,
+                        'student_level': level,
+                        'student_profile_level': getattr(session.student, 'level', None),
+                        'avoid_repeating': previous_transcripts[:5],
+                        'requirements': {
+                            'max_words': 18,
+                            'min_words': 5,
+                            'single_sentence': True,
+                            'language': 'English only',
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        response = client.chat.completions.create(
+            model='gpt-4o-mini',
+            messages=messages,
+            response_format={'type': 'json_schema', 'json_schema': AIStudyOpenAIService.listening_exercise_schema},
+        )
+        payload = json.loads(response.choices[0].message.content)
+        transcript = clean_context_text(payload.get('transcript'), limit=280)
+        alternatives = [
+            clean_context_text(option, limit=280)
+            for option in (payload.get('alternatives') or [])
+            if clean_context_text(option, limit=280)
+        ][:4]
+        while len(alternatives) < 4:
+            alternatives.append(transcript)
+        correct_option_index = int(payload.get('correct_option_index') or 0)
+        if transcript and transcript not in alternatives:
+            correct_option_index = min(max(correct_option_index, 0), len(alternatives) - 1)
+            alternatives[correct_option_index] = transcript
+        correct_option_index = min(max(correct_option_index, 0), len(alternatives) - 1)
+        return {
+            'transcript': transcript,
+            'instructions': clean_context_text(payload.get('instructions'), limit=220) or 'Ouca o audio e transcreva exatamente o que foi dito.',
+            'alternatives': alternatives,
+            'correct_option_index': correct_option_index,
+            'focus_words': normalize_string_list(payload.get('focus_words'), limit=6),
+        }
 
     @staticmethod
     def generate_chat_response(session, text):
@@ -1256,41 +1605,835 @@ class LessonSummaryWorkflowService:
 
 
 class AIStudyWorkflowService:
+    GUIDED_MODES = {'speaking', 'writing', 'listening'}
+
     @staticmethod
     def default_title_for_mode(mode):
         return {
             'review': 'Lesson Review',
-            'speaking': 'Speaking Practice',
-            'writing': 'Writing Lab',
+            'speaking': 'Speaking Guiado',
+            'listening': 'Interprete IA',
+            'writing': 'Writing Guiado',
         }.get(mode, 'AI Practice')
+
+    @staticmethod
+    def is_guided_mode(session_or_mode):
+        mode = session_or_mode.mode if hasattr(session_or_mode, 'mode') else session_or_mode
+        return mode in AIStudyWorkflowService.GUIDED_MODES
+
+    @staticmethod
+    def ensure_guided_state(session, persist=False):
+        if not AIStudyWorkflowService.is_guided_mode(session):
+            return {}
+        has_existing_activity = (
+            not session.guided_state and (
+                session.messages.exists()
+                or session.speaking_feedbacks.exists()
+                or session.writing_feedbacks.exists()
+            )
+        )
+        state = normalize_guided_state(
+            session.mode,
+            session.guided_state,
+            suggested_level=getattr(session.student, 'level', 'A2') or 'A2',
+            migrate_to_active=has_existing_activity,
+        )
+        if persist and state != (session.guided_state or {}):
+            AIStudyWorkflowService.persist_guided_state(session, state)
+        return state
+
+    @staticmethod
+    def persist_guided_state(session, state, *, title=None, status=None, touch=False):
+        now = timezone.now()
+        session.guided_state = state
+        session.updated_at = now
+        update_fields = ['guided_state', 'updated_at']
+        if touch:
+            session.last_interaction_at = now
+            update_fields.append('last_interaction_at')
+        if title and session.title_source != 'manual':
+            session.title = clean_context_text(title, limit=255)
+            session.title_source = 'auto'
+            update_fields.extend(['title', 'title_source'])
+        if status and session.status != status:
+            session.status = status
+            update_fields.append('status')
+        session.save(update_fields=list(dict.fromkeys(update_fields)))
+        return session
+
+    @staticmethod
+    def _assistant_message(session, text, metadata=None, *, content_type='text', feedback=None, writing_feedback=None):
+        return AIConversationMessage.objects.create(
+            session=session,
+            role='assistant',
+            content_type=content_type,
+            text=text,
+            feedback=feedback,
+            writing_feedback=writing_feedback,
+            metadata=metadata or {},
+        )
+
+    @staticmethod
+    def prepare_listening_session(session, scenario_key, scenario_label, level):
+        state = normalize_guided_state(
+            'listening',
+            session.guided_state,
+            suggested_level=level or getattr(session.student, 'level', 'A2') or 'A2',
+        )
+        state['enabled'] = True
+        state['stage'] = 'active'
+        state['scenario_key'] = clean_context_text(scenario_key or 'custom', limit=120) or 'custom'
+        state['scenario_label'] = clean_context_text(scenario_label, limit=120)
+        state['level'] = normalize_level_choice(level or getattr(session.student, 'level', 'A2') or 'A2')
+        state['level_source'] = 'selected'
+        state['objective'] = default_session_objective('listening', state['scenario_label'], state['level'])
+        state['difficulty'] = 'guided'
+        state['current_task'] = scenario_task_for_mode('listening', state['scenario_key'], state['scenario_label'])
+        state['expected_input'] = 'text_submission'
+        state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
+        state['last_activity_type'] = 'listening_setup'
+        state['session_status'] = 'active'
+        state['preserve_level_on_scenario_change'] = False
+        state['listening_round'] = int(state.get('listening_round') or 0)
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title('listening', state['scenario_label']),
+            touch=True,
+        )
+        return state
+
+    @staticmethod
+    def _listening_options(exercise):
+        raw_options = exercise.get('alternatives') if isinstance(exercise, dict) else []
+        options = []
+        for index, option in enumerate(raw_options or []):
+            text = clean_context_text(option, limit=280)
+            if not text:
+                continue
+            options.append({
+                'id': f'option-{index + 1}',
+                'text': text,
+            })
+        if not options:
+            transcript = clean_context_text((exercise or {}).get('transcript'), limit=280)
+            options = [{'id': 'option-1', 'text': transcript}] if transcript else []
+        correct_index = int((exercise or {}).get('correct_option_index') or 0)
+        correct_index = min(max(correct_index, 0), len(options) - 1) if options else 0
+        correct_option_id = options[correct_index]['id'] if options else ''
+        return options, correct_option_id
+
+    @staticmethod
+    def _listening_metadata(session, state, exercise, audio_url, challenge_id, round_number):
+        options, correct_option_id = AIStudyWorkflowService._listening_options(exercise)
+        return {
+            'supports_streaming': False,
+            'mode': session.mode,
+            'interpreter': True,
+            'interpreter_exercise': {
+                'id': challenge_id,
+                'round': round_number,
+                'scenario_key': state.get('scenario_key') or '',
+                'scenario_label': state.get('scenario_label') or '',
+                'level': state.get('level') or '',
+                'instructions': clean_context_text(exercise.get('instructions'), limit=220) or state.get('current_task') or '',
+                'tts_audio_url': audio_url,
+                'options': options,
+                'correct_option_id': correct_option_id,
+                'focus_words': normalize_string_list(exercise.get('focus_words'), limit=6),
+                'response_mode_choices': [
+                    {'id': 'multiple_choice', 'label': 'Com alternativas'},
+                    {'id': 'transcription', 'label': 'Escrever sozinho'},
+                ],
+            },
+        }
+
+    @staticmethod
+    def create_listening_challenge(session):
+        state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
+        if session.mode != 'listening':
+            raise ValueError('Listening challenge is only available for listening sessions.')
+        transcript_fallback = (
+            f"I am practicing English in a {clean_context_text(state.get('scenario_label') or 'daily life', limit=80).lower()} situation today."
+        )
+        try:
+            exercise = AIStudyOpenAIService.generate_listening_exercise(session, state)
+        except Exception:
+            exercise = {
+                'transcript': transcript_fallback,
+                'instructions': state.get('current_task') or 'Ouca o audio e transcreva o que ouvir.',
+                'alternatives': [
+                    transcript_fallback,
+                    'I am practicing English in a daily situation today.',
+                    'I was practicing English in a daily life situation.',
+                    'I am studying English in this situation today.',
+                ],
+                'correct_option_index': 0,
+                'focus_words': ['practicing', 'situation'],
+            }
+        transcript = clean_context_text(exercise.get('transcript'), limit=280) or transcript_fallback
+        audio_url = AIStudyOpenAIService.generate_tts(transcript)
+        round_number = int(state.get('listening_round') or 0) + 1
+        metadata = AIStudyWorkflowService._listening_metadata(
+            session,
+            state,
+            {**exercise, 'transcript': transcript},
+            audio_url,
+            uuid.uuid4().hex,
+            round_number,
+        )
+        state['stage'] = 'active'
+        state['session_status'] = 'active'
+        state['current_task'] = metadata['interpreter_exercise']['instructions'] or scenario_task_for_mode(
+            'listening',
+            state.get('scenario_key'),
+            state.get('scenario_label') or 'Conversacao livre',
+        )
+        state['expected_input'] = 'text_submission'
+        state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
+        state['last_activity_type'] = 'listening_challenge'
+        state['progress_summary'] = f"Rodada {round_number} pronta para transcricao."
+        state['listening_round'] = round_number
+        state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title('listening', state.get('scenario_label')),
+            touch=True,
+        )
+        return AIStudyWorkflowService._assistant_message(session, transcript, metadata)
+
+    @staticmethod
+    def handle_listening_answer(session, message_id, response_mode, selected_option_id='', answer_text=''):
+        state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
+        if session.mode != 'listening':
+            raise ValueError('Listening answers are only available for listening sessions.')
+        challenge_message = session.messages.filter(id=message_id, role='assistant').first()
+        if not challenge_message:
+            raise ValueError('Listening challenge not found.')
+        metadata = challenge_message.metadata if isinstance(challenge_message.metadata, dict) else {}
+        exercise = metadata.get('interpreter_exercise') if isinstance(metadata.get('interpreter_exercise'), dict) else {}
+        options = exercise.get('options') if isinstance(exercise.get('options'), list) else []
+        expected_text = clean_context_text(challenge_message.text or exercise.get('transcript'), limit=280)
+        correct_option_id = clean_context_text(exercise.get('correct_option_id'), limit=80)
+
+        submitted_text = clean_context_text(answer_text, limit=500)
+        if response_mode == 'multiple_choice':
+            selected_option = next((option for option in options if option.get('id') == selected_option_id), None)
+            if not selected_option:
+                raise ValueError('Listening option not found.')
+            submitted_text = clean_context_text(selected_option.get('text'), limit=500)
+
+        ratio = similarity_ratio(submitted_text, expected_text)
+        is_correct = (
+            selected_option_id == correct_option_id
+            if response_mode == 'multiple_choice'
+            else ratio >= 0.92
+        )
+        status = 'correct' if is_correct else 'close' if ratio >= 0.75 else 'incorrect'
+        percent = int(round(ratio * 100))
+        if status == 'correct':
+            feedback_text = 'Boa! Sua transcricao corresponde ao audio.'
+        elif status == 'close':
+            feedback_text = f'Quase la. Sua transcricao ficou {percent}% proxima do audio.'
+        else:
+            feedback_text = 'Ainda nao foi dessa vez. Revele a resposta para conferir o texto e tente novamente se quiser.'
+
+        user_message = AIStudyWorkflowService._create_user_message(
+            session,
+            submitted_text,
+            extra_metadata={
+                'interpreter': True,
+                'interpreter_response_mode': response_mode,
+                'challenge_message_id': str(challenge_message.id),
+            },
+        )
+        assistant_message = AIStudyWorkflowService._assistant_message(
+            session,
+            feedback_text,
+            {
+                'supports_streaming': False,
+                'mode': session.mode,
+                'interpreter': True,
+                'interpreter_feedback': {
+                    'challenge_message_id': str(challenge_message.id),
+                    'response_mode': response_mode,
+                    'selected_option_id': selected_option_id,
+                    'status': status,
+                    'is_correct': is_correct,
+                    'similarity_score': percent,
+                },
+            },
+        )
+        focus_words = normalize_string_list(exercise.get('focus_words'), limit=6)
+        if status == 'correct':
+            state['learned_words'] = unique_items((state.get('learned_words') or []) + focus_words, limit=18)
+        state['completed_activities'] = unique_items(
+            (state.get('completed_activities') or []) + ['transcricao listening'],
+            limit=18,
+        )
+        state['last_activity_type'] = 'listening_answer'
+        state['progress_summary'] = feedback_text
+        state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title('listening', state.get('scenario_label')),
+            touch=True,
+        )
+        return user_message, assistant_message
+
+    @staticmethod
+    def _append_next_step_prompt(text, recommended_label='Continuar'):
+        cleaned = str(text or '').strip()
+        return cleaned or f"Vamos seguir com: {recommended_label}."
+
+    @staticmethod
+    def _text_language_hints(text):
+        tokens = re.findall(r"[A-Za-zÀ-ÿ']+", str(text or '').lower())
+        english_markers = {
+            'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'his', 'her',
+            'am', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'do', 'did', 'go',
+            'went', 'like', 'want', 'need', 'can', 'could', 'would', 'will', 'the', 'a',
+            'an', 'to', 'for', 'with', 'in', 'on', 'at', 'from', 'because', 'but', 'so',
+            'hello', 'hi', 'good', 'morning', 'afternoon', 'evening', 'please', 'today',
+            'tomorrow', 'yesterday',
+        }
+        portuguese_markers = {
+            'eu', 'voce', 'voces', 'ele', 'ela', 'nos', 'meu', 'minha', 'seu', 'sua',
+            'quero', 'preciso', 'pode', 'poderia', 'me', 'um', 'uma', 'de', 'do', 'da',
+            'para', 'com', 'por', 'em', 'no', 'na', 'que', 'como', 'texto', 'assunto',
+            'ajuda', 'gramatica', 'vocabulario', 'explica', 'explique', 'escreva',
+            'escrever', 'sobre', 'favor', 'hoje', 'amanha', 'ontem',
+        }
+        english_hits = sum(1 for token in tokens if token in english_markers)
+        portuguese_hits = sum(1 for token in tokens if token in portuguese_markers)
+        return tokens, english_hits, portuguese_hits
+
+    @staticmethod
+    def _looks_like_tutor_request(text):
+        cleaned = ' '.join(str(text or '').split())
+        if not cleaned:
+            return False
+        lowered = cleaned.lower()
+        request_prefixes = (
+            'quero ', 'me de ', 'me dê ', 'me manda ', 'me envie ', 'pode ',
+            'poderia ', 'preciso ', 'escreva ', 'explique ', 'crie ', 'gere ',
+            'i want ', 'can you ', 'could you ', 'please ', 'write ', 'show me ',
+            'give me ', 'help me ',
+        )
+        request_fragments = (
+            'texto sobre', 'sample text', 'model answer', 'example text',
+            'help me', 'explique', 'explain', 'grammar', 'vocabulary',
+            'gramatica', 'vocabulario', 'topic', 'assunto',
+        )
+        if any(lowered.startswith(prefix) for prefix in request_prefixes):
+            return True
+        if any(fragment in lowered for fragment in request_fragments):
+            return True
+        if (cleaned.endswith('?') or cleaned.endswith('!')) and len(cleaned.split()) <= 14:
+            return True
+        tokens, english_hits, portuguese_hits = AIStudyWorkflowService._text_language_hints(cleaned)
+        return portuguese_hits > english_hits and len(tokens) <= 18
+
+    @staticmethod
+    def _looks_like_writing_sample(text):
+        cleaned = ' '.join(str(text or '').split())
+        if not cleaned or AIStudyWorkflowService._looks_like_tutor_request(cleaned):
+            return False
+        tokens, english_hits, portuguese_hits = AIStudyWorkflowService._text_language_hints(cleaned)
+        if len(tokens) < 2:
+            return False
+        if portuguese_hits > english_hits and english_hits == 0:
+            return False
+        if english_hits > 0:
+            return True
+        return len(tokens) >= 5 and not cleaned.endswith('?')
+
+    @staticmethod
+    def _looks_like_json_payload(text):
+        cleaned = str(text or '').strip()
+        if not cleaned or cleaned[0] not in '{[':
+            return False
+        try:
+            parsed = json.loads(cleaned)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        return isinstance(parsed, (dict, list))
+
+    @staticmethod
+    def _writing_tip_text(analysis):
+        tips = normalize_string_list(analysis.get('improvement_tips'), limit=2)
+        if tips:
+            return tips[0]
+        errors = normalize_dict_list(analysis.get('error_explanations'), limit=1)
+        if errors:
+            return clean_context_text(errors[0].get('explanation'), limit=280)
+        grammar_points = normalize_string_list(analysis.get('grammar_breakdown'), limit=1)
+        if grammar_points:
+            return grammar_points[0]
+        return clean_context_text(analysis.get('level_progress_feedback'), limit=280)
+
+    @staticmethod
+    def _build_writing_assistant_response(analysis, original_text=''):
+        assistant_text = clean_context_text(analysis.get('assistant_response'), limit=1800)
+        if AIStudyWorkflowService._looks_like_json_payload(assistant_text):
+            assistant_text = ''
+
+        corrected_text = clean_context_text(analysis.get('corrected_text'), limit=1600)
+        original_text = clean_context_text(original_text, limit=1600)
+        general_feedback = clean_context_text(analysis.get('general_feedback'), limit=360)
+        tip_text = AIStudyWorkflowService._writing_tip_text(analysis)
+
+        parts = []
+        if assistant_text:
+            parts.append(assistant_text)
+        if corrected_text and corrected_text != original_text and corrected_text not in '\n\n'.join(parts):
+            parts.append(f"Versao sugerida:\n{corrected_text}")
+        if general_feedback and general_feedback not in '\n\n'.join(parts):
+            parts.append(general_feedback)
+        if tip_text and tip_text not in '\n\n'.join(parts):
+            parts.append(f"Dica rapida: {tip_text}")
+        if not parts:
+            fallback_text = "Revisei seu texto e preparei uma sugestao mais clara para voce continuar."
+            parts.append(fallback_text)
+            if corrected_text:
+                parts.append(f"Versao sugerida:\n{corrected_text}")
+        return clean_context_text('\n\n'.join(parts), limit=2200)
+
+    @staticmethod
+    def _build_summary_items(state, extra_items=None):
+        items = list(state.get('summary_items') or [])
+        scenario_label = state.get('scenario_label')
+        learned_words = state.get('learned_words') or []
+        recurring_errors = state.get('recurring_errors') or []
+        completed_activities = state.get('completed_activities') or []
+
+        if scenario_label:
+            items.append(f"praticou o cenario {scenario_label}")
+        if learned_words:
+            items.append(f"aprendeu palavras como {', '.join(learned_words[:4])}")
+        if recurring_errors:
+            items.append(f"corrigiu pontos como {', '.join(recurring_errors[:3])}")
+        if completed_activities:
+            items.append(f"concluiu {len(completed_activities)} atividades guiadas")
+        for item in extra_items or []:
+            items.append(item)
+        return unique_items(items, limit=6)
+
+    @staticmethod
+    def _summary_response(session, state, intro_text=''):
+        summary_items = AIStudyWorkflowService._build_summary_items(state)
+        state['stage'] = 'summary'
+        state['session_status'] = 'summary'
+        state['summary_items'] = summary_items
+        state['current_task'] = ''
+        state['expected_input'] = 'choice'
+        state['input_placeholder'] = 'Escolha se quer continuar, revisar, mudar de cenario ou encerrar.'
+        text = summary_message_text(summary_items)
+        if intro_text:
+            text = f"{intro_text}\n\n{text}"
+        metadata = build_guided_metadata(
+            stage='summary',
+            choices=SUMMARY_ACTIONS,
+            layout='chips',
+            helper_text='Voce pode continuar estudando, revisar o que aprendeu ou encerrar por aqui.',
+            expected_input='choice',
+            input_placeholder=state['input_placeholder'],
+            summary_items=summary_items,
+        )
+        AIStudyWorkflowService.persist_guided_state(session, state, touch=True)
+        return AIStudyWorkflowService._assistant_message(session, text, {**metadata, 'supports_streaming': True, 'mode': session.mode})
+
+    @staticmethod
+    def _activate_guided_state(session, state, *, level=None, level_source='', scenario_key='', scenario_label='', progress_summary=''):
+        if level:
+            state['level'] = normalize_level_choice(level)
+        if level_source:
+            state['level_source'] = level_source
+        if scenario_key:
+            state['scenario_key'] = scenario_key
+        if scenario_label:
+            state['scenario_label'] = scenario_label
+        active_level = state.get('level') or state.get('default_level_hint') or 'A2'
+        state['stage'] = 'active'
+        state['objective'] = default_session_objective(session.mode, state.get('scenario_label') or 'Conversacao livre', active_level)
+        state['difficulty'] = state.get('difficulty') or 'guided'
+        state['current_task'] = scenario_task_for_mode(session.mode, state.get('scenario_key'), state.get('scenario_label') or 'Conversacao livre')
+        state['expected_input'] = 'audio_or_text' if session.mode == 'speaking' else 'text_submission'
+        state['input_placeholder'] = placeholder_for_expected_input(session.mode, state['expected_input'], state['current_task'])
+        state['last_activity_type'] = 'kickoff'
+        state['session_status'] = 'active'
+        state['preserve_level_on_scenario_change'] = False
+        if progress_summary:
+            state['progress_summary'] = progress_summary
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title(session.mode, state.get('scenario_label')),
+            touch=True,
+        )
+        return state
+
+    @staticmethod
+    def _user_message_text(text, guided_action):
+        if text:
+            return text.strip()
+        if isinstance(guided_action, dict):
+            return ' '.join(str(guided_action.get('label') or guided_action.get('value') or '').split())
+        return ''
+
+    @staticmethod
+    def _create_user_message(session, text, guided_action=None, extra_metadata=None):
+        metadata = extra_metadata.copy() if isinstance(extra_metadata, dict) else {}
+        if guided_action:
+            metadata['guided_action'] = guided_action
+        return AIConversationMessage.objects.create(
+            session=session,
+            role='user',
+            content_type='text',
+            text=text,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _build_follow_up_metadata(session, state, choices, helper_text=''):
+        return build_guided_metadata(
+            stage=state.get('stage') or 'active',
+            choices=choices,
+            layout='chips',
+            helper_text=helper_text or state.get('progress_summary') or 'Escolha o proximo passo ou continue respondendo em ingles.',
+            expected_input=state.get('expected_input') or ('audio_or_text' if session.mode == 'speaking' else 'text_submission'),
+            current_task=state.get('current_task') or '',
+            input_placeholder=state.get('input_placeholder') or placeholder_for_expected_input(
+                session.mode,
+                state.get('expected_input') or ('audio_or_text' if session.mode == 'speaking' else 'text_submission'),
+                state.get('current_task') or '',
+            ),
+            summary_items=state.get('summary_items') or [],
+            recommended_choice_id=(choices[0]['id'] if choices else ''),
+        )
 
     @staticmethod
     def initial_message_payload(session, lesson=None):
         lesson = lesson or AIStudyContextService.primary_lesson(session)
         if session.mode == 'review' and lesson:
             text = f"Aula atual: {lesson.title}. Vou usar esta aula como contexto principal. O que você quer revisar agora?"
-        elif session.mode == 'speaking':
-            text = (
-                'Vamos treinar pronúncia. Envie um áudio curto em inglês e eu vou avaliar '
-                'pronúncia, fluência, entonação, clareza e sugerir exercícios focados nos seus pontos de melhoria.'
-            )
-        elif session.mode == 'writing':
-            text = (
-                'Envie um texto em inglês para correção. Eu vou estimar seu nível CEFR, corrigir o texto, '
-                'explicar os erros e gerar reescritas em níveis mais avançados.'
-            )
+            metadata = {'initial': True, 'supports_streaming': True, 'mode': session.mode}
+        elif AIStudyWorkflowService.is_guided_mode(session):
+            state = AIStudyWorkflowService.ensure_guided_state(session)
+            session.guided_state = state
+            session.save(update_fields=['guided_state'])
+            text, guided_metadata = scenario_prompt_message()
+            metadata = {
+                'initial': True,
+                'supports_streaming': True,
+                'mode': session.mode,
+                **guided_metadata,
+            }
         else:
             text = 'Sua sessão de prática com IA está pronta.'
+            metadata = {'initial': True, 'supports_streaming': True, 'mode': session.mode}
         return {
             'session': session,
             'role': 'assistant',
             'content_type': 'text',
             'text': text,
-            'metadata': {'initial': True, 'supports_streaming': True, 'mode': session.mode},
+            'metadata': metadata,
         }
 
     @staticmethod
+    def _handle_guided_onboarding(session, state, text, guided_action):
+        action_value = str(guided_action.get('value') or '').strip() if guided_action else ''
+        action_type = str(guided_action.get('action_type') or '').strip() if guided_action else ''
+        assistant_text = ''
+        assistant_metadata = {}
+        if state.get('stage') == 'choose_scenario':
+            if action_type == 'scenario' and action_value == 'custom':
+                state['stage'] = 'await_custom_scenario'
+                assistant_text, assistant_metadata = custom_scenario_prompt_message()
+            else:
+                scenario_option = find_scenario_option(action_value)
+                scenario_label = scenario_option['label'] if scenario_option else clean_context_text(text, limit=120)
+                scenario_key = scenario_option['value'] if scenario_option else 'custom'
+                if not scenario_label:
+                    assistant_text, assistant_metadata = scenario_prompt_message()
+                elif state.get('preserve_level_on_scenario_change') and state.get('level'):
+                    AIStudyWorkflowService._activate_guided_state(
+                        session,
+                        state,
+                        scenario_key=scenario_key,
+                        scenario_label=scenario_label,
+                    )
+                    assistant_text, assistant_metadata = kickoff_message(session.mode, state)
+                else:
+                    state['scenario_key'] = scenario_key
+                    state['scenario_label'] = scenario_label
+                    state['stage'] = 'choose_level'
+                    AIStudyWorkflowService.persist_guided_state(
+                        session,
+                        state,
+                        title=guided_session_title(session.mode, scenario_label),
+                        touch=True,
+                    )
+                    assistant_text, assistant_metadata = level_prompt_message(scenario_label, state.get('level') or '')
+        elif state.get('stage') == 'await_custom_scenario':
+            scenario_label = clean_context_text(text, limit=120)
+            if not scenario_label:
+                assistant_text, assistant_metadata = custom_scenario_prompt_message()
+            elif state.get('preserve_level_on_scenario_change') and state.get('level'):
+                AIStudyWorkflowService._activate_guided_state(
+                    session,
+                    state,
+                    scenario_key='custom',
+                    scenario_label=scenario_label,
+                )
+                assistant_text, assistant_metadata = kickoff_message(session.mode, state)
+            else:
+                state['scenario_key'] = 'custom'
+                state['scenario_label'] = scenario_label
+                state['stage'] = 'choose_level'
+                AIStudyWorkflowService.persist_guided_state(
+                    session,
+                    state,
+                    title=guided_session_title(session.mode, scenario_label),
+                    touch=True,
+                )
+                assistant_text, assistant_metadata = level_prompt_message(scenario_label, state.get('level') or '')
+        elif state.get('stage') == 'choose_level':
+            selected_level = action_value if action_type == 'level' else parse_level_choice(text)
+            if selected_level == 'unknown':
+                state['stage'] = 'level_assessment'
+                state['assessment'] = {
+                    'questions': LEVEL_ASSESSMENT_QUESTIONS,
+                    'answers': [],
+                    'current_index': 0,
+                }
+                AIStudyWorkflowService.persist_guided_state(session, state, touch=True)
+                question = state['assessment']['questions'][0]
+                assistant_text, assistant_metadata = level_assessment_message(
+                    question,
+                    0,
+                    len(state['assessment']['questions']),
+                )
+            else:
+                normalized_level = normalize_level_choice(selected_level or text or state.get('default_level_hint') or 'A2')
+                AIStudyWorkflowService._activate_guided_state(
+                    session,
+                    state,
+                    level=normalized_level,
+                    level_source='selected',
+                )
+                assistant_text, assistant_metadata = kickoff_message(session.mode, state)
+        elif state.get('stage') == 'level_assessment':
+            assessment = state.get('assessment') or {}
+            answers = list(assessment.get('answers') or [])
+            current_index = int(assessment.get('current_index') or 0)
+            answers.append({
+                'question_id': LEVEL_ASSESSMENT_QUESTIONS[current_index]['id'],
+                'answer': text,
+            })
+            assessment['answers'] = answers
+            current_index += 1
+            if current_index < len(LEVEL_ASSESSMENT_QUESTIONS):
+                assessment['current_index'] = current_index
+                state['assessment'] = assessment
+                AIStudyWorkflowService.persist_guided_state(session, state, touch=True)
+                question = LEVEL_ASSESSMENT_QUESTIONS[current_index]
+                assistant_text, assistant_metadata = level_assessment_message(
+                    question,
+                    current_index,
+                    len(LEVEL_ASSESSMENT_QUESTIONS),
+                )
+            else:
+                result = AIStudyOpenAIService.estimate_level_from_assessment(
+                    session,
+                    state.get('scenario_label') or 'Conversacao livre',
+                    answers,
+                )
+                estimated_level = normalize_level_choice(result.get('estimated_level'))
+                focus_points = normalize_string_list(result.get('focus_points'), limit=4)
+                progress_summary = result.get('rationale', '')
+                AIStudyWorkflowService._activate_guided_state(
+                    session,
+                    state,
+                    level=estimated_level,
+                    level_source='estimated',
+                    progress_summary=progress_summary,
+                )
+                if focus_points:
+                    state['summary_items'] = unique_items((state.get('summary_items') or []) + focus_points, limit=8)
+                    AIStudyWorkflowService.persist_guided_state(session, state, touch=True)
+                kickoff_text, assistant_metadata = kickoff_message(session.mode, state)
+                assistant_text = (
+                    f"Acredito que seu nivel atual seja aproximadamente {estimated_level}.\n\n"
+                    f"{progress_summary}\n\n"
+                    f"{kickoff_text}"
+                )
+        return assistant_text, assistant_metadata
+
+    @staticmethod
+    def _writing_should_be_analyzed(state, text, guided_action):
+        if guided_action:
+            return False
+        if state.get('stage') != 'active':
+            return False
+        expected_input = state.get('expected_input')
+        cleaned = str(text or '').strip()
+        if expected_input == 'text_submission':
+            return AIStudyWorkflowService._looks_like_writing_sample(cleaned)
+        if expected_input == 'chat':
+            return (
+                len(cleaned.split()) >= 8
+                and '?' not in cleaned
+                and AIStudyWorkflowService._looks_like_writing_sample(cleaned)
+            )
+        return False
+
+    @staticmethod
+    def _apply_guided_result(session, state, result):
+        recommended = str(result.get('recommended_next_step') or 'continue').strip()
+        choices = follow_up_choices_for_mode(session.mode, recommended=recommended if recommended else 'continue')
+        expected_input = str(result.get('expected_input') or '').strip() or (
+            'audio_or_text' if session.mode == 'speaking' else 'text_submission'
+        )
+        current_task = clean_context_text(result.get('current_task'), limit=600) or state.get('current_task') or scenario_task_for_mode(
+            session.mode,
+            state.get('scenario_key'),
+            state.get('scenario_label') or 'Conversacao livre',
+        )
+        state['stage'] = 'active'
+        state['last_activity_type'] = clean_context_text(result.get('activity_type'), limit=80) or 'guided'
+        state['recommended_next_step'] = recommended or 'continue'
+        state['objective'] = clean_context_text(result.get('objective'), limit=320) or state.get('objective')
+        state['difficulty'] = clean_context_text(result.get('difficulty'), limit=120) or state.get('difficulty')
+        state['progress_summary'] = clean_context_text(result.get('progress_summary'), limit=500) or state.get('progress_summary')
+        state['learned_words'] = unique_items((state.get('learned_words') or []) + normalize_string_list(result.get('learned_words'), limit=8), limit=18)
+        state['recurring_errors'] = unique_items((state.get('recurring_errors') or []) + normalize_string_list(result.get('recurring_errors'), limit=8), limit=18)
+        state['completed_activities'] = unique_items((state.get('completed_activities') or []) + [state['last_activity_type']], limit=18)
+        state['current_task'] = current_task
+        state['expected_input'] = expected_input
+        state['input_placeholder'] = clean_context_text(result.get('input_placeholder'), limit=240) or placeholder_for_expected_input(
+            session.mode,
+            expected_input,
+            current_task,
+        )
+        state['summary_items'] = AIStudyWorkflowService._build_summary_items(
+            state,
+            extra_items=normalize_string_list(result.get('session_summary'), limit=4),
+        )
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title(session.mode, state.get('scenario_label')),
+            touch=True,
+        )
+        if result.get('should_wrap_up'):
+            assistant_text = clean_context_text(result.get('assistant_response'), limit=4000)
+            intro = assistant_text if assistant_text else 'Voce fez um bom progresso nesta sessao.'
+            return AIStudyWorkflowService._summary_response(session, state, intro_text=intro)
+        assistant_text = AIStudyWorkflowService._append_next_step_prompt(
+            clean_context_text(result.get('assistant_response'), limit=4000),
+            choices[0]['label'] if choices else 'Continuar',
+        )
+        metadata = AIStudyWorkflowService._build_follow_up_metadata(
+            session,
+            state,
+            choices,
+            helper_text=state.get('progress_summary') or 'Escolha o proximo passo abaixo.',
+        )
+        return AIStudyWorkflowService._assistant_message(
+            session,
+            assistant_text,
+            {**metadata, 'supports_streaming': True, 'mode': session.mode},
+        )
+
+    @staticmethod
+    def handle_guided_message(session, text='', text_type='free', guided_action=None):
+        state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
+        guided_action = guided_action if isinstance(guided_action, dict) else None
+        normalized_text = clean_context_text(text, limit=6000)
+        user_text = AIStudyWorkflowService._user_message_text(normalized_text, guided_action)
+        user_message = AIStudyWorkflowService._create_user_message(
+            session,
+            user_text,
+            guided_action=guided_action,
+            extra_metadata={'text_type': text_type} if text_type else None,
+        )
+
+        if state.get('stage') in ['choose_scenario', 'await_custom_scenario', 'choose_level', 'level_assessment']:
+            assistant_text, assistant_metadata = AIStudyWorkflowService._handle_guided_onboarding(
+                session,
+                state,
+                normalized_text,
+                guided_action,
+            )
+            assistant_message = AIStudyWorkflowService._assistant_message(
+                session,
+                assistant_text,
+                {**assistant_metadata, 'supports_streaming': True, 'mode': session.mode},
+            )
+            AIStudyContextService.touch_session(session)
+            return user_message, assistant_message
+
+        if guided_action:
+            action_value = str(guided_action.get('value') or '').strip()
+            action_type = str(guided_action.get('action_type') or '').strip()
+            if action_value in ['continue_session', 'new_scenario']:
+                action_type = 'session_control'
+            if action_value == 'continue_session':
+                action_type = 'quick_action'
+                action_value = 'continue'
+            if action_value == 'finalize_session':
+                state['session_status'] = 'completed'
+                state['expected_input'] = 'chat'
+                state['input_placeholder'] = 'Escreva quando quiser iniciar uma nova atividade.'
+                AIStudyWorkflowService.persist_guided_state(session, state, status='completed', touch=True)
+                assistant_message = AIStudyWorkflowService._assistant_message(
+                    session,
+                    'Sessao encerrada. Quando quiser, comece um novo cenario e eu volto a guiar seu estudo.',
+                    {'supports_streaming': True, 'mode': session.mode},
+                )
+                return user_message, assistant_message
+            if action_type == 'session_control' and action_value in ['change_scenario', 'new_scenario']:
+                state['stage'] = 'choose_scenario'
+                state['preserve_level_on_scenario_change'] = bool(state.get('level'))
+                state['current_task'] = ''
+                state['expected_input'] = 'choice'
+                state['input_placeholder'] = 'Escolha um novo cenario ou escreva o seu.'
+                AIStudyWorkflowService.persist_guided_state(session, state, touch=True)
+                assistant_text, assistant_metadata = scenario_prompt_message()
+                assistant_metadata['helper_text'] = (
+                    f"Seu nivel atual e {state.get('level')}. Vamos trocar apenas o cenario."
+                    if state.get('level')
+                    else assistant_metadata.get('helper_text', '')
+                )
+                assistant_message = AIStudyWorkflowService._assistant_message(
+                    session,
+                    assistant_text,
+                    {**assistant_metadata, 'supports_streaming': True, 'mode': session.mode},
+                )
+                return user_message, assistant_message
+            if action_type == 'session_control' and action_value == 'end_session':
+                assistant_message = AIStudyWorkflowService._summary_response(
+                    session,
+                    state,
+                    intro_text='Antes de encerrar, aqui vai um resumo do que voce conquistou nesta sessao.',
+                )
+                return user_message, assistant_message
+
+        if session.mode == 'writing' and AIStudyWorkflowService._writing_should_be_analyzed(state, normalized_text, guided_action):
+            return AIStudyWorkflowService.handle_writing_submission(session, normalized_text, text_type=text_type, user_message=user_message)
+
+        action_value = str(guided_action.get('value') or '').strip() if guided_action else ''
+        learner_input = normalized_text or user_text
+        result = AIStudyOpenAIService.generate_guided_tutor_reply(session, learner_input, action_value=action_value)
+        assistant_message = AIStudyWorkflowService._apply_guided_result(session, state, result)
+        return user_message, assistant_message
+
+    @staticmethod
     def handle_audio_upload(session, uploaded_file, duration_seconds=None):
+        state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
         speaking_audio = SpeakingAudio.objects.create(
             session=session,
             student=session.student,
@@ -1337,17 +2480,64 @@ class AIStudyWorkflowService:
             )
             speaking_audio.status = 'analyzed'
             speaking_audio.save(update_fields=['status'])
-            AIConversationMessage.objects.create(session=session, role='user', content_type='audio', text=feedback.transcript, audio=speaking_audio, feedback=feedback)
+            AIConversationMessage.objects.create(
+                session=session,
+                role='user',
+                content_type='audio',
+                text=feedback.transcript,
+                audio=speaking_audio,
+                feedback=feedback,
+            )
+
+            low_performance = feedback.overall_score < 75
+            state['stage'] = 'active'
+            state['last_activity_type'] = 'speaking_feedback'
+            state['progress_summary'] = clean_context_text(
+                analysis.get('assistant_response') or feedback.ai_feedback,
+                limit=400,
+            )
+            state['learned_words'] = unique_items(
+                (state.get('learned_words') or []) + feedback.correct_words + feedback.vocabulary_suggestions,
+                limit=18,
+            )
+            recurring_errors = feedback.problem_words + [item.get('word') for item in feedback.error_details if item.get('word')]
+            state['recurring_errors'] = unique_items((state.get('recurring_errors') or []) + recurring_errors, limit=18)
+            state['completed_activities'] = unique_items((state.get('completed_activities') or []) + ['analise de speaking'], limit=18)
+            state['current_task'] = (
+                f"Tente novamente usando esta frase como base: {feedback.corrected_sentence or feedback.natural_sentence or feedback.transcript}"
+                if low_performance
+                else scenario_task_for_mode(session.mode, state.get('scenario_key'), state.get('scenario_label') or 'Conversacao livre')
+            )
+            state['expected_input'] = 'audio_or_text'
+            state['input_placeholder'] = placeholder_for_expected_input(session.mode, state['expected_input'], state['current_task'])
+            state['recommended_next_step'] = 'retry' if low_performance else 'new_challenge'
+            state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
+            AIStudyWorkflowService.persist_guided_state(
+                session,
+                state,
+                title=guided_session_title(session.mode, state.get('scenario_label')),
+                touch=True,
+            )
+
+            choices = feedback_choices_for_mode('speaking', low_performance=low_performance)
+            assistant_text = AIStudyWorkflowService._append_next_step_prompt(
+                analysis.get('assistant_response') or feedback.ai_feedback,
+                choices[0]['label'] if choices else 'Continuar',
+            )
+            metadata = AIStudyWorkflowService._build_follow_up_metadata(
+                session,
+                state,
+                choices,
+                helper_text='Escolha como deseja continuar seu treino agora.',
+            )
             AIConversationMessage.objects.create(
                 session=session,
                 role='assistant',
                 content_type='feedback',
-                text=analysis.get('assistant_response') or feedback.ai_feedback,
+                text=assistant_text,
                 feedback=feedback,
-                metadata={'supports_streaming': True},
+                metadata={**metadata, 'supports_streaming': True, 'mode': session.mode},
             )
-            AIStudyContextService.touch_session(session)
-            AIStudyOpenAIService.maybe_generate_session_title(session)
             return feedback
         except Exception as exc:
             speaking_audio.status = 'failed'
@@ -1356,15 +2546,15 @@ class AIStudyWorkflowService:
             raise
 
     @staticmethod
-    def handle_writing_submission(session, text, text_type='free'):
+    def handle_writing_submission(session, text, text_type='free', user_message=None):
+        state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
         analysis = AIStudyOpenAIService.analyze_writing(session, text, text_type=text_type)
-        user_message = AIConversationMessage.objects.create(
-            session=session,
-            role='user',
-            content_type='text',
-            text=text,
-            metadata={'text_type': text_type},
-        )
+        if not user_message:
+            user_message = AIStudyWorkflowService._create_user_message(
+                session,
+                text,
+                extra_metadata={'text_type': text_type},
+            )
         feedback = WritingFeedback.objects.create(
             session=session,
             student=session.student,
@@ -1385,14 +2575,56 @@ class AIStudyWorkflowService:
             vocabulary_flashcards=normalize_dict_list(analysis.get('vocabulary_flashcards'), limit=20),
             raw_response=analysis,
         )
+
+        low_performance = feedback.writing_score < 75
+        state['stage'] = 'active'
+        state['last_activity_type'] = 'writing_feedback'
+        state['progress_summary'] = clean_context_text(
+            analysis.get('level_progress_feedback') or analysis.get('general_feedback'),
+            limit=420,
+        )
+        learned_words = [item.get('term') for item in feedback.vocabulary_flashcards if item.get('term')]
+        recurring_errors = [
+            item.get('category') or item.get('excerpt')
+            for item in feedback.error_explanations
+            if item.get('category') or item.get('excerpt')
+        ]
+        state['learned_words'] = unique_items((state.get('learned_words') or []) + learned_words, limit=18)
+        state['recurring_errors'] = unique_items((state.get('recurring_errors') or []) + recurring_errors, limit=18)
+        state['completed_activities'] = unique_items((state.get('completed_activities') or []) + ['analise de writing'], limit=18)
+        state['current_task'] = (
+            f"Reescreva seu texto usando esta versao corrigida como base: {feedback.corrected_text}"
+            if low_performance
+            else scenario_task_for_mode(session.mode, state.get('scenario_key'), state.get('scenario_label') or 'Conversacao livre')
+        )
+        state['expected_input'] = 'text_submission'
+        state['input_placeholder'] = placeholder_for_expected_input(session.mode, state['expected_input'], state['current_task'])
+        state['recommended_next_step'] = 'retry' if low_performance else 'new_challenge'
+        state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
+        AIStudyWorkflowService.persist_guided_state(
+            session,
+            state,
+            title=guided_session_title(session.mode, state.get('scenario_label')),
+            touch=True,
+        )
+
+        choices = feedback_choices_for_mode('writing', low_performance=low_performance)
+        assistant_text = AIStudyWorkflowService._append_next_step_prompt(
+            AIStudyWorkflowService._build_writing_assistant_response(analysis, original_text=text),
+            choices[0]['label'] if choices else 'Continuar',
+        )
+        metadata = AIStudyWorkflowService._build_follow_up_metadata(
+            session,
+            state,
+            choices,
+            helper_text='Agora vamos consolidar sua escrita com o proximo passo guiado.',
+        )
         assistant_message = AIConversationMessage.objects.create(
             session=session,
             role='assistant',
             content_type='writing_feedback',
-            text=analysis.get('assistant_response') or feedback.general_feedback,
+            text=assistant_text,
             writing_feedback=feedback,
-            metadata={'supports_streaming': True, 'mode': session.mode},
+            metadata={**metadata, 'supports_streaming': True, 'mode': session.mode},
         )
-        AIStudyContextService.touch_session(session)
-        AIStudyOpenAIService.maybe_generate_session_title(session)
         return user_message, assistant_message

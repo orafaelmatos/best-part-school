@@ -7,6 +7,10 @@ type SidebarBadgeData = {
   homework: {
     count: number;
     pending_homework: number;
+    state: BadgeState;
+  };
+  learned_words: {
+    count: number;
     overdue_reviews: number;
     difficult_cards: number;
     state: BadgeState;
@@ -19,9 +23,9 @@ type SidebarBadgeData = {
 
 const stateClass: Record<BadgeState, string> = {
   none: "",
-  default: "bg-primary text-primary-foreground",
-  warning: "bg-amber-500 text-white",
-  danger: "bg-red-600 text-white",
+  default: "bg-white text-slate-900",
+  warning: "bg-amber-300 text-slate-950",
+  danger: "bg-rose-300 text-slate-950",
 };
 
 export const useSidebarBadges = (enabled = true) => {
@@ -41,7 +45,9 @@ const SidebarBadge = ({ count, state }: { count?: number; state?: BadgeState }) 
   if (!count) return null;
   const display = count > 99 ? "99+" : count;
   return (
-    <span className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-md px-1.5 text-xs font-semibold tabular-nums ${stateClass[state || "default"]}`}>
+    <span
+      className={`ml-auto inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-bold tabular-nums shadow-sm ${stateClass[state || "default"]}`}
+    >
       {display}
     </span>
   );

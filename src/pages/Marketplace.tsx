@@ -12,6 +12,7 @@ import {
   isFreeCourse,
   type MarketplaceCourse,
 } from "@/lib/courses";
+import { APP_PATHS } from "@/lib/routes";
 
 const Marketplace = () => {
   const { user } = useAuth();
@@ -57,7 +58,7 @@ const Marketplace = () => {
       <div className="flex items-center justify-between mb-6">
         <PageHeader title="Marketplace" description="Cursos e materiais para acelerar seu aprendizado." />
         {canCreateCourse ? (
-          <Link to="/cursos/novo" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 font-medium hover:opacity-90">
+          <Link to={APP_PATHS.newCourse} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 font-medium hover:opacity-90">
             <Plus size={18} /> Novo Curso
           </Link>
         ) : null}

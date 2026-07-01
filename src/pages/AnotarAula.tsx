@@ -14,6 +14,7 @@ import { HomeworkPanel } from "@/components/HomeworkPanel";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import LessonSummarySection from "@/components/LessonSummarySection";
 import { useAuth } from "@/contexts/AuthContext";
+import { APP_PATHS } from "@/lib/routes";
 
 const AnotarAula = () => {
   const { id } = useParams<{ id: string }>();
@@ -164,10 +165,10 @@ const AnotarAula = () => {
       queryClient.invalidateQueries({ queryKey: ["student-lesson-homework-feed", lesson?.student] });
       toast({ title: "Aula salva com sucesso!" });
       if ((user?.role === "teacher" || user?.role === "admin") && lesson?.student) {
-        navigate(`/alunos/${lesson.student}/aulas`);
+        navigate(APP_PATHS.studentLessons(lesson.student));
         return;
       }
-      navigate("/aulas");
+      navigate(APP_PATHS.lessons);
     },
     onError: () => {
       toast({ title: "Erro ao salvar", variant: "destructive" });

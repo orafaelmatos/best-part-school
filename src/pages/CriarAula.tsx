@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import CreatableSelect from "react-select/creatable";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
+import { APP_PATHS } from "@/lib/routes";
 
 const CriarAula = () => {
   const navigate = useNavigate();
@@ -67,7 +68,7 @@ const CriarAula = () => {
         }));
       } catch (err) {
         alert("Evento de calendário não encontrado.");
-        navigate("/calendario");
+        navigate(APP_PATHS.calendar);
       }
     };
     fetchEvent();
@@ -152,7 +153,7 @@ const CriarAula = () => {
         });
         queryClient.invalidateQueries({ queryKey: ["lessons"] });
         queryClient.invalidateQueries({ queryKey: ["calendar"] });
-        navigate(`/aulas/${response.data.id}/anotar?from=calendar`);
+        navigate(`${APP_PATHS.annotateLesson(response.data.id)}?from=calendar`);
         return;
       }
 
@@ -169,7 +170,7 @@ const CriarAula = () => {
       queryClient.invalidateQueries({ queryKey: ["lessons"] });
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
       
-      navigate("/calendario");
+      navigate(APP_PATHS.calendar);
     } catch (err) {
       alert("Erro ao criar aula");
       console.error(err);

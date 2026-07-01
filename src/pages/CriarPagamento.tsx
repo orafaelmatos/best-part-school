@@ -4,6 +4,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { APP_PATHS } from "@/lib/routes";
 
 const CriarPagamento = () => {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ const CriarPagamento = () => {
     try {
       await api.post("/payments/", { ...formData });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
-      navigate("/pagamentos");
+      navigate(APP_PATHS.payments);
     } catch (err) {
       alert("Erro ao criar pagamento");
       console.error(err);

@@ -37,6 +37,7 @@ import {
   sortLessonsByDateDesc,
 } from "@/lib/studentLessonHistory";
 import { useAuth } from "@/contexts/AuthContext";
+import { APP_PATHS } from "@/lib/routes";
 
 type PracticeMode = "review" | "speaking" | "writing";
 
@@ -328,7 +329,7 @@ const AlunoTrilha = () => {
           <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex items-start gap-4">
               <Link
-                to="/alunos"
+                to={APP_PATHS.students}
                 className="mt-1 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/80 bg-white/80 text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
                 aria-label="Voltar para alunos"
               >
@@ -340,7 +341,7 @@ const AlunoTrilha = () => {
               />
             </div>
             <Link
-              to="/calendario"
+              to={APP_PATHS.calendar}
               className="inline-flex items-center gap-2 rounded-2xl border border-white/80 bg-white/80 px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent"
             >
               <CalendarClock size={16} /> Abrir calendario

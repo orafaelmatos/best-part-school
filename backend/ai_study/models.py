@@ -44,15 +44,17 @@ class AIStudySession(models.Model):
     custom_topic = models.CharField(max_length=255, blank=True, null=True)
     title = models.CharField(max_length=255, blank=True)
     title_source = models.CharField(max_length=20, choices=TITLE_SOURCE_CHOICES, default='auto')
+    is_pinned = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     auto_context = models.JSONField(default=dict, blank=True)
+    guided_state = models.JSONField(default=dict, blank=True)
     streaming_ready = models.BooleanField(default=True)
     last_interaction_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-last_interaction_at', '-created_at']
+        ordering = ['-is_pinned', '-last_interaction_at', '-created_at']
 
     def __str__(self):
         return self.title or f"{self.student_id} - {self.mode} - {self.theme}"

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -22,19 +22,26 @@ import AlunoTrilha from "./pages/AlunoTrilha";
 import CriarAluno from "./pages/CriarAluno";
 import CRM from "./pages/CRM";
 import Homework from "./pages/Homework";
+import PalavrasAprendidas from "./pages/PalavrasAprendidas";
 import CorrigirHomework from "./pages/CorrigirHomework";
-import { useAuth } from "./contexts/AuthContext";
+import InterpreteIA from "./pages/InterpreteIA";
+import { APP_PATHS, LANDING_PATH, LOGIN_PATH } from "./lib/routes";
 
 const queryClient = new QueryClient();
 
-const HomeRoute = () => {
-  const { user, isLoading } = useAuth();
+const RedirectToPath = ({ to }: { to: string }) => {
+  const location = useLocation();
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
+};
 
-  if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center text-primary font-medium">Carregando BPS...</div>;
-  }
-
-  return user ? <Dashboard /> : <LandingPage />;
+const RedirectToDynamicPath = ({
+  buildTo,
+}: {
+  buildTo: (params: Readonly<Record<string, string | undefined>>) => string;
+}) => {
+  const location = useLocation();
+  const params = useParams();
+  return <Navigate to={`${buildTo(params)}${location.search}${location.hash}`} replace />;
 };
 
 const App = () => (
@@ -45,27 +52,52 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<HomeRoute />} />
-            <Route path="/login" element={<Login />} />
+            <Route path={LANDING_PATH} element={<LandingPage />} />
+            <Route path={LOGIN_PATH} element={<Login />} />
+
+            <Route path="/alunos" element={<RedirectToPath to={APP_PATHS.students} />} />
+            <Route path="/alunos/novo" element={<RedirectToPath to={APP_PATHS.newStudent} />} />
+            <Route path="/alunos/:id/aulas" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.studentLessons(params.id || "")} />} />
+            <Route path="/alunos/:id/trilha" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.studentTrack(params.id || "")} />} />
+            <Route path="/aulas" element={<RedirectToPath to={APP_PATHS.lessons} />} />
+            <Route path="/aulas/nova" element={<RedirectToPath to={APP_PATHS.newLesson} />} />
+            <Route path="/aulas/:id/anotar" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.annotateLesson(params.id || "")} />} />
+            <Route path="/homework" element={<RedirectToPath to={APP_PATHS.homework} />} />
+            <Route path="/palavras-aprendidas" element={<RedirectToPath to={APP_PATHS.learnedWords} />} />
+            <Route path="/corrigir-homework" element={<RedirectToPath to={APP_PATHS.correctHomework} />} />
+            <Route path="/crm" element={<RedirectToPath to={APP_PATHS.crm} />} />
+            <Route path="/calendario" element={<RedirectToPath to={APP_PATHS.calendar} />} />
+            <Route path="/marketplace" element={<RedirectToPath to={APP_PATHS.marketplace} />} />
+            <Route path="/cursos/novo" element={<RedirectToPath to={APP_PATHS.newCourse} />} />
+            <Route path="/treinar-ia" element={<RedirectToPath to={APP_PATHS.aiPractice} />} />
+            <Route path="/treinar-ia/conversa/:sessionId" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.aiPracticeSession(params.sessionId || "")} />} />
+            <Route path="/interprete-ia" element={<RedirectToPath to={APP_PATHS.interpreter} />} />
+            <Route path="/interprete-ia/conversa/:sessionId" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.interpreterSession(params.sessionId || "")} />} />
+            <Route path="/financeiro" element={<RedirectToPath to={APP_PATHS.finance} />} />
+            <Route path="/pagamentos" element={<RedirectToPath to={APP_PATHS.payments} />} />
             
             <Route element={<PrivateRoute />}>
-              <Route path="/alunos" element={<Alunos />} />
-              <Route path="/alunos/novo" element={<CriarAluno />} />
-              <Route path="/alunos/:id/aulas" element={<AlunoTrilha />} />
-              <Route path="/alunos/:id/trilha" element={<AlunoTrilha />} />
-              <Route path="/aulas" element={<MinhasAulas />} />
-              <Route path="/homework" element={<Homework />} />
-              <Route path="/corrigir-homework" element={<CorrigirHomework />} />
-              <Route path="/crm" element={<CRM />} />
-              <Route path="/aulas/nova" element={<CriarAula />} />
-              <Route path="/aulas/:id/anotar" element={<AnotarAula />} />
-              <Route path="/calendario" element={<Calendario />} />
-              <Route path="/marketplace" element={<Marketplace />} />
-              <Route path="/cursos/novo" element={<CriarCurso />} />
-              <Route path="/treinar-ia" element={<AssistenteIA />} />
-              <Route path="/treinar-ia/conversa/:sessionId" element={<AssistenteIA />} />
-              <Route path="/financeiro" element={<Pagamentos />} />
-              <Route path="/pagamentos" element={<Pagamentos />} />
+              <Route path={APP_PATHS.dashboard} element={<Dashboard />} />
+              <Route path={APP_PATHS.students} element={<Alunos />} />
+              <Route path={APP_PATHS.newStudent} element={<CriarAluno />} />
+              <Route path={`${APP_PATHS.students}/:id/aulas`} element={<AlunoTrilha />} />
+              <Route path={`${APP_PATHS.students}/:id/trilha`} element={<AlunoTrilha />} />
+              <Route path={APP_PATHS.lessons} element={<MinhasAulas />} />
+              <Route path={APP_PATHS.homework} element={<Homework />} />
+              <Route path={APP_PATHS.learnedWords} element={<PalavrasAprendidas />} />
+              <Route path={APP_PATHS.correctHomework} element={<CorrigirHomework />} />
+              <Route path={APP_PATHS.crm} element={<CRM />} />
+              <Route path={APP_PATHS.newLesson} element={<CriarAula />} />
+              <Route path={`${APP_PATHS.lessons}/:id/anotar`} element={<AnotarAula />} />
+              <Route path={APP_PATHS.calendar} element={<Calendario />} />
+              <Route path={APP_PATHS.marketplace} element={<Marketplace />} />
+              <Route path={APP_PATHS.newCourse} element={<CriarCurso />} />
+              <Route path={APP_PATHS.aiPractice} element={<AssistenteIA />} />
+              <Route path={`${APP_PATHS.aiPractice}/conversa/:sessionId`} element={<AssistenteIA />} />
+              <Route path={APP_PATHS.interpreter} element={<InterpreteIA />} />
+              <Route path={`${APP_PATHS.interpreter}/conversa/:sessionId`} element={<InterpreteIA />} />
+              <Route path={APP_PATHS.finance} element={<Pagamentos />} />
+              <Route path={APP_PATHS.payments} element={<Pagamentos />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />

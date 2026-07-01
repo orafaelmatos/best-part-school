@@ -246,14 +246,19 @@ def notification_badges(user, upcoming_payment_days=5):
     except Exception:
         finance_count = 0
 
-    homework_state = 'danger' if overdue_reviews else ('warning' if difficult_cards >= 10 else ('default' if pending_homework else 'none'))
+    homework_state = 'default' if pending_homework else 'none'
+    learned_words_state = 'danger' if overdue_reviews else ('warning' if difficult_cards >= 10 else 'none')
     return {
         'homework': {
-            'count': pending_homework + overdue_reviews,
+            'count': pending_homework,
             'pending_homework': pending_homework,
+            'state': homework_state,
+        },
+        'learned_words': {
+            'count': overdue_reviews,
             'overdue_reviews': overdue_reviews,
             'difficult_cards': difficult_cards,
-            'state': homework_state,
+            'state': learned_words_state,
         },
         'finance': {
             'count': finance_count,

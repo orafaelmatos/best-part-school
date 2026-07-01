@@ -852,7 +852,8 @@ class SidebarBadgesAPIView(APIView):
     def get(self, request):
         if request.user.role != 'student':
             return Response({
-                'homework': {'count': 0, 'pending_homework': 0, 'overdue_reviews': 0, 'difficult_cards': 0, 'state': 'none'},
+                'homework': {'count': 0, 'pending_homework': 0, 'state': 'none'},
+                'learned_words': {'count': 0, 'overdue_reviews': 0, 'difficult_cards': 0, 'state': 'none'},
                 'finance': {'count': 0, 'state': 'none'},
             })
         return Response(notification_badges(request.user))

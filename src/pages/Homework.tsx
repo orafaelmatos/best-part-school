@@ -3,24 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import PageHeader from "@/components/PageHeader";
-import VocabularyDashboard from "@/components/VocabularyDashboard";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft,
-  ArrowRight,
   BookOpen,
   CalendarClock,
   CheckCircle2,
   Clock,
-  RotateCcw,
-  Search,
   Send,
-  Shuffle,
-  Star,
   Tag,
-  Volume2,
 } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
@@ -60,23 +53,6 @@ type HomeworkItem = {
   answers?: HomeworkAnswer[];
 };
 
-type LessonWord = {
-  id: string;
-  word: string;
-  meaning: string;
-  status?: "hard" | "medium" | "easy" | null;
-  category?: string;
-  tags?: string[] | string;
-  explanation?: string;
-  example?: string;
-  audio_url?: string;
-};
-
-type VocabularyCard = LessonWord & {
-  lessonTitle?: string;
-  teacherName?: string;
-};
-
 const statusCopy: Record<UiHomeworkStatus, string> = {
   pending: "Pendente",
   sent: "Enviada",
@@ -90,8 +66,6 @@ const statusStyles: Record<UiHomeworkStatus, string> = {
   late: "bg-red-50 text-red-700 border-red-200",
   corrected: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
-
-const defaultCategories = ["gramática", "vocabulário", "phrasal verbs", "expressões", "pronúncia"];
 
 const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
@@ -113,35 +87,11 @@ const isDueSoon = (value?: string | null) => {
   return diff > 0 && diff <= 1000 * 60 * 60 * 48;
 };
 
-const tagsFromCard = (card: VocabularyCard) => {
-  if (Array.isArray(card.tags)) return card.tags;
-  if (typeof card.tags === "string" && card.tags.trim()) return card.tags.split(",").map((tag) => tag.trim());
-  return card.lessonTitle ? [card.lessonTitle] : [];
-};
-
 const Homework = () => {
-  const [tab, setTab] = useState<"lessons" | "words">("lessons");
-
   return (
     <DashboardLayout>
-      <PageHeader title="Homework" description="Lições de casa, palavras aprendidas e acompanhamento de estudos." />
-
-      <div className="mb-6 flex flex-wrap gap-2 border-b border-border">
-        <button
-          onClick={() => setTab("lessons")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 sidebar-transition ${tab === "lessons" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Lições de Casa
-        </button>
-        <button
-          onClick={() => setTab("words")}
-          className={`px-4 py-3 text-sm font-medium border-b-2 sidebar-transition ${tab === "words" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Palavras Aprendidas
-        </button>
-      </div>
-
-      {tab === "lessons" ? <HomeworkLessons /> : <VocabularyDashboard />}
+      <PageHeader title="Homework" description="Lições de casa e acompanhamento de estudos." />
+      <HomeworkLessons />
     </DashboardLayout>
   );
 };
@@ -346,191 +296,6 @@ const HomeworkLessons = () => {
                   {homework.classification && <span className="inline-flex items-center gap-1"><Tag size={13} /> {homework.classification}</span>}
                 </div>
               </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const VocabularyReview = () => {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
-  const [tag, setTag] = useState("all");
-  const [reviewFilter, setReviewFilter] = useState<"all" | "favorite" | "reviewed" | "unreviewed">("all");
-  const [favorites, setFavorites] = useState<string[]>(() => JSON.parse(localStorage.getItem("vocabulary:favorites") || "[]"));
-  const [reviewed, setReviewed] = useState<string[]>(() => JSON.parse(localStorage.getItem("vocabulary:reviewed") || "[]"));
-  const [studyMode, setStudyMode] = useState(false);
-  const [studyIndex, setStudyIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
-
-  const { data: lessons = [], isLoading } = useQuery({
-    queryKey: ["homework-vocabulary-lessons"],
-    queryFn: async () => {
-      const res = await api.get("/lessons/?all=true");
-      return normalizeList(res.data);
-    },
-  });
-
-  const cards = useMemo(() => {
-    return lessons.flatMap((lesson: any) => (lesson.new_words || []).map((word: LessonWord) => ({
-      ...word,
-      category: word.category || "vocabulário",
-      lessonTitle: lesson.title,
-      teacherName: lesson.teacher_name,
-    }))) as VocabularyCard[];
-  }, [lessons]);
-
-  const categories = useMemo(() => Array.from(new Set([...defaultCategories, ...cards.map((card) => card.category || "vocabulário")])), [cards]);
-  const tags = useMemo(() => Array.from(new Set(cards.flatMap(tagsFromCard))), [cards]);
-
-  const filteredCards = useMemo(() => {
-    const lowerQuery = query.toLowerCase();
-    return cards.filter((card) => {
-      const cardTags = tagsFromCard(card);
-      const isReviewed = reviewed.includes(card.id) || Boolean(card.status);
-      const matchesReview =
-        reviewFilter === "all" ||
-        (reviewFilter === "favorite" && favorites.includes(card.id)) ||
-        (reviewFilter === "reviewed" && isReviewed) ||
-        (reviewFilter === "unreviewed" && !isReviewed);
-
-      return (
-        matchesReview &&
-        (category === "all" || card.category === category) &&
-        (tag === "all" || cardTags.includes(tag)) &&
-        (!lowerQuery || card.word.toLowerCase().includes(lowerQuery) || card.meaning.toLowerCase().includes(lowerQuery))
-      );
-    });
-  }, [cards, category, favorites, query, reviewed, reviewFilter, tag]);
-
-  const persistFavorites = (next: string[]) => {
-    setFavorites(next);
-    localStorage.setItem("vocabulary:favorites", JSON.stringify(next));
-  };
-
-  const persistReviewed = (next: string[]) => {
-    setReviewed(next);
-    localStorage.setItem("vocabulary:reviewed", JSON.stringify(next));
-  };
-
-  const markReviewed = (id: string) => {
-    if (!reviewed.includes(id)) persistReviewed([...reviewed, id]);
-  };
-
-  const toggleFavorite = (id: string) => {
-    persistFavorites(favorites.includes(id) ? favorites.filter((item) => item !== id) : [...favorites, id]);
-  };
-
-  const shuffleCards = () => {
-    if (filteredCards.length < 2) return;
-    setStudyIndex(Math.floor(Math.random() * filteredCards.length));
-    setFlipped(false);
-  };
-
-  if (studyMode) {
-    const activeCard = filteredCards[studyIndex] || filteredCards[0];
-    return (
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button variant="outline" onClick={() => setStudyMode(false)}><ArrowLeft className="mr-2 h-4 w-4" /> Sair do estudo</Button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={shuffleCards}><Shuffle className="mr-2 h-4 w-4" /> Embaralhar</Button>
-            <Button variant="outline" onClick={() => setFlipped(false)}><RotateCcw className="mr-2 h-4 w-4" /> Frente</Button>
-          </div>
-        </div>
-        {activeCard ? (
-          <section className="mx-auto flex min-h-[360px] max-w-3xl flex-col justify-between rounded-xl border border-border bg-card p-8 text-center shadow-sm" onClick={() => setFlipped((value) => !value)}>
-            {!flipped ? (
-              <div className="m-auto">
-                <p className="text-sm uppercase tracking-wide text-muted-foreground">{activeCard.category}</p>
-                <h2 className="mt-4 text-4xl font-bold">{activeCard.word}</h2>
-              </div>
-            ) : (
-              <div className="m-auto max-w-2xl space-y-4">
-                <h2 className="text-3xl font-bold">{activeCard.meaning}</h2>
-                {activeCard.explanation && <p className="text-sm text-muted-foreground">{activeCard.explanation}</p>}
-                {activeCard.example && <p className="rounded-lg bg-muted p-4 text-sm italic">{activeCard.example}</p>}
-              </div>
-            )}
-            <div className="mt-8 flex items-center justify-between gap-3">
-              <Button variant="outline" onClick={(event) => { event.stopPropagation(); setStudyIndex((index) => Math.max(0, index - 1)); setFlipped(false); }} disabled={studyIndex === 0}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Anterior
-              </Button>
-              <Button onClick={(event) => { event.stopPropagation(); markReviewed(activeCard.id); }}>
-                <CheckCircle2 className="mr-2 h-4 w-4" /> Revisado
-              </Button>
-              <Button variant="outline" onClick={(event) => { event.stopPropagation(); setStudyIndex((index) => Math.min(filteredCards.length - 1, index + 1)); setFlipped(false); }} disabled={studyIndex >= filteredCards.length - 1}>
-                Próximo <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          </section>
-        ) : (
-          <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Nenhum card disponível para estudar.</p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar palavra ou expressão..." className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-        <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-          <option value="all">Todas as categorias</option>
-          {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <select value={tag} onChange={(event) => setTag(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-          <option value="all">Todas as tags</option>
-          {tags.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <Button onClick={() => { setStudyMode(true); setStudyIndex(0); setFlipped(false); }} disabled={filteredCards.length === 0}>Modo flashcard</Button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {(["all", "favorite", "reviewed", "unreviewed"] as const).map((filter) => (
-          <button key={filter} onClick={() => setReviewFilter(filter)} className={`rounded-lg px-3 py-2 text-sm font-medium sidebar-transition ${reviewFilter === filter ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
-            {filter === "all" ? "Todos" : filter === "favorite" ? "Favoritos" : filter === "reviewed" ? "Revisados" : "Não revisados"}
-          </button>
-        ))}
-      </div>
-
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando palavras...</p>
-      ) : filteredCards.length === 0 ? (
-        <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Nenhum card encontrado com esses filtros.</p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredCards.map((card) => {
-            const cardTags = tagsFromCard(card);
-            const isReviewed = reviewed.includes(card.id) || Boolean(card.status);
-            return (
-              <article key={card.id} className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{card.category || "vocabulário"}</p>
-                    <h3 className="mt-1 text-lg font-semibold">{card.word}</h3>
-                  </div>
-                  <button onClick={() => toggleFavorite(card.id)} className={`rounded-lg p-2 sidebar-transition ${favorites.includes(card.id) ? "bg-amber-100 text-amber-700" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`} title="Favoritar">
-                    <Star className="h-4 w-4" fill={favorites.includes(card.id) ? "currentColor" : "none"} />
-                  </button>
-                </div>
-                <p className="text-sm font-medium">{card.meaning}</p>
-                {card.explanation && <p className="mt-2 text-sm text-muted-foreground">{card.explanation}</p>}
-                {card.example && <p className="mt-3 rounded-lg bg-muted p-3 text-sm italic">{card.example}</p>}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {card.audio_url && <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"><Volume2 size={13} /> áudio</span>}
-                  {cardTags.map((item) => <span key={item} className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{item}</span>)}
-                  {isReviewed && <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700">revisado</span>}
-                </div>
-                <Button className="mt-4 w-full" variant={isReviewed ? "outline" : "default"} onClick={() => markReviewed(card.id)}>
-                  <CheckCircle2 className="mr-2 h-4 w-4" /> Marcar como revisado
-                </Button>
-              </article>
             );
           })}
         </div>

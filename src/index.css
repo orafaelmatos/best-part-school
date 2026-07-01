@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,49 +6,49 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 5%;
+    --background: 204 43% 97%;
+    --foreground: 222 46% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 5%;
+    --card-foreground: 222 46% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 5%;
+    --popover-foreground: 222 46% 14%;
 
-    --primary: 0 0% 5%;
+    --primary: 223 50% 19%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 5%;
+    --secondary: 199 69% 95%;
+    --secondary-foreground: 222 46% 14%;
 
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
+    --muted: 204 33% 95%;
+    --muted-foreground: 216 18% 43%;
 
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 5%;
+    --accent: 198 77% 93%;
+    --accent-foreground: 222 46% 14%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 0 0% 5%;
+    --border: 214 32% 87%;
+    --input: 214 32% 87%;
+    --ring: 197 76% 44%;
 
-    --radius: 0.75rem;
+    --radius: 1.25rem;
 
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 5%;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 25%;
-    --sidebar-primary: 0 0% 5%;
+    --sidebar-background: 223 34% 13%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 217 92% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 93%;
-    --sidebar-accent-foreground: 0 0% 5%;
-    --sidebar-border: 0 0% 92%;
-    --sidebar-ring: 0 0% 5%;
+    --sidebar-accent: 223 27% 19%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 221 24% 22%;
+    --sidebar-ring: 194 89% 58%;
   }
 }
 
@@ -59,11 +59,38 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background-image:
+      radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(34, 197, 94, 0.1), transparent 24%),
+      linear-gradient(180deg, rgba(240, 249, 255, 0.95), rgba(248, 250, 252, 1));
+    min-height: 100vh;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: rgba(14, 165, 233, 0.2);
+    color: hsl(var(--foreground));
   }
 }
 
 @layer utilities {
+  .school-grid {
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+    background-position: center;
+    background-size: 28px 28px;
+  }
+
+  .school-surface {
+    @apply rounded-[30px] border border-white/70 shadow-[0_28px_70px_-40px_rgba(15,23,42,0.28)] backdrop-blur;
+    background-color: rgba(255, 255, 255, 0.88);
+  }
+
   .ql-editor img {
     max-width: 100%;
     height: auto;
