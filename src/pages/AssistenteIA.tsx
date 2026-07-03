@@ -291,8 +291,8 @@ const modeCardMeta: Record<
     ctaLabel: "Selecionar writing",
     highlights: [
       "Escolha cenário e nível para receber uma proposta guiada.",
-      "Escreva em inglês e receba correções com explicações objetivas.",
-      "Continue com exercícios curtos, vocabulário e próximos passos.",
+      "Escreva em inglês e receba correções objetivas.",
+      "Continue com exercícios curtos, vocabulário e muito mais.",
     ],
   },
 };
@@ -1434,7 +1434,7 @@ const AssistenteIA = () => {
                 <header className="border-b border-slate-200/80 bg-white/80 px-5 py-4 backdrop-blur">
                   <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0">
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
                           {modeLabel[activeSession.mode]}
                         </span>

@@ -34,6 +34,7 @@ import {
 } from "@/lib/courses";
 
 const logoSrc = "/img/bps-logo.png";
+const platformVideoSrc = "/video/Bps video landing page.mp4";
 
 const navItems = [
   { label: "Início", href: "#inicio" },
@@ -49,6 +50,12 @@ const stats = [
   { value: "+100", label: "alunos acompanhados" },
   { value: "95%", label: "satisfação" },
   { value: "1:1", label: "metodologia personalizada" },
+];
+
+const heroHighlights = [
+  "Vídeo real da plataforma",
+  "Área do aluno organizada",
+  "Revisão guiada entre aulas",
 ];
 
 const differentiators = [
@@ -314,21 +321,23 @@ const LandingPage = () => {
         >
           <div className="absolute inset-0 opacity-40">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+            <div className="absolute left-[-8%] top-24 h-64 w-64 rounded-full bg-cyan-400/20 blur-3xl" />
+            <div className="absolute right-[-4%] top-10 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
             <div className="absolute left-1/2 top-20 h-[520px] w-[520px] -translate-x-1/2 rounded-full border border-white/10" />
             <div className="absolute left-1/2 top-36 h-[360px] w-[360px] -translate-x-1/2 rounded-full border border-white/10" />
           </div>
 
-          <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
+          <div className="relative mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:gap-16">
             <Reveal>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium uppercase tracking-[0.22em] text-neutral-300">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium uppercase tracking-[0.22em] text-neutral-300 shadow-[0_10px_30px_rgba(15,23,42,0.25)]">
                 <Sparkles size={14} />
                 Inglês premium e personalizado
               </div>
               <h1 className="mt-8 max-w-4xl text-5xl font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl">
-                Aprenda inglês de forma inteligente e definitiva
+                Veja a plataforma em ação e entenda como seu inglês evolui de verdade
               </h1>
               <p className="mt-7 max-w-2xl text-lg leading-8 text-neutral-300 sm:text-xl">
-                Aulas personalizadas, metodologia prática, acompanhamento individual e tecnologia para acelerar seu aprendizado com revisão inteligente.
+                Aulas personalizadas, metodologia prática, acompanhamento individual e uma área do aluno pensada para manter clareza, constância e revisão inteligente.
               </p>
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <Button
@@ -350,62 +359,97 @@ const LandingPage = () => {
                   <a href="#cursos">Conhecer cursos</a>
                 </Button>
               </div>
+
+              <div className="mt-8 flex flex-wrap gap-3">
+                {heroHighlights.map((item) => (
+                  <div
+                    key={item}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm text-neutral-200 backdrop-blur"
+                  >
+                    <Check size={16} className="text-emerald-300" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-10 grid max-w-2xl gap-3 sm:grid-cols-2">
+                {stats.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.18)] backdrop-blur"
+                  >
+                    <p className="text-2xl font-semibold tracking-tight text-white">{stat.value}</p>
+                    <p className="mt-1 text-sm text-neutral-300">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
             </Reveal>
 
             <Reveal className="lg:justify-self-end">
-              <div className="relative mx-auto w-full max-w-xl">
-                <div className="rounded-[2rem] border border-white/12 bg-white/[0.06] p-4 shadow-2xl backdrop-blur">
-                  <div className="rounded-[1.5rem] bg-white p-5 text-neutral-950 shadow-2xl">
-                    <div className="flex items-center justify-between border-b border-neutral-100 pb-5">
+              <div className="relative mx-auto w-full max-w-3xl">
+                <div className="absolute inset-x-8 top-8 h-40 rounded-full bg-cyan-300/20 blur-3xl" />
+                <div className="absolute -right-6 bottom-10 h-36 w-36 rounded-full bg-emerald-300/20 blur-3xl" />
+
+                <div className="relative rounded-[2rem] border border-white/12 bg-white/[0.06] p-3 shadow-[0_32px_120px_rgba(0,0,0,0.35)] backdrop-blur-xl sm:p-4">
+                  <div className="rounded-[1.6rem] border border-white/10 bg-neutral-950/80 p-3 shadow-2xl sm:p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3 rounded-[1.2rem] border border-white/10 bg-white/5 px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <img src={logoSrc} alt="" className="h-12 w-12 object-contain" loading="lazy" />
-                        <div>
-                          <p className="text-sm font-semibold">Plano de fluência</p>
-                          <p className="text-xs text-neutral-500">Semana atual</p>
+                        <div className="flex gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+                          <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                         </div>
+                        <p className="text-sm font-medium text-white">Área do aluno Best Part School</p>
                       </div>
-                      <span className="rounded-full bg-neutral-950 px-3 py-1 text-xs font-medium text-white">
-                        Ativo
-                      </span>
                     </div>
 
-                    <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                      {stats.map((stat) => (
-                        <div key={stat.label} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-                          <p className="text-2xl font-semibold tracking-tight">{stat.value}</p>
-                          <p className="mt-1 text-sm text-neutral-500">{stat.label}</p>
-                        </div>
-                      ))}
+                    <div className="relative overflow-hidden rounded-[1.4rem] border border-white/10 bg-black">
+                      <video
+                        className="aspect-[16/10] w-full origin-center scale-[1.14] object-cover sm:scale-[1.18]"
+                        src={platformVideoSrc}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                      >
+                        Seu navegador não suporta vídeo em HTML5.
+                      </video>
                     </div>
 
-                    <div className="mt-5 rounded-2xl bg-neutral-950 p-5 text-white">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold">Revisão inteligente</p>
-                        <Zap size={18} />
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-4 text-white">
+                        <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Experiência</p>
+                        <p className="mt-2 text-base font-semibold">Visual moderno e fácil de acompanhar</p>
+                        <p className="mt-2 text-sm leading-6 text-neutral-300">
+                          O aluno entende rapidamente o que estudar, o que revisar e como está evoluindo.
+                        </p>
                       </div>
-                      <div className="mt-5 space-y-3">
-                        {["Speaking practice", "Vocabulary review", "Homework feedback"].map((item, index) => (
-                          <div key={item} className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-semibold text-neutral-950">
-                              {index + 1}
+                      <div className="rounded-[1.25rem] border border-white/10 bg-gradient-to-br from-cyan-400/20 to-emerald-400/10 p-4 text-white">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs uppercase tracking-[0.22em] text-cyan-100">Rotina guiada</p>
+                          <Zap size={18} className="text-cyan-100" />
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          {["Speaking practice", "Vocabulary review", "Homework feedback"].map((item, index) => (
+                            <div key={item} className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-semibold text-neutral-950">
+                                {index + 1}
+                              </div>
+                              <div className="h-2 flex-1 rounded-full bg-white/15">
+                                <div
+                                  className="h-2 rounded-full bg-white"
+                                  style={{ width: `${78 - index * 13}%` }}
+                                />
+                              </div>
                             </div>
-                            <div className="h-2 flex-1 rounded-full bg-white/15">
-                              <div
-                                className="h-2 rounded-full bg-white"
-                                style={{ width: `${78 - index * 13}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="absolute -bottom-5 left-4 hidden rounded-2xl border border-white/15 bg-neutral-950/95 p-4 text-white shadow-xl sm:block">
-                  <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Foco da semana</p>
-                  <p className="mt-1 text-sm font-semibold">Conversação e retenção real</p>
-                </div>
               </div>
             </Reveal>
           </div>
