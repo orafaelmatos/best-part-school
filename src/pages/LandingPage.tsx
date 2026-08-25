@@ -54,22 +54,11 @@ const stats = [
   { value: "1:1", label: "metodologia personalizada" },
 ];
 
-const heroHighlights = [
-  "Vídeo real da plataforma",
-  "Área do aluno organizada",
-  "Revisão guiada entre aulas",
-];
-
 const differentiators = [
   {
     icon: Target,
     title: "Plano sob medida",
     text: "Cada aluno segue uma trilha ajustada ao objetivo, nível atual e rotina real de estudos.",
-  },
-  {
-    icon: Sparkles,
-    title: "Aprendizado inteligente",
-    text: "As aulas combinam prática guiada, revisões frequentes e foco em retenção de longo prazo.",
   },
   {
     icon: UserCheck,
@@ -342,18 +331,6 @@ const LandingPage = () => {
                 </Button>
               </div>
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                {heroHighlights.map((item) => (
-                  <div
-                    key={item}
-                    className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm text-neutral-200 backdrop-blur"
-                  >
-                    <Check size={16} className="text-emerald-300" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
-
               <div className="mt-10 grid max-w-2xl gap-3 sm:grid-cols-2">
                 {stats.map((stat) => (
                   <div
@@ -399,34 +376,13 @@ const LandingPage = () => {
                       </video>
                     </div>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="mt-4">
                       <div className="rounded-[1.25rem] border border-white/10 bg-white/5 p-4 text-white">
                         <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Experiência</p>
                         <p className="mt-2 text-base font-semibold">Visual moderno e fácil de acompanhar</p>
                         <p className="mt-2 text-sm leading-6 text-neutral-300">
                           O aluno entende rapidamente o que estudar, o que revisar e como está evoluindo.
                         </p>
-                      </div>
-                      <div className="rounded-[1.25rem] border border-white/10 bg-gradient-to-br from-cyan-400/20 to-emerald-400/10 p-4 text-white">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs uppercase tracking-[0.22em] text-cyan-100">Rotina guiada</p>
-                          <Zap size={18} className="text-cyan-100" />
-                        </div>
-                        <div className="mt-4 space-y-3">
-                          {["Speaking practice", "Vocabulary review", "Homework feedback"].map((item, index) => (
-                            <div key={item} className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-semibold text-neutral-950">
-                                {index + 1}
-                              </div>
-                              <div className="h-2 flex-1 rounded-full bg-white/15">
-                                <div
-                                  className="h-2 rounded-full bg-white"
-                                  style={{ width: `${78 - index * 13}%` }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -447,7 +403,7 @@ const LandingPage = () => {
               />
             </Reveal>
 
-            <div className="mt-14 grid gap-4 md:grid-cols-3">
+            <div className="mt-14 grid gap-4 md:grid-cols-2">
               {differentiators.map((item) => (
                 <Reveal key={item.title}>
                   <div className="h-full rounded-2xl border border-neutral-200 bg-white p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-neutral-950 hover:shadow-xl">
@@ -574,48 +530,68 @@ const LandingPage = () => {
         </section>
 
         <section id="professor" className="px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
             <Reveal>
-              <div className="relative mx-auto aspect-[4/5] max-w-md overflow-hidden rounded-[2rem] border border-neutral-200 bg-neutral-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
-                <img
-                  src={teacherPhotoSrc}
-                  alt="Professor Gabriel Gaeski"
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
-                <div className="absolute bottom-6 left-6 right-6 rounded-2xl border border-white/10 bg-neutral-950/78 p-5 shadow-xl backdrop-blur-xl">
-                  <p className="text-xs uppercase tracking-[0.24em] text-neutral-300">Professor</p>
-                  <p className="mt-2 text-xl font-semibold tracking-tight text-white">Gabriel Gaeski</p>
-                  <p className="mt-2 text-sm text-neutral-200">Ensino personalizado com acompanhamento próximo</p>
+              <div className="mx-auto max-w-md">
+                <div className="relative aspect-[4/5] overflow-hidden rounded-[2rem] border border-neutral-200 bg-neutral-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+                  <img
+                    src={teacherPhotoSrc}
+                    alt="Professor Gabriel Gaeski"
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
+                  <div className="absolute bottom-6 left-6 right-6 rounded-2xl border border-white/10 bg-neutral-950/78 p-5 shadow-xl backdrop-blur-xl">
+                    <p className="text-xs uppercase tracking-[0.24em] text-neutral-300">Professor e fundador</p>
+                    <p className="mt-2 text-xl font-semibold tracking-tight text-white">Gabriel Gaeski</p>
+                    <p className="mt-2 text-sm text-neutral-200">Ensino prático, humano e personalizado</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  {[
+                    { value: "+500", label: "aulas" },
+                    { value: "+5", label: "anos de experiência" },
+                    { value: "+100", label: "alunos" },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
+                      <p className="text-3xl font-semibold tracking-tight">{item.value}</p>
+                      <p className="mt-1 text-sm text-neutral-500">{item.label}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </Reveal>
 
             <Reveal>
-              <SectionHeader
-                align="left"
-                eyebrow="Professor"
-                title="Ensino próximo, direcionado e fácil de adaptar depois"
-                description="Professor especializado em ensino personalizado e desenvolvimento de fluência prática, com aulas orientadas a objetivos reais e feedback constante."
-              />
-              <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                {[
-                  { value: "+100", label: "alunos" },
-                  { value: "+5", label: "anos de experiencia" },
-                  { value: "+500", label: "aulas" },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
-                    <p className="text-3xl font-semibold tracking-tight">{item.value}</p>
-                    <p className="mt-1 text-sm text-neutral-500">{item.label}</p>
-                  </div>
-                ))}
+              <div className="max-w-3xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-neutral-500">Conheça o professor</p>
+                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-neutral-950 sm:text-4xl lg:text-5xl">
+                  Inglês que nasceu da prática e virou propósito
+                </h2>
+                <div className="mt-8 space-y-6 text-base leading-8 text-neutral-600 sm:text-lg">
+                  <p>
+                    Sou Gabriel Gaeski, professor e fundador da Best Part School. Sou cristão e acredito que ensinar
+                    vai muito além de explicar regras: é ajudar pessoas a conquistarem confiança, independência e novas
+                    oportunidades por meio do inglês.
+                  </p>
+                  <p>
+                    Antes de me dedicar ao ensino, trabalhei por dois anos com vendas internacionais, participando de
+                    reuniões, negociações e ligações com clientes de diferentes partes do mundo. Também atuei como
+                    tradutor em feiras internacionais e como intérprete em reuniões privadas, experiências que me
+                    mostraram, na prática, o tipo de inglês que realmente faz diferença.
+                  </p>
+                  <p>
+                    Hoje, uso toda essa vivência em minhas aulas. Meu objetivo não é fazer o aluno apenas decorar
+                    estruturas, mas prepará-lo para conversar, trabalhar, viajar, participar de reuniões e se comunicar
+                    com segurança em situações reais.
+                  </p>
+                  <p>
+                    Na Best Part School, cada aula é construída para respeitar o nível, a rotina e os objetivos de
+                    cada aluno.
+                  </p>
+                </div>
               </div>
-              <p className="mt-8 leading-8 text-neutral-600">
-                A proposta da escola combina presença, clareza didática e acompanhamento individual para que cada
-                aula tenha direção prática. O foco é fazer o aluno evoluir com constância, confiança e rotina bem
-                organizada dentro e fora das aulas.
-              </p>
             </Reveal>
           </div>
         </section>
@@ -714,7 +690,7 @@ const LandingPage = () => {
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
                   <Button asChild size="lg" className="h-12 rounded-full bg-white text-neutral-950 hover:bg-neutral-200">
-                    <a href="mailto:contato@bestpartschool.com">Agendar aula</a>
+                    <a href="https://l.instagram.com/?u=https%3A%2F%2Fbeacons.ai%2Fbestpartschool%3Futm_source%3Dig%26utm_medium%3Dsocial%26utm_content%3Dlink_in_bio%26fbclid%3DPAcGRvZgJleHRuA2FlbQIxMQBzcnRjBmFwcF9pZA85MzY2MTk3NDMzOTI0NTkAAaevGUapV9pyqoZtLJ8WWmFsmwDwSeiykOwc6uKBkVSN4Kib28m0k0KpHa4Jkg_aem_GuctcshDaNHqTDEMJK9eqw&e=AUCrlQaTfjSTki8HjM_ZiCHRVhxmqvnNDjMTYba0EZ5C3QZOlzdDEhBcUY-VuyzVbeGH_rKiWMk5m_fm-Gl8mNcw28R23dt6xBf6-Q6atqqY4VNmA_IcLdrK0XXu60heZ0KghLQ">Agendar aula</a>
                   </Button>
                   <Button
                     asChild
