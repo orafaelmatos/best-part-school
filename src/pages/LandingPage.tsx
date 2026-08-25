@@ -10,7 +10,6 @@ import {
   Clock3,
   Laptop,
   Menu,
-  Quote,
   Sparkles,
   Star,
   Target,
@@ -35,6 +34,9 @@ import {
 
 const logoSrc = "/img/bps-logo.png";
 const platformVideoSrc = "/video/Bps video landing page.mp4";
+const teacherPhotoSrc = "/img/professor-best-part-school.jpeg";
+const testimonialVideoOneSrc = "/video/depoimento-aluno-1.mp4";
+const testimonialVideoTwoSrc = "/video/depoimento-aluno-2.mp4";
 
 const navItems = [
   { label: "Início", href: "#inicio" },
@@ -108,36 +110,16 @@ const platformItems = [
   { icon: Clock3, title: "Histórico", text: "Veja aulas, palavras aprendidas e tarefas anteriores." },
 ];
 
-const testimonials = [
+const testimonialVideos = [
   {
-    name: "Mariana Lopes",
-    course: "Conversação",
-    text: "As aulas destravaram minha fala. O acompanhamento individual fez toda diferença para eu manter consistência.",
+    title: "Depoimento em vídeo",
+    subtitle: "Aluno falando sobre a experiência com as aulas",
+    src: testimonialVideoOneSrc,
   },
   {
-    name: "Rafael Costa",
-    course: "Inglês para trabalho",
-    text: "Consegui melhorar minhas reuniões em inglês em poucas semanas. As simulações são muito práticas.",
-  },
-  {
-    name: "Bianca Alves",
-    course: "Inglês básico",
-    text: "Eu tinha medo de começar, mas a metodologia é muito clara e respeita meu ritmo.",
-  },
-  {
-    name: "Lucas Ferreira",
-    course: "Entrevistas",
-    text: "Treinei respostas, vocabulário e postura. Cheguei muito mais confiante na entrevista.",
-  },
-  {
-    name: "Camila Rocha",
-    course: "Intermediário",
-    text: "A plataforma ajuda bastante nas revisões. Sinto que agora eu realmente lembro do que aprendo.",
-  },
-  {
-    name: "Daniel Martins",
-    course: "Viagens",
-    text: "As aulas foram objetivas e me deram segurança para lidar com situações reais fora do país.",
+    title: "Mais um relato real",
+    subtitle: "Percepção de quem viveu a metodologia na prática",
+    src: testimonialVideoTwoSrc,
   },
 ];
 
@@ -594,15 +576,18 @@ const LandingPage = () => {
         <section id="professor" className="px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
           <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
             <Reveal>
-              <div className="relative mx-auto aspect-[4/5] max-w-md overflow-hidden rounded-[2rem] bg-neutral-100">
-                <div className="absolute inset-6 rounded-[1.5rem] border border-neutral-200 bg-white shadow-sm" />
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-neutral-950" />
-                <div className="absolute left-1/2 top-16 h-32 w-32 -translate-x-1/2 rounded-full bg-neutral-300" />
-                <div className="absolute bottom-16 left-1/2 h-56 w-64 -translate-x-1/2 rounded-t-full bg-neutral-200" />
-                <div className="absolute bottom-6 left-6 right-6 rounded-2xl bg-white p-5 shadow-xl">
-                  <p className="text-xs uppercase tracking-[0.24em] text-neutral-500">Professor</p>
-                  <p className="mt-2 text-xl font-semibold tracking-tight">Nome do Professor</p>
-                  <p className="mt-2 text-sm text-neutral-600">Especialista em ensino personalizado</p>
+              <div className="relative mx-auto aspect-[4/5] max-w-md overflow-hidden rounded-[2rem] border border-neutral-200 bg-neutral-100 shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+                <img
+                  src={teacherPhotoSrc}
+                  alt="Professor Gabriel Gaeski"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-neutral-950 via-neutral-950/70 to-transparent" />
+                <div className="absolute bottom-6 left-6 right-6 rounded-2xl border border-white/10 bg-neutral-950/78 p-5 shadow-xl backdrop-blur-xl">
+                  <p className="text-xs uppercase tracking-[0.24em] text-neutral-300">Professor</p>
+                  <p className="mt-2 text-xl font-semibold tracking-tight text-white">Gabriel Gaeski</p>
+                  <p className="mt-2 text-sm text-neutral-200">Ensino personalizado com acompanhamento próximo</p>
                 </div>
               </div>
             </Reveal>
@@ -627,8 +612,9 @@ const LandingPage = () => {
                 ))}
               </div>
               <p className="mt-8 leading-8 text-neutral-600">
-                A biografia pode ser substituída facilmente por uma versão final com formação, certificações,
-                especialidades e história da escola. A estrutura já está pronta para destacar autoridade e confiança.
+                A proposta da escola combina presença, clareza didática e acompanhamento individual para que cada
+                aula tenha direção prática. O foco é fazer o aluno evoluir com constância, confiança e rotina bem
+                organizada dentro e fora das aulas.
               </p>
             </Reveal>
           </div>
@@ -640,30 +626,75 @@ const LandingPage = () => {
               <SectionHeader
                 eyebrow="Depoimentos"
                 title="Resultados percebidos por quem estuda com acompanhamento"
-                description="Relatos ficticios para validar a estrutura visual. Eles podem ser trocados pelos depoimentos reais da escola quando estiverem disponiveis."
+                description="Depoimentos reais de alunos compartilhando como as aulas, a metodologia e o acompanhamento impactam a evolução no inglês."
               />
             </Reveal>
 
-            <div className="mt-14 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {testimonials.map((testimonial) => (
-                <Reveal key={testimonial.name}>
-                  <article className="h-full rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex gap-1 text-neutral-950" aria-label="5 estrelas">
-                        {Array.from({ length: 5 }).map((_, index) => (
-                          <Star key={index} size={16} fill="currentColor" />
-                        ))}
+            <div className="mt-14 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="grid gap-6 md:grid-cols-2">
+                {testimonialVideos.map((video) => (
+                  <Reveal key={video.src}>
+                    <article className="overflow-hidden rounded-[1.75rem] border border-neutral-200 bg-white shadow-sm">
+                      <div className="border-b border-neutral-100 p-5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-semibold tracking-tight text-neutral-950">{video.title}</p>
+                            <p className="mt-1 text-sm text-neutral-500">{video.subtitle}</p>
+                          </div>
+                          <div className="flex gap-1 text-neutral-950" aria-label="5 estrelas">
+                            {Array.from({ length: 5 }).map((_, index) => (
+                              <Star key={index} size={15} fill="currentColor" />
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <Quote size={22} className="text-neutral-300" />
+
+                      <div className="bg-black p-3">
+                        <video
+                          className="aspect-[9/16] w-full rounded-[1.2rem] object-cover"
+                          src={video.src}
+                          controls
+                          playsInline
+                          preload="metadata"
+                        >
+                          Seu navegador não suporta vídeo em HTML5.
+                        </video>
+                      </div>
+                    </article>
+                  </Reveal>
+                ))}
+              </div>
+
+              <Reveal>
+                <div className="flex h-full flex-col justify-between rounded-[1.75rem] border border-neutral-200 bg-white p-8 shadow-sm">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full bg-neutral-950 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                      <Sparkles size={14} />
+                      Prova social real
                     </div>
-                    <p className="mt-5 leading-7 text-neutral-700">"{testimonial.text}"</p>
-                    <div className="mt-6 border-t border-neutral-100 pt-5">
-                      <p className="font-semibold">{testimonial.name}</p>
-                      <p className="mt-1 text-sm text-neutral-500">{testimonial.course}</p>
-                    </div>
-                  </article>
-                </Reveal>
-              ))}
+                    <h3 className="mt-6 text-3xl font-semibold tracking-tight text-neutral-950">
+                      Depoimentos que reforçam a experiência da escola
+                    </h3>
+                    <p className="mt-5 leading-8 text-neutral-600">
+                      Em vez de promessas genéricas, a landing page agora mostra alunos falando sobre as aulas com
+                      autenticidade. Isso aumenta confiança e aproxima a escola de quem está avaliando começar.
+                    </p>
+                  </div>
+
+                  <div className="mt-8 space-y-4">
+                    {[
+                      "Vídeos reais integrados diretamente na página",
+                      "Formato vertical otimizado para mobile e desktop",
+                      "Seção pronta para receber mais depoimentos depois",
+                    ].map((item) => (
+                      <div key={item} className="flex items-start gap-3 rounded-2xl bg-neutral-50 p-4">
+                        <Check size={18} className="mt-0.5 text-emerald-600" />
+                        <p className="text-sm leading-6 text-neutral-700">{item}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
             </div>
           </div>
         </section>
