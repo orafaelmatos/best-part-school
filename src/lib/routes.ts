@@ -21,6 +21,7 @@ export const APP_PATHS = {
   annotateLesson: (lessonId: string) => withAppBase(`/aulas/${lessonId}/anotar`),
   homework: withAppBase("/homework"),
   learnedWords: withAppBase("/palavras-aprendidas"),
+  vocabularyGame: withAppBase("/jogo-de-vocabulario"),
   correctHomework: withAppBase("/corrigir-homework"),
   crm: withAppBase("/crm"),
   calendar: withAppBase("/calendario"),

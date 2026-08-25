@@ -321,6 +321,7 @@ class Homework(models.Model):
     STATUS_CHOICES = (
         ('draft', 'Draft'),
         ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
         ('sent', 'Sent'),
         ('corrected', 'Corrected'),
     )
@@ -331,7 +332,10 @@ class Homework(models.Model):
     classification = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     due_date = models.DateTimeField(null=True, blank=True)
+    auto_correction_enabled = models.BooleanField(default=True)
     teacher_feedback = models.TextField(blank=True, null=True)
+    student_report = models.JSONField(default=dict, blank=True)
+    report_generated_at = models.DateTimeField(blank=True, null=True)
     teacher = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='homework_created')
     student = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='homework_received')
     lesson = models.ForeignKey(Lesson, related_name='homework_items', on_delete=models.CASCADE)
@@ -350,6 +354,11 @@ class HomeworkQuestion(models.Model):
         ('open_text', 'Open text'),
         ('multiple_choice', 'Multiple choice'),
     )
+    SECOND_CHANCE_CHOICES = (
+        ('none', 'None'),
+        ('ai_generated', 'AI generated'),
+        ('reserve', 'Reserve question'),
+    )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     homework = models.ForeignKey(Homework, related_name='questions', on_delete=models.CASCADE)
@@ -360,6 +369,16 @@ class HomeworkQuestion(models.Model):
     audio_transcript = models.TextField(blank=True)
     options = models.JSONField(default=list, blank=True)
     correct_option_index = models.PositiveIntegerField(null=True, blank=True)
+    reference_answer = models.TextField(blank=True)
+    correction_instructions = models.TextField(blank=True)
+    explanation = models.TextField(blank=True)
+    second_chance_mode = models.CharField(max_length=20, choices=SECOND_CHANCE_CHOICES, default='ai_generated')
+    reserve_type = models.CharField(max_length=20, choices=TYPE_CHOICES, blank=True, default='open_text')
+    reserve_prompt = models.TextField(blank=True)
+    reserve_options = models.JSONField(default=list, blank=True)
+    reserve_correct_option_index = models.PositiveIntegerField(null=True, blank=True)
+    reserve_reference_answer = models.TextField(blank=True)
+    reserve_explanation = models.TextField(blank=True)
     order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -376,6 +395,19 @@ class HomeworkAnswer(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='homework_answers')
     answer_text = models.TextField(blank=True, null=True)
     selected_option_index = models.PositiveIntegerField(null=True, blank=True)
+    is_correct = models.BooleanField(blank=True, null=True)
+    auto_feedback = models.TextField(blank=True)
+    auto_explanation = models.TextField(blank=True)
+    expected_answer = models.TextField(blank=True)
+    correction_metadata = models.JSONField(default=dict, blank=True)
+    answered_at = models.DateTimeField(blank=True, null=True)
+    second_chance_answer_text = models.TextField(blank=True, null=True)
+    second_chance_selected_option_index = models.PositiveIntegerField(null=True, blank=True)
+    second_chance_is_correct = models.BooleanField(blank=True, null=True)
+    second_chance_feedback = models.TextField(blank=True)
+    second_chance_explanation = models.TextField(blank=True)
+    second_chance_expected_answer = models.TextField(blank=True)
+    second_chance_answered_at = models.DateTimeField(blank=True, null=True)
     teacher_feedback = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

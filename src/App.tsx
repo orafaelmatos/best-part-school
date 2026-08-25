@@ -23,6 +23,7 @@ import CriarAluno from "./pages/CriarAluno";
 import CRM from "./pages/CRM";
 import Homework from "./pages/Homework";
 import PalavrasAprendidas from "./pages/PalavrasAprendidas";
+import JogoVocabulario from "./pages/JogoVocabulario";
 import CorrigirHomework from "./pages/CorrigirHomework";
 import InterpreteIA from "./pages/InterpreteIA";
 import { APP_PATHS, LANDING_PATH, LOGIN_PATH } from "./lib/routes";
@@ -64,6 +65,7 @@ const App = () => (
             <Route path="/aulas/:id/anotar" element={<RedirectToDynamicPath buildTo={(params) => APP_PATHS.annotateLesson(params.id || "")} />} />
             <Route path="/homework" element={<RedirectToPath to={APP_PATHS.homework} />} />
             <Route path="/palavras-aprendidas" element={<RedirectToPath to={APP_PATHS.learnedWords} />} />
+            <Route path="/jogo-de-vocabulario" element={<RedirectToPath to={APP_PATHS.vocabularyGame} />} />
             <Route path="/corrigir-homework" element={<RedirectToPath to={APP_PATHS.correctHomework} />} />
             <Route path="/crm" element={<RedirectToPath to={APP_PATHS.crm} />} />
             <Route path="/calendario" element={<RedirectToPath to={APP_PATHS.calendar} />} />
@@ -85,6 +87,7 @@ const App = () => (
               <Route path={APP_PATHS.lessons} element={<MinhasAulas />} />
               <Route path={APP_PATHS.homework} element={<Homework />} />
               <Route path={APP_PATHS.learnedWords} element={<PalavrasAprendidas />} />
+              <Route path={APP_PATHS.vocabularyGame} element={<JogoVocabulario />} />
               <Route path={APP_PATHS.correctHomework} element={<CorrigirHomework />} />
               <Route path={APP_PATHS.crm} element={<CRM />} />
               <Route path={APP_PATHS.newLesson} element={<CriarAula />} />

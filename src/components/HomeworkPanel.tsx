@@ -9,7 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, X } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
-type HomeworkStatus = "draft" | "pending" | "sent" | "corrected";
+type HomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "corrected";
+
+type ReserveQuestion = {
+  type: QuestionType;
+  prompt: string;
+  options: string[];
+  correct_option_index: number | null;
+  reference_answer?: string;
+  explanation?: string;
+};
 
 type HomeworkQuestion = {
   id?: string;
@@ -28,6 +37,12 @@ type HomeworkQuestion = {
   remove_audio?: boolean;
   options: string[];
   correct_option_index: number | null;
+  reference_answer?: string;
+  correction_instructions?: string;
+  explanation?: string;
+  second_chance_mode?: "none" | "reserve";
+  reserve_question?: ReserveQuestion | null;
+  has_reserve_question?: boolean;
   order: number;
 };
 
@@ -38,7 +53,17 @@ type Homework = {
   classification?: string;
   status: HomeworkStatus;
   due_date?: string | null;
+  auto_correction_enabled?: boolean;
   teacher_feedback?: string;
+  student_report?: {
+    summary?: string;
+    accuracy?: number;
+    total_questions?: number;
+    first_try_correct?: number;
+    second_chance_correct?: number;
+    incorrect_after_second_chance?: number;
+    attention_points?: string[];
+  } | null;
   teacher?: string;
   student?: string;
   lesson?: string;
@@ -78,6 +103,12 @@ const emptyQuestion = (order: number): HomeworkQuestion => ({
   remove_audio: false,
   options: ["", ""],
   correct_option_index: null,
+  reference_answer: "",
+  correction_instructions: "",
+  explanation: "",
+  second_chance_mode: "reserve",
+  reserve_question: null,
+  has_reserve_question: false,
   order,
 });
 
@@ -86,6 +117,7 @@ const emptyForm = (lesson: any): Partial<Homework> & { questions: HomeworkQuesti
   description: "",
   classification: "",
   status: "draft",
+  auto_correction_enabled: true,
   due_date: "",
   teacher: lesson.teacher,
   student: lesson.student,
@@ -96,6 +128,7 @@ const emptyForm = (lesson: any): Partial<Homework> & { questions: HomeworkQuesti
 const statusLabel: Record<HomeworkStatus, string> = {
   draft: "Rascunho",
   pending: "Pendente",
+  in_progress: "Em andamento",
   sent: "Enviada",
   corrected: "Corrigida",
 };
@@ -111,6 +144,7 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
   payload.append("description", form.description || "");
   payload.append("classification", form.classification || "");
   payload.append("status", status);
+  payload.append("auto_correction_enabled", String(form.auto_correction_enabled ?? true));
   payload.append("due_date", form.due_date ? new Date(form.due_date).toISOString() : "");
   if (form.teacher) payload.append("teacher", form.teacher);
   if (form.student) payload.append("student", form.student);
@@ -136,6 +170,18 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
       remove_audio: Boolean(question.remove_audio),
       options: question.type === "multiple_choice" ? question.options.filter(Boolean) : [],
       correct_option_index: question.type === "multiple_choice" ? question.correct_option_index : null,
+      reference_answer: question.reference_answer || "",
+      correction_instructions: question.correction_instructions || "",
+      explanation: question.explanation || "",
+      second_chance_mode: question.second_chance_mode === "none" ? "none" : "reserve",
+      reserve_question: question.reserve_question ? {
+        type: question.reserve_question.type,
+        prompt: question.reserve_question.prompt,
+        options: question.reserve_question.type === "multiple_choice" ? question.reserve_question.options.filter(Boolean) : [],
+        correct_option_index: question.reserve_question.type === "multiple_choice" ? question.reserve_question.correct_option_index : null,
+        reference_answer: question.reserve_question.reference_answer || "",
+        explanation: question.reserve_question.explanation || "",
+      } : null,
       order: index,
     };
   });
@@ -216,8 +262,17 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
         due_date: normalizeDateInput(homework.due_date),
         questions: homework.questions.length
           ? homework.questions.map((question, index) => ({
+              ...emptyQuestion(index),
               ...question,
               options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
+              reserve_question: question.reserve_question ? {
+                type: question.reserve_question.type || "open_text",
+                prompt: question.reserve_question.prompt || "",
+                options: question.reserve_question.type === "multiple_choice" && question.reserve_question.options?.length ? question.reserve_question.options : ["", ""],
+                correct_option_index: question.reserve_question.correct_option_index ?? null,
+                reference_answer: question.reserve_question.reference_answer || "",
+                explanation: question.reserve_question.explanation || "",
+              } : null,
               order: question.order ?? index,
               image_file: null,
               audio_file: null,
@@ -261,6 +316,14 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
             ...emptyQuestion(index),
             ...question,
             options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
+            reserve_question: question.reserve_question ? {
+              type: question.reserve_question.type || "open_text",
+              prompt: question.reserve_question.prompt || "",
+              options: question.reserve_question.type === "multiple_choice" && question.reserve_question.options?.length ? question.reserve_question.options : ["", ""],
+              correct_option_index: question.reserve_question.correct_option_index ?? null,
+              reference_answer: question.reserve_question.reference_answer || "",
+              explanation: question.reserve_question.explanation || "",
+            } : null,
             order: index,
             image_file: null,
             audio_file: null,
@@ -376,6 +439,16 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
         <Textarea value={form.description || ""} onChange={(event) => onChange({ ...form, description: event.target.value })} />
       </div>
 
+      <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
+        <input
+          type="checkbox"
+          checked={Boolean(form.auto_correction_enabled)}
+          onChange={(event) => onChange({ ...form, auto_correction_enabled: event.target.checked })}
+          className="h-4 w-4"
+        />
+        <p className="text-sm font-medium">Correção automática por questão</p>
+      </label>
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Perguntas</h3>
@@ -394,15 +467,15 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
               if (dragIndex !== null) onMoveQuestion(dragIndex, index);
               setDragIndex(null);
             }}
-            className="border border-border rounded-lg p-3 bg-muted/30 space-y-3"
+            className="space-y-4 rounded-xl border border-border bg-card p-4"
           >
             <div className="flex items-center gap-2">
-              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-              <select className="p-2 border border-border rounded-lg bg-background text-sm" value={question.type} onChange={(event) => onQuestionChange(index, { type: event.target.value as QuestionType })}>
+              <GripVertical className="h-4 w-4 cursor-grab text-muted-foreground" />
+              <select className="rounded-full border border-border bg-background px-4 py-2 text-sm" value={question.type} onChange={(event) => onQuestionChange(index, { type: event.target.value as QuestionType })}>
                 <option value="open_text">Pergunta aberta</option>
                 <option value="multiple_choice">Múltipla escolha</option>
               </select>
-              <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ ...form, questions: form.questions.filter((_, questionIndex) => questionIndex !== index) })}>
+              <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={() => onChange({ ...form, questions: form.questions.filter((_, questionIndex) => questionIndex !== index) })}>
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
@@ -412,7 +485,8 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
               onChange={(patch) => onQuestionChange(index, patch)}
             />
             {question.type === "multiple_choice" && (
-              <div className="space-y-2">
+              <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Alternativas</p>
                 {question.options.map((option, optionIndex) => (
                   <div key={optionIndex} className="flex items-center gap-2">
                     <input type="radio" name={`correct-${index}`} checked={question.correct_option_index === optionIndex} onChange={() => onQuestionChange(index, { correct_option_index: optionIndex })} />
@@ -426,6 +500,62 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
                 <Button type="button" variant="outline" size="sm" onClick={() => onQuestionChange(index, { options: [...question.options, ""] })}>Adicionar opção</Button>
               </div>
             )}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Gabarito
+                </label>
+                <Textarea
+                  value={question.reference_answer || ""}
+                  onChange={(event) => onQuestionChange(index, { reference_answer: event.target.value })}
+                  placeholder="Resposta esperada"
+                  rows={2}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Feedback curto
+                </label>
+                <Textarea
+                  value={question.explanation || ""}
+                  onChange={(event) => onQuestionChange(index, { explanation: event.target.value })}
+                  placeholder="Mensagem mostrada quando o aluno errar"
+                  rows={2}
+                />
+              </div>
+            </div>
+
+            {form.auto_correction_enabled ? (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Segunda chance
+                  </label>
+                  <select
+                    className="mt-2 w-full rounded-lg border border-border bg-background p-2 text-sm"
+                    value={question.second_chance_mode === "none" ? "none" : "reserve"}
+                    onChange={(event) => onQuestionChange(index, {
+                      second_chance_mode: event.target.value as HomeworkQuestion["second_chance_mode"],
+                      reserve_question: event.target.value === "reserve"
+                        ? question.reserve_question || { type: "open_text", prompt: "", options: ["", ""], correct_option_index: null, reference_answer: "", explanation: "" }
+                        : question.reserve_question,
+                    })}
+                  >
+                    <option value="reserve">Usar questão reserva</option>
+                    <option value="none">Sem segunda chance</option>
+                  </select>
+                </div>
+
+                {question.second_chance_mode === "reserve" ? (
+                  <ReserveQuestionEditor
+                    namePrefix={`reserve-${index}`}
+                    reserveQuestion={question.reserve_question}
+                    onChange={(reserveQuestion) => onQuestionChange(index, { reserve_question: reserveQuestion })}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -570,6 +700,93 @@ const AnswerPreview = ({ question, answer }: { question: HomeworkQuestion; answe
   return <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{text}</p>;
 };
 
+const ReserveQuestionEditor = ({
+  namePrefix,
+  reserveQuestion,
+  onChange,
+}: {
+  namePrefix: string;
+  reserveQuestion?: ReserveQuestion | null;
+  onChange: (reserveQuestion: ReserveQuestion) => void;
+}) => {
+  const value = reserveQuestion || {
+    type: "open_text" as const,
+    prompt: "",
+    options: ["", ""],
+    correct_option_index: null,
+    reference_answer: "",
+    explanation: "",
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
+      <p className="text-sm font-medium">Questão reserva</p>
+      <select
+        className="w-full rounded-lg border border-border bg-background p-2 text-sm"
+        value={value.type}
+        onChange={(event) => onChange({
+          ...value,
+          type: event.target.value as QuestionType,
+          options: event.target.value === "multiple_choice" ? (value.options.length ? value.options : ["", ""]) : [],
+          correct_option_index: event.target.value === "multiple_choice" ? value.correct_option_index : null,
+        })}
+      >
+        <option value="open_text">Pergunta aberta</option>
+        <option value="multiple_choice">Múltipla escolha</option>
+      </select>
+
+      <Textarea
+        value={value.prompt}
+        onChange={(event) => onChange({ ...value, prompt: event.target.value })}
+        placeholder="Pergunta da segunda tentativa"
+      />
+
+      {value.type === "multiple_choice" ? (
+        <div className="space-y-2">
+          {value.options.map((option, optionIndex) => (
+            <div key={optionIndex} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`${namePrefix}-correct`}
+                checked={value.correct_option_index === optionIndex}
+                onChange={() => onChange({ ...value, correct_option_index: optionIndex })}
+              />
+              <input
+                className="flex-1 rounded-lg border border-border bg-background p-2 text-sm"
+                value={option}
+                onChange={(event) => {
+                  const nextOptions = [...value.options];
+                  nextOptions[optionIndex] = event.target.value;
+                  onChange({ ...value, options: nextOptions });
+                }}
+                placeholder={`Opção ${optionIndex + 1}`}
+              />
+            </div>
+          ))}
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange({ ...value, options: [...value.options, ""] })}>
+            Adicionar opção
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Textarea
+          value={value.reference_answer || ""}
+          onChange={(event) => onChange({ ...value, reference_answer: event.target.value })}
+          placeholder="Gabarito da questão reserva"
+          rows={2}
+        />
+        <Textarea
+          value={value.explanation || ""}
+          onChange={(event) => onChange({ ...value, explanation: event.target.value })}
+          placeholder="Feedback curto da questão reserva"
+          rows={2}
+        />
+      </div>
+    </div>
+  );
+};
+
 const QuestionAttachmentsEditor = ({
   question,
   onChange,
@@ -687,17 +904,17 @@ const QuestionAttachmentsEditor = ({
         />
       ) : (
         <p className="text-xs text-muted-foreground">
-          O aluno verá a imagem e poderá ouvir o áudio na pergunta. A transcrição do áudio será sugerida depois de salvar.
+          O aluno verá a imagem e poderá ouvir o áudio na pergunta.
         </p>
       )}
 
       {(currentAudioUrl || question.audio_file || question.audio_transcript) ? (
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Transcrição sugerida do áudio</label>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Transcrição do áudio</label>
           <Textarea
             value={question.audio_transcript || ""}
             onChange={(event) => onChange({ audio_transcript: event.target.value })}
-            placeholder="A transcrição será preenchida automaticamente ao salvar, mas você pode editar manualmente."
+            placeholder="Opcional"
             rows={3}
           />
         </div>

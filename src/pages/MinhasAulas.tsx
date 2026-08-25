@@ -16,6 +16,7 @@ import {
 
 import DashboardLayout from "@/components/DashboardLayout";
 import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -53,7 +54,7 @@ const MinhasAulas = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const upcomingSectionRef = useRef<HTMLElement | null>(null);
   const completedSectionRef = useRef<HTMLElement | null>(null);
-  const trailSectionRef = useRef<HTMLDivElement | null>(null);
+  const trailSectionRef = useRef<HTMLElement | null>(null);
 
   const studentId = user?.user_id || "";
 
@@ -319,183 +320,217 @@ const MinhasAulas = () => {
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
           <div className="space-y-8">
-            <section ref={upcomingSectionRef} className="space-y-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="text-lg font-semibold text-foreground">Proximas aulas</h2>
-                <p className="text-sm text-muted-foreground">
-                  Aqui ficam somente as aulas que ainda vao acontecer, para voce bater o olho e saber o que vem primeiro.
-                </p>
-              </div>
-
-              {isLoading ? (
-                <div className="school-surface p-6 text-sm text-muted-foreground">
-                  Carregando suas aulas...
-                </div>
-              ) : upcomingLessons.length === 0 ? (
-                <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
-                  Nenhuma aula futura encontrada.
-                </div>
-              ) : (
-                <div className="school-surface overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-border text-sm">
-                      <thead className="bg-slate-50/90">
-                        <tr className="text-left">
-                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Aula</th>
-                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Data</th>
-                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Nivel</th>
-                          <th className="px-4 py-3.5 font-medium text-muted-foreground">Status</th>
-                          <th className="px-4 py-3.5 text-right font-medium text-muted-foreground">Detalhes</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {upcomingLessons.map((lesson, index) => {
-                          const isExpanded = expandedId === lesson.id;
-                          return (
-                            <Fragment key={lesson.id}>
-                              <tr
-                                className={[
-                                  "transition",
-                                  index % 2 === 0 ? "bg-sky-50/55" : "bg-emerald-50/45",
-                                  isExpanded ? "bg-slate-50" : "hover:bg-slate-50/90",
-                                ].join(" ")}
-                              >
-                                <td className="px-4 py-3 align-top">
-                                  <div className="min-w-[220px]">
-                                    <p className="font-semibold text-foreground">{lesson.title}</p>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                      {typeof lesson.order === "number" && lesson.order > 0
-                                        ? `Aula ${lesson.order}`
-                                        : "Ordem nao definida"}
-                                    </p>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 align-top text-muted-foreground">
-                                  {formatLessonDate(lesson.date, { weekday: undefined })}
-                                </td>
-                                <td className="px-4 py-3 align-top text-muted-foreground">
-                                  {lesson.level || "Nao informado"}
-                                </td>
-                                <td className="px-4 py-3 align-top">
-                                  <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
-                                    {formatStatusLabel(lesson.status)}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-right align-top">
-                                  <button
-                                    type="button"
-                                    onClick={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                                    className="rounded-full bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-800"
+            <Accordion type="multiple" className="space-y-4">
+              <AccordionItem
+                value="upcoming"
+                ref={upcomingSectionRef}
+                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
+              >
+                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-semibold text-foreground">Proximas aulas</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Aqui ficam somente as aulas que ainda vao acontecer, para voce bater o olho e saber o que vem primeiro.
+                      </p>
+                    </div>
+                    <span className="inline-flex w-fit shrink-0 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">
+                      {isLoading ? "Carregando..." : `${upcomingLessons.length} aula${upcomingLessons.length === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-5 pt-0">
+                  {isLoading ? (
+                    <div className="school-surface p-6 text-sm text-muted-foreground">
+                      Carregando suas aulas...
+                    </div>
+                  ) : upcomingLessons.length === 0 ? (
+                    <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
+                      Nenhuma aula futura encontrada.
+                    </div>
+                  ) : (
+                    <div className="school-surface overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-border text-sm">
+                          <thead className="bg-slate-50/90">
+                            <tr className="text-left">
+                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Aula</th>
+                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Data</th>
+                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Nivel</th>
+                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Status</th>
+                              <th className="px-4 py-3.5 text-right font-medium text-muted-foreground">Detalhes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {upcomingLessons.map((lesson, index) => {
+                              const isExpanded = expandedId === lesson.id;
+                              return (
+                                <Fragment key={lesson.id}>
+                                  <tr
+                                    className={[
+                                      "transition",
+                                      index % 2 === 0 ? "bg-sky-50/55" : "bg-emerald-50/45",
+                                      isExpanded ? "bg-slate-50" : "hover:bg-slate-50/90",
+                                    ].join(" ")}
                                   >
-                                    {isExpanded ? "Ocultar" : "Ver detalhes"}
-                                  </button>
-                                </td>
-                              </tr>
-                              {isExpanded ? (
-                                <tr className="bg-background">
-                                  <td colSpan={5} className="p-4">
-                                    <LessonExperienceCard
-                                      lesson={lesson}
-                                      summary={summaryByLesson.get(lesson.id)}
-                                      homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                                      expanded
-                                      onToggle={() => setExpandedId(null)}
-                                      onRefreshLessons={() => lessonsQuery.refetch()}
-                                      onRefreshHomework={() => homeworkQuery.refetch()}
-                                      onRefreshSummaries={() => summariesQuery.refetch()}
-                                    />
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section ref={completedSectionRef} className="space-y-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="text-lg font-semibold text-foreground">Aulas feitas</h2>
-                <p className="text-sm text-muted-foreground">
-                  Aqui ficam as aulas concluidas, com os resumos, palavras e tarefas que ajudam a revisar o que ja passou.
-                </p>
-              </div>
-
-              {completedLessons.length === 0 ? (
-                <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
-                  Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
-                </div>
-              ) : (
-                <div className="relative rounded-[30px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.22)] before:absolute before:bottom-6 before:left-8 before:top-6 before:w-px before:bg-gradient-to-b before:from-sky-200 before:via-emerald-200 before:to-slate-200">
-                  <div className="space-y-6">
-                    {completedLessons.map((lesson) => (
-                      <div key={lesson.id} className="relative pl-8">
-                        <span className="absolute left-[0.2rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
-                        <LessonExperienceCard
-                          lesson={lesson}
-                          summary={summaryByLesson.get(lesson.id)}
-                          homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                          expanded={expandedId === lesson.id}
-                          onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                          onRefreshLessons={() => lessonsQuery.refetch()}
-                          onRefreshHomework={() => homeworkQuery.refetch()}
-                          onRefreshSummaries={() => summariesQuery.refetch()}
-                        />
+                                    <td className="px-4 py-3 align-top">
+                                      <div className="min-w-[220px]">
+                                        <p className="font-semibold text-foreground">{lesson.title}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          {typeof lesson.order === "number" && lesson.order > 0
+                                            ? `Aula ${lesson.order}`
+                                            : "Ordem nao definida"}
+                                        </p>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3 align-top text-muted-foreground">
+                                      {formatLessonDate(lesson.date, { weekday: undefined })}
+                                    </td>
+                                    <td className="px-4 py-3 align-top text-muted-foreground">
+                                      {lesson.level || "Nao informado"}
+                                    </td>
+                                    <td className="px-4 py-3 align-top">
+                                      <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+                                        {formatStatusLabel(lesson.status)}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right align-top">
+                                      <button
+                                        type="button"
+                                        onClick={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
+                                        className="rounded-full bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-800"
+                                      >
+                                        {isExpanded ? "Ocultar" : "Ver detalhes"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                  {isExpanded ? (
+                                    <tr className="bg-background">
+                                      <td colSpan={5} className="p-4">
+                                        <LessonExperienceCard
+                                          lesson={lesson}
+                                          summary={summaryByLesson.get(lesson.id)}
+                                          homeworkItems={homeworkByLesson.get(lesson.id) || []}
+                                          expanded
+                                          onToggle={() => setExpandedId(null)}
+                                          onRefreshLessons={() => lessonsQuery.refetch()}
+                                          onRefreshHomework={() => homeworkQuery.refetch()}
+                                          onRefreshSummaries={() => summariesQuery.refetch()}
+                                        />
+                                      </td>
+                                    </tr>
+                                  ) : null}
+                                </Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem
+                value="completed"
+                ref={completedSectionRef}
+                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
+              >
+                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-semibold text-foreground">Aulas concluídas</h2>
+                      <p className="text-sm text-muted-foreground">
+                        Aqui ficam as aulas concluidas, com os resumos, palavras e tarefas que ajudam a revisar o que ja passou.
+                      </p>
+                    </div>
+                    <span className="inline-flex w-fit shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                      {isLoading ? "Carregando..." : `${completedLessons.length} aula${completedLessons.length === 1 ? "" : "s"}`}
+                    </span>
                   </div>
-                </div>
-              )}
-            </section>
+                </AccordionTrigger>
+                <AccordionContent className="pb-5 pt-0">
+                  {completedLessons.length === 0 ? (
+                    <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
+                      Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
+                    </div>
+                  ) : (
+                    <div className="relative rounded-[30px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.22)] before:absolute before:bottom-6 before:left-8 before:top-6 before:w-px before:bg-gradient-to-b before:from-sky-200 before:via-emerald-200 before:to-slate-200">
+                      <div className="space-y-6">
+                        {completedLessons.map((lesson) => (
+                          <div key={lesson.id} className="relative pl-8">
+                            <span className="absolute left-[0.2rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
+                            <LessonExperienceCard
+                              lesson={lesson}
+                              summary={summaryByLesson.get(lesson.id)}
+                              homeworkItems={homeworkByLesson.get(lesson.id) || []}
+                              expanded={expandedId === lesson.id}
+                              onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
+                              onRefreshLessons={() => lessonsQuery.refetch()}
+                              onRefreshHomework={() => homeworkQuery.refetch()}
+                              onRefreshSummaries={() => summariesQuery.refetch()}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem
+                value="trail"
+                ref={trailSectionRef}
+                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
+              >
+                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <h2 className="text-lg font-semibold text-foreground">Andamento da trilha</h2>
+                      <p className="text-sm text-muted-foreground">
+                        A trilha abaixo mostra a ordem das aulas e deixa claro o que ja foi concluido e o que ainda esta por vir.
+                      </p>
+                    </div>
+                    <span className="inline-flex w-fit shrink-0 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">
+                      {trailLessons.length} aula{trailLessons.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-5 pt-0">
+                  <div className="rounded-[24px] bg-white/95 p-4 ring-1 ring-orange-100">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Progresso</span>
+                      <span className="font-semibold text-foreground">{progressPercent}%</span>
+                    </div>
+                    <Progress value={progressPercent} className="mt-3 h-3 bg-orange-100" />
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                      <TrailMetric label="Feitas" value={completedCount} />
+                      <TrailMetric label="Proximas" value={remainingLessonsCount} />
+                      <TrailMetric label="Arquivadas" value={archivedCount} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {trailLessons.length === 0 ? (
+                      <div className="rounded-[22px] border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
+                        Sua trilha aparecera aqui quando as aulas estiverem disponiveis.
+                      </div>
+                    ) : (
+                      trailLessons.map((lesson) => (
+                        <TrailStep
+                          key={lesson.id}
+                          lesson={lesson}
+                          isNext={lesson.id === nextLesson?.id}
+                        />
+                      ))
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
 
           <aside className="space-y-4">
-            <div
-              ref={trailSectionRef}
-              className="overflow-hidden rounded-[30px] border border-orange-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,245,240,0.96))] p-5 shadow-[0_24px_60px_-40px_rgba(154,52,18,0.35)]"
-            >
-              <div className="flex items-center gap-2 text-orange-700">
-                <Target className="h-4 w-4" />
-                <h3 className="font-semibold text-card-foreground">Andamento da trilha</h3>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                A trilha abaixo mostra a ordem das aulas e deixa claro o que ja foi concluido e o que ainda esta por vir.
-              </p>
-
-              <div className="mt-4 rounded-[24px] bg-white/95 p-4 ring-1 ring-orange-100">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Progresso</span>
-                  <span className="font-semibold text-foreground">{progressPercent}%</span>
-                </div>
-                <Progress value={progressPercent} className="mt-3 h-3 bg-orange-100" />
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                  <TrailMetric label="Feitas" value={completedCount} />
-                  <TrailMetric label="Proximas" value={remainingLessonsCount} />
-                  <TrailMetric label="Arquivadas" value={archivedCount} />
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {trailLessons.length === 0 ? (
-                  <div className="rounded-[22px] border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
-                    Sua trilha aparecera aqui quando as aulas estiverem disponiveis.
-                  </div>
-                ) : (
-                  trailLessons.map((lesson) => (
-                    <TrailStep
-                      key={lesson.id}
-                      lesson={lesson}
-                      isNext={lesson.id === nextLesson?.id}
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-
             <div className="school-surface p-5">
               <div className="flex items-center gap-2 text-sky-700">
                 <Target className="h-4 w-4" />

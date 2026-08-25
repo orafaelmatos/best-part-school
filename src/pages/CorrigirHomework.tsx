@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarClock, CheckCircle2, Clock, Inbox, ArrowLeft } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
-type ApiHomeworkStatus = "draft" | "pending" | "sent" | "corrected";
+type ApiHomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "corrected";
 
 type HomeworkQuestion = {
   id: string;
@@ -28,6 +28,20 @@ type HomeworkAnswer = {
   question: string;
   answer_text?: string;
   selected_option_index?: number | null;
+  is_correct?: boolean | null;
+  auto_feedback?: string;
+  auto_explanation?: string;
+  expected_answer?: string;
+  second_chance_question?: {
+    type: QuestionType;
+    prompt: string;
+    options: string[];
+  } | null;
+  second_chance_answer_text?: string;
+  second_chance_selected_option_index?: number | null;
+  second_chance_is_correct?: boolean | null;
+  second_chance_feedback?: string;
+  second_chance_explanation?: string;
   teacher_feedback?: string;
 };
 
@@ -38,7 +52,17 @@ type HomeworkItem = {
   classification?: string;
   status: ApiHomeworkStatus;
   due_date?: string | null;
+  auto_correction_enabled?: boolean;
   teacher_feedback?: string;
+  student_report?: {
+    summary?: string;
+    accuracy?: number;
+    total_questions?: number;
+    first_try_correct?: number;
+    second_chance_correct?: number;
+    incorrect_after_second_chance?: number;
+    attention_points?: string[];
+  } | null;
   student_name?: string;
   teacher_name?: string;
   lesson_title?: string;
@@ -57,6 +81,7 @@ const statusStyles = {
 const getHomeworkStatus = (homework: HomeworkItem) => {
   if (homework.status === "corrected") return "corrected";
   if (homework.status === "sent") return "sent";
+  if (homework.status === "in_progress") return "pending";
   if (homework.due_date && new Date(homework.due_date).getTime() < Date.now()) return "late";
   return "pending";
 };
@@ -81,7 +106,6 @@ export default function CorrigirHomework() {
       // Excluímos rascunhos para correção
       const res = await api.get("/homework/?ordering=-updated_at");
       const list = Array.isArray(res.data) ? res.data : (res.data?.results || []);
-      // Filtrar apenas o que foi respondido (sent) ou corrigido ou pending
       return list.filter((hw: HomeworkItem) => hw.status !== "draft") as HomeworkItem[];
     },
   });
@@ -89,9 +113,8 @@ export default function CorrigirHomework() {
   const { pendingReviewCount, filteredHomeworkItems } = useMemo(() => {
     let pendingReview = 0;
     const items = homeworkItems.filter(item => {
-      if (item.status === "sent") {
+      if (item.status === "sent" && !item.auto_correction_enabled) {
         pendingReview++;
-        // Queremos focar nos enviados recentemente
       }
       return true; 
     });
@@ -100,17 +123,12 @@ export default function CorrigirHomework() {
 
   const correctionMutation = useMutation({
     mutationFn: async ({ homeworkId, payload }: { homeworkId: string, payload: any }) => {
-      // O endpoint pode não ter uma rota de corrigir de uma vez, mas podemos atualizar o status para corrected em /homework/id/
-      // e atualizar feedbacks de respostas via patch se existir, aqui usarei PATCH para Homework e se a API suportar perguntas a gente pode mandar ou faço chamadas manuais.
-      
-      // Patch principal
       const patchData = {
         status: "corrected",
         teacher_feedback: payload.generalFeedback
       };
       await api.patch(`/homework/${homeworkId}/`, patchData);
 
-      // Patch para cada resposta se existir
       if (payload.answersFeedback) {
          for (const answerId of Object.keys(payload.answersFeedback)) {
              await api.patch(`/homework-answers/${answerId}/`, {
@@ -189,6 +207,18 @@ export default function CorrigirHomework() {
               <p className="text-sm text-muted-foreground">{selectedHomework.lesson_title ? `Aula: ${selectedHomework.lesson_title}` : ""}</p>
             </div>
 
+            {selectedHomework.student_report ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                <p className="text-sm font-semibold text-emerald-900">Resumo automático</p>
+                <p className="mt-1 text-sm text-emerald-950">{selectedHomework.student_report.summary}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-emerald-800">
+                  <span className="rounded-md bg-white px-2 py-1">Acerto geral: {selectedHomework.student_report.accuracy ?? 0}%</span>
+                  <span className="rounded-md bg-white px-2 py-1">1ª tentativa: {selectedHomework.student_report.first_try_correct ?? 0}</span>
+                  <span className="rounded-md bg-white px-2 py-1">2ª chance: {selectedHomework.student_report.second_chance_correct ?? 0}</span>
+                </div>
+              </div>
+            ) : null}
+
             <div className="space-y-6 mt-6">
               {selectedHomework.questions.map((q, idx) => {
                 const answer = selectedHomework.answers?.find(a => a.question === q.id);
@@ -214,6 +244,32 @@ export default function CorrigirHomework() {
                         O aluno não respondeu a esta questão.
                       </div>
                     )}
+
+                    {answer?.auto_feedback ? (
+                      <div className={`rounded-lg border p-3 text-sm ${answer.is_correct ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70"}`}>
+                        <p className="font-medium">{answer.auto_feedback}</p>
+                        {answer.auto_explanation ? <p className="mt-1 text-muted-foreground">{answer.auto_explanation}</p> : null}
+                        {!answer.is_correct && answer.expected_answer ? <p className="mt-2"><span className="font-semibold">Resposta esperada:</span> {answer.expected_answer}</p> : null}
+                      </div>
+                    ) : null}
+
+                    {answer?.second_chance_answer_text || answer?.second_chance_selected_option_index !== undefined ? (
+                      <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm mt-3">
+                        <span className="font-medium text-xs text-muted-foreground uppercase tracking-wide block mb-1">
+                          Segunda chance:
+                        </span>
+                        {answer.second_chance_question?.prompt ? <p className="mb-2 font-medium">{answer.second_chance_question.prompt}</p> : null}
+                        <p>
+                          {(answer.second_chance_question?.type || q.type) === "open_text"
+                            ? answer.second_chance_answer_text || "(em branco)"
+                            : answer.second_chance_selected_option_index != null && answer.second_chance_question?.options?.[answer.second_chance_selected_option_index]
+                              ? answer.second_chance_question.options[answer.second_chance_selected_option_index]
+                              : "(não selecionada)"}
+                        </p>
+                        {answer.second_chance_feedback ? <p className="mt-2 font-medium">{answer.second_chance_feedback}</p> : null}
+                        {answer.second_chance_explanation ? <p className="mt-1 text-muted-foreground">{answer.second_chance_explanation}</p> : null}
+                      </div>
+                    ) : null}
 
                     <div className="space-y-2 mt-4">
                       <label className="text-xs font-semibold text-foreground">Feedback para essa questão (Opcional):</label>
@@ -311,6 +367,10 @@ export default function CorrigirHomework() {
                     {isReady ? (
                       <Button onClick={() => void handleCorrect(item)} size="sm" disabled={openingHomeworkId === item.id}>
                         {openingHomeworkId === item.id ? "Carregando..." : "Avaliar"}
+                      </Button>
+                    ) : item.auto_correction_enabled && item.status === "corrected" ? (
+                      <Button onClick={() => void handleCorrect(item)} size="sm" variant="outline" disabled={openingHomeworkId === item.id}>
+                        {openingHomeworkId === item.id ? "Carregando..." : "Ver relatório"}
                       </Button>
                     ) : status === 'corrected' ? (
                       <Button onClick={() => void handleCorrect(item)} size="sm" variant="outline" disabled={openingHomeworkId === item.id}>

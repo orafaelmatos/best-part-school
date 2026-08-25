@@ -75,35 +75,72 @@ class AIStudyAPITests(TestCase):
     @patch('ai_study.services.AIStudyOpenAIService.generate_listening_exercise')
     def test_student_can_create_listening_session_with_topic_and_level(self, generate_exercise_mock, _generate_tts_mock):
         generate_exercise_mock.return_value = {
-            'transcript': 'Could I have a table for two, please?',
+            'transcript': 'Where is gate twenty four?',
             'instructions': 'Listen carefully and type what you hear.',
             'alternatives': [
-                'Could I have a table for two, please?',
-                'Could I have a table for three, please?',
-                'Can I get a menu for two, please?',
-                'Could I book a room for two, please?',
+                'Where is gate twenty four?',
+                'Where is gate twenty five?',
+                'Where are seats twenty four?',
+                'Where is my bag today?',
             ],
             'correct_option_index': 0,
-            'focus_words': ['table', 'please'],
+            'focus_words': ['gate', 'twenty four'],
         }
         self.client.force_authenticate(user=self.student)
 
         response = self.client.post('/api/ai-study/sessions/', {
             'mode': 'listening',
-            'scenario_key': 'restaurant',
-            'scenario_label': 'Restaurante',
+            'scenario_key': 'airport',
+            'scenario_label': 'Aeroporto',
             'level': 'B1',
         })
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['mode'], 'listening')
         self.assertEqual(response.data['guided_state']['stage'], 'active')
-        self.assertEqual(response.data['guided_state']['scenario_label'], 'Restaurante')
+        self.assertEqual(response.data['guided_state']['scenario_label'], 'Aeroporto')
         self.assertEqual(response.data['guided_state']['level'], 'B1')
+        journey = response.data['guided_state']['listening_journey']
+        self.assertEqual(len(journey['steps']), 10)
+        self.assertEqual(journey['steps'][0]['label'], 'Chegada ao aeroporto')
+        self.assertEqual(journey['current_step_index'], 0)
         exercise = response.data['messages'][0]['metadata']['interpreter_exercise']
         self.assertEqual(exercise['tts_audio_url'], '/media/ai_study/tts/listening-test.mp3')
         self.assertEqual(len(exercise['options']), 4)
         self.assertEqual(exercise['correct_option_id'], 'option-1')
+        self.assertEqual(exercise['step_title'], 'Chegada ao aeroporto')
+        self.assertEqual(exercise['step_index'], 1)
+        self.assertEqual(exercise['step_total'], 10)
+
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', side_effect=Exception('tts unavailable'))
+    @patch('ai_study.services.AIStudyOpenAIService.generate_listening_exercise')
+    def test_listening_session_creation_survives_tts_failure(self, generate_exercise_mock, _generate_tts_mock):
+        generate_exercise_mock.return_value = {
+            'transcript': 'Where is gate twenty four?',
+            'instructions': 'Listen carefully and type what you hear.',
+            'alternatives': [
+                'Where is gate twenty four?',
+                'Where is gate twenty five?',
+                'Where are seats twenty four?',
+                'Where is my bag today?',
+            ],
+            'correct_option_index': 0,
+            'focus_words': ['gate', 'twenty four'],
+        }
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post('/api/ai-study/sessions/', {
+            'mode': 'listening',
+            'scenario_key': 'airport',
+            'scenario_label': 'Aeroporto',
+            'level': 'B1',
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exercise = response.data['messages'][0]['metadata']['interpreter_exercise']
+        self.assertIsNone(exercise['tts_audio_url'])
+        self.assertTrue(exercise['tts_unavailable'])
+        self.assertIn('audio nao foi gerado agora', response.data['guided_state']['progress_summary'])
 
     def test_speaking_session_guided_onboarding_advances_scenario_and_level(self):
         self.client.force_authenticate(user=self.student)
@@ -216,7 +253,21 @@ class AIStudyAPITests(TestCase):
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/audio/', {'audio': upload}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_listening_answer_creates_feedback_for_transcription(self):
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/listening-step-2.mp3')
+    @patch('ai_study.services.AIStudyOpenAIService.generate_listening_exercise')
+    def test_listening_answer_creates_feedback_and_advances_journey(self, generate_exercise_mock, _generate_tts_mock):
+        generate_exercise_mock.return_value = {
+            'transcript': 'Do you have a reservation for tonight?',
+            'instructions': 'Listen carefully and type what you hear.',
+            'alternatives': [
+                'Do you have a reservation for tonight?',
+                'Do you have a reservation for tomorrow?',
+                'Do you need a reservation for tonight?',
+                'Would you like a reservation for tonight?',
+            ],
+            'correct_option_index': 0,
+            'focus_words': ['reservation', 'tonight'],
+        }
         session = AIStudySession.objects.create(student=self.student, mode='listening', theme='custom')
         AIStudyWorkflowService.prepare_listening_session(session, 'restaurant', 'Restaurante', 'B1')
         challenge = AIConversationMessage.objects.create(
@@ -241,6 +292,10 @@ class AIStudyAPITests(TestCase):
                         {'id': 'option-2', 'text': 'Could I have a table for three, please?'},
                     ],
                     'focus_words': ['table', 'please'],
+                    'step_id': 'arrival',
+                    'step_title': 'Chegada ao restaurante',
+                    'step_index': 1,
+                    'step_total': 6,
                 },
             },
         )
@@ -259,6 +314,13 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['user_message']['text'], 'Could I have a table for two please')
         self.assertEqual(response.data['assistant_message']['metadata']['interpreter_feedback']['status'], 'correct')
+        self.assertEqual(response.data['session']['guided_state']['listening_journey']['current_step_index'], 1)
+        self.assertIsNotNone(response.data['follow_up_message'])
+        self.assertEqual(response.data['follow_up_message']['metadata']['interpreter_exercise']['step_index'], 2)
+        self.assertEqual(
+            response.data['follow_up_message']['metadata']['interpreter_exercise']['tts_audio_url'],
+            '/media/ai_study/tts/listening-step-2.mp3',
+        )
 
     @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/listening-next.mp3')
     @patch('ai_study.services.AIStudyOpenAIService.generate_listening_exercise')
@@ -283,7 +345,67 @@ class AIStudyAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['tts_audio_url'], '/media/ai_study/tts/listening-next.mp3')
+        self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['step_title'], 'Chegada ao aeroporto')
+        self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['step_total'], 10)
         self.assertEqual(response.data['session']['mode'], 'listening')
+
+    def test_listening_final_step_marks_journey_completed(self):
+        session = AIStudySession.objects.create(student=self.student, mode='listening', theme='custom')
+        AIStudyWorkflowService.prepare_listening_session(session, 'airport', 'Aeroporto', 'B1')
+        state = session.guided_state
+        state['listening_journey']['current_step_index'] = 9
+        state['listening_journey']['completed_step_ids'] = [
+            step['id']
+            for step in state['listening_journey']['steps'][:9]
+        ]
+        session.guided_state = state
+        session.save(update_fields=['guided_state'])
+        challenge = AIConversationMessage.objects.create(
+            session=session,
+            role='assistant',
+            content_type='text',
+            text='Please collect your bags from carousel seven.',
+            metadata={
+                'mode': 'listening',
+                'interpreter': True,
+                'interpreter_exercise': {
+                    'id': 'exercise-final',
+                    'round': 10,
+                    'scenario_key': 'airport',
+                    'scenario_label': 'Aeroporto',
+                    'level': 'B1',
+                    'instructions': 'Listen and transcribe.',
+                    'tts_audio_url': '/media/ai_study/tts/final.mp3',
+                    'correct_option_id': 'option-1',
+                    'options': [
+                        {'id': 'option-1', 'text': 'Please collect your bags from carousel seven.'},
+                        {'id': 'option-2', 'text': 'Please leave your bags near carousel seven.'},
+                    ],
+                    'focus_words': ['carousel', 'bags'],
+                    'step_id': 'baggage_claim',
+                    'step_title': 'Retirada da bagagem',
+                    'step_index': 10,
+                    'step_total': 10,
+                },
+            },
+        )
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(
+            f'/api/ai-study/sessions/{session.id}/listening/answer/',
+            {
+                'message_id': str(challenge.id),
+                'response_mode': 'multiple_choice',
+                'selected_option_id': 'option-1',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['assistant_message']['metadata']['interpreter_feedback']['status'], 'correct')
+        self.assertEqual(response.data['session']['status'], 'completed')
+        self.assertEqual(response.data['session']['guided_state']['session_status'], 'completed')
+        self.assertTrue(response.data['follow_up_message']['metadata']['interpreter_journey_completed'])
 
     @patch('ai_study.services.AIStudyOpenAIService.transcribe', return_value='I go to airport yesterday.')
     @patch('ai_study.services.AIStudyOpenAIService.analyze_speaking')

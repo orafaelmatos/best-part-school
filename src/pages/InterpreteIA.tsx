@@ -44,6 +44,11 @@ type InterpreterExerciseOption = {
   text: string;
 };
 
+type InterpreterJourneyStep = {
+  id: string;
+  label: string;
+};
+
 type InterpreterExercise = {
   id: string;
   round: number;
@@ -55,6 +60,14 @@ type InterpreterExercise = {
   options: InterpreterExerciseOption[];
   correct_option_id: string;
   focus_words: string[];
+  step_id?: string;
+  step_title?: string;
+  step_prompt?: string;
+  step_index?: number;
+  step_total?: number;
+  is_final_step?: boolean;
+  tts_unavailable?: boolean;
+  journey_steps?: InterpreterJourneyStep[];
   response_mode_choices?: Array<{
     id: ResponseMode;
     label: string;
@@ -93,6 +106,7 @@ type InterpreterSessionDetail = SessionSummary & {
 type ListeningActionResponse = {
   user_message?: InterpreterMessage | null;
   assistant_message?: InterpreterMessage | null;
+  follow_up_message?: InterpreterMessage | null;
   session: SessionSummary;
 };
 
@@ -247,14 +261,17 @@ const InterpreteIA = () => {
   const appendMessages = (payload: ListeningActionResponse) => {
     setSessionDraft((current) => {
       if (!current) return current;
+      const appendedMessages = [
+        ...current.messages,
+        ...(payload.user_message ? [payload.user_message] : []),
+        ...(payload.assistant_message ? [payload.assistant_message] : []),
+        ...(payload.follow_up_message ? [payload.follow_up_message] : []),
+      ];
       const next: InterpreterSessionDetail = {
         ...current,
         ...payload.session,
-        messages: [
-          ...current.messages,
-          ...(payload.user_message ? [payload.user_message] : []),
-          ...(payload.assistant_message ? [payload.assistant_message] : []),
-        ],
+        message_count: appendedMessages.length,
+        messages: appendedMessages,
       };
       queryClient.setQueryData(["interpreter-session", next.id], next);
       return next;
@@ -421,12 +438,70 @@ const InterpreteIA = () => {
     );
   };
 
+  const renderJourneyProgress = () => {
+    const journey = activeSession?.guided_state?.listening_journey;
+    const steps = journey?.steps || [];
+    if (!steps.length) return null;
+
+    const completedStepIds = new Set(journey?.completed_step_ids || []);
+    const completedCount = completedStepIds.size;
+    const currentIndex = Math.max(
+      0,
+      Math.min(journey?.current_step_index || 0, Math.max(steps.length - 1, 0)),
+    );
+    const currentStep = steps[currentIndex];
+    const isCompleted = activeSession?.guided_state?.session_status === "completed";
+    const progressLabel = isCompleted ? "Jornada concluida" : `Etapa ${Math.min(currentIndex + 1, steps.length)} de ${steps.length}`;
+
+    return (
+      <div className="mt-4 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,252,244,0.95),rgba(255,255,255,0.98))] p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.32)]">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Jornada guiada</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">{progressLabel}</p>
+            <p className="mt-1 text-sm text-slate-600">
+              {activeSession?.guided_state?.progress_summary || currentStep?.label || "A IA esta conduzindo a proxima etapa."}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+            <span className="font-semibold text-slate-950">{completedCount}</span> de <span className="font-semibold text-slate-950">{steps.length}</span> etapas concluidas
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+          {steps.map((step, index) => {
+            const done = completedStepIds.has(step.id) || (isCompleted && index <= currentIndex);
+            const active = !done && !isCompleted && index === currentIndex;
+            return (
+              <div
+                key={step.id}
+                className={cn(
+                  "rounded-[20px] border px-3 py-3 text-sm transition",
+                  done
+                    ? "border-emerald-200 bg-emerald-50/85 text-emerald-950"
+                    : active
+                      ? "border-amber-300 bg-amber-50/90 text-amber-950"
+                      : "border-slate-200 bg-white text-slate-600",
+                )}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">Etapa {index + 1}</p>
+                <p className="mt-2 font-medium">{step.label}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderChallengeActions = ({
     message,
     showSubmit,
+    showRetryAudio,
   }: {
     message: InterpreterMessage;
     showSubmit: boolean;
+    showRetryAudio: boolean;
   }) => {
     const responseMode = responseModeByMessage[message.id];
     const isSubmitting = submittingChallengeId === message.id;
@@ -461,15 +536,17 @@ const InterpreteIA = () => {
             {isRevealed ? "Ocultar resposta" : "Mostrar resposta"}
           </button>
 
-          <button
-            type="button"
-            onClick={() => void handleContinue()}
-            disabled={isContinuing || isSubmitting}
-            className="inline-flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-          >
-            {isContinuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-            Continuar
-          </button>
+          {showRetryAudio ? (
+            <button
+              type="button"
+              onClick={() => void handleContinue()}
+              disabled={isContinuing || isSubmitting}
+              className="inline-flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+            >
+              {isContinuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              Gerar outro audio desta etapa
+            </button>
+          ) : null}
         </div>
 
         {isRevealed ? (
@@ -502,9 +579,10 @@ const InterpreteIA = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">
-              Audio {exercise.round}
+              Etapa {exercise.step_index || 1} de {exercise.step_total || 1} · Audio {exercise.round}
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-foreground">{exercise.scenario_label}</h3>
+            <h3 className="mt-2 text-xl font-semibold text-foreground">{exercise.step_title || exercise.scenario_label}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{exercise.scenario_label}</p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">{exercise.level}</span>
@@ -516,7 +594,15 @@ const InterpreteIA = () => {
 
         <p className="mt-4 text-sm leading-6 text-muted-foreground">{exercise.instructions}</p>
 
-        <div className="mt-5">{audioUrl ? <AudioPlayer src={audioUrl} compact /> : null}</div>
+        <div className="mt-5">
+          {audioUrl ? (
+            <AudioPlayer src={audioUrl} compact />
+          ) : exercise.tts_unavailable ? (
+            <div className="rounded-[20px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+              O audio desta etapa nao ficou disponivel agora. Tente gerar outro audio desta etapa em instantes.
+            </div>
+          ) : null}
+        </div>
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="rounded-[24px] border border-slate-200/80 bg-white/85 p-4">
@@ -647,8 +733,8 @@ const InterpreteIA = () => {
                   </div>
                   <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">Treine escuta com audio gerado pela IA</h1>
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                    Escolha um topico e um nivel. A IA gera um audio em ingles, voce decide se quer responder com alternativas
-                    ou escrevendo sozinho, pode revelar o texto quando precisar e seguir para o proximo desafio.
+                    Escolha um topico e um nivel. A IA conduz uma jornada por etapas dentro do contexto escolhido,
+                    comecando do inicio da situacao e avancando ate o final conforme voce responde e acerta.
                   </p>
                 </div>
 
@@ -709,9 +795,9 @@ const InterpreteIA = () => {
                   </div>
 
                   <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
-                    <p>1. A IA gera um audio curto e natural em ingles.</p>
-                    <p>2. Voce escolhe entre alternativas ou transcricao livre.</p>
-                    <p>3. Revele a resposta quando quiser e siga para o proximo audio.</p>
+                    <p>1. A IA inicia uma jornada guiada dentro do contexto escolhido.</p>
+                    <p>2. Cada audio pertence a uma etapa real da situacao.</p>
+                    <p>3. Quando voce acerta, a pratica avanca para a proxima fase.</p>
                   </div>
                 </div>
 
@@ -772,6 +858,7 @@ const InterpreteIA = () => {
                   <p className="mt-1 text-sm text-muted-foreground">
                     {activeSession.message_count} mensagens · ultima interacao em {formatDateTime(activeSession.last_interaction_at)}
                   </p>
+                  {renderJourneyProgress()}
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -815,7 +902,7 @@ const InterpreteIA = () => {
                         {shouldRenderDraftActions ? (
                           <>
                             {renderDraftResponse(message)}
-                            {renderChallengeActions({ message, showSubmit: true })}
+                            {renderChallengeActions({ message, showSubmit: true, showRetryAudio: false })}
                           </>
                         ) : null}
                       </div>
@@ -828,7 +915,8 @@ const InterpreteIA = () => {
                       challengeId &&
                       challengeId === latestChallengeId &&
                       getSubmittedResponseForChallenge(challengeId) &&
-                      getFeedbackForChallenge(challengeId)?.id === message.id,
+                      getFeedbackForChallenge(challengeId)?.id === message.id &&
+                      feedback?.status !== "correct",
                     );
                     const challengeMessage = activeSession.messages.find((item) => item.id === challengeId) ?? null;
 
@@ -836,7 +924,7 @@ const InterpreteIA = () => {
                       <div key={message.id} className="space-y-4">
                         {renderFeedbackCard(message)}
                         {shouldRenderPostAnswerActions && challengeMessage
-                          ? renderChallengeActions({ message: challengeMessage, showSubmit: false })
+                          ? renderChallengeActions({ message: challengeMessage, showSubmit: false, showRetryAudio: true })
                           : null}
                       </div>
                     );

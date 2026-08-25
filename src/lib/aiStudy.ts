@@ -36,6 +36,19 @@ export type GuidedAssessmentState = {
   current_index?: number;
 };
 
+export type GuidedListeningJourneyStep = {
+  id: string;
+  label: string;
+  prompt?: string;
+};
+
+export type GuidedListeningJourney = {
+  steps?: GuidedListeningJourneyStep[];
+  current_step_index?: number;
+  completed_step_ids?: string[];
+  current_step_status?: string;
+};
+
 export type GuidedState = {
   enabled?: boolean;
   stage?: string;
@@ -59,6 +72,7 @@ export type GuidedState = {
   summary_items?: string[];
   preserve_level_on_scenario_change?: boolean;
   default_level_hint?: string;
+  listening_journey?: GuidedListeningJourney;
 };
 
 export type SessionSummary = {

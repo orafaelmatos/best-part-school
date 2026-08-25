@@ -47,6 +47,20 @@ const listeningSummary = {
     stage: "active",
     scenario_label: "Restaurante",
     level: "B1",
+    progress_summary: "Audio 1 pronto. Etapa 1 de 6: Chegada ao restaurante.",
+    listening_journey: {
+      current_step_index: 0,
+      completed_step_ids: [],
+      current_step_status: "active",
+      steps: [
+        { id: "arrival", label: "Chegada ao restaurante" },
+        { id: "table", label: "Pedido de mesa" },
+        { id: "menu", label: "Leitura do cardapio" },
+        { id: "drinks", label: "Pedido de bebidas" },
+        { id: "meal", label: "Pedido principal" },
+        { id: "bill", label: "Conta e encerramento" },
+      ],
+    },
   },
   last_interaction_at: "2026-06-29T10:00:00.000Z",
   created_at: "2026-06-29T10:00:00.000Z",
@@ -75,6 +89,20 @@ const listeningDetail = {
           tts_audio_url: "/media/ai_study/tts/sample.mp3",
           correct_option_id: "option-1",
           focus_words: ["table", "please"],
+          step_id: "arrival",
+          step_title: "Chegada ao restaurante",
+          step_prompt: "O aluno esta chegando ao restaurante e precisa entender a recepcao inicial.",
+          step_index: 1,
+          step_total: 6,
+          is_final_step: false,
+          journey_steps: [
+            { id: "arrival", label: "Chegada ao restaurante" },
+            { id: "table", label: "Pedido de mesa" },
+            { id: "menu", label: "Leitura do cardapio" },
+            { id: "drinks", label: "Pedido de bebidas" },
+            { id: "meal", label: "Pedido principal" },
+            { id: "bill", label: "Conta e encerramento" },
+          ],
           response_mode_choices: [
             { id: "multiple_choice", label: "Com alternativas" },
             { id: "transcription", label: "Escrever sozinho" },
@@ -172,6 +200,8 @@ describe("InterpreteIA", () => {
     renderInterpreter(buildInterpreterSessionPath("session-listening"));
 
     expect(await screen.findByText("Interprete IA - Restaurante")).toBeInTheDocument();
+    expect(screen.getByText("Jornada guiada")).toBeInTheDocument();
+    expect(screen.getAllByText("Chegada ao restaurante").length).toBeGreaterThan(0);
     expect(screen.getByText("Listen carefully and type what you hear.")).toBeInTheDocument();
     expect(screen.getByText("audio-player")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Com alternativas" }));
@@ -179,6 +209,6 @@ describe("InterpreteIA", () => {
     expect(await screen.findByText("Sua resposta")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar resposta" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mostrar resposta" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continuar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gerar outro audio desta etapa" })).not.toBeInTheDocument();
   });
 });

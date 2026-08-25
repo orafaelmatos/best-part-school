@@ -7,6 +7,7 @@ import {
   Calendar,
   ClipboardList,
   CreditCard,
+  Gamepad2,
   Headphones,
   LayoutDashboard,
   LogOut,
@@ -69,6 +70,7 @@ const STUDENT_STUDY_MENU_ITEMS: MenuItem[] = [
   { label: "Minhas Aulas", icon: BookOpen, path: APP_PATHS.lessons },
   { label: "Homework", icon: ClipboardList, path: APP_PATHS.homework, badgeKey: "homework" },
   { label: "Palavras Aprendidas", icon: BookText, path: APP_PATHS.learnedWords, badgeKey: "learned_words" },
+  { label: "Jogo de Vocabulario", icon: Gamepad2, path: APP_PATHS.vocabularyGame },
 ];
 
 const STUDENT_SUPPORT_MENU_ITEMS: MenuItem[] = [

@@ -179,6 +179,149 @@ LISTENING_SCENARIO_TASKS = {
 }
 
 
+def build_listening_journey_step(step_id, label, prompt):
+    return {
+        "id": step_id,
+        "label": label,
+        "prompt": prompt,
+    }
+
+
+LISTENING_SCENARIO_JOURNEYS = {
+    "airport": [
+        build_listening_journey_step("arrival", "Chegada ao aeroporto", "O aluno acabou de chegar ao aeroporto e precisa entender os primeiros avisos e orientacoes."),
+        build_listening_journey_step("check_in", "Check-in", "A conversa agora acontece no balcao de check-in, com confirmacao de voo, passaporte e assento."),
+        build_listening_journey_step("baggage_drop", "Despacho de bagagem", "O foco passa para despacho de malas, peso da bagagem e etiquetas."),
+        build_listening_journey_step("security", "Controle de seguranca", "Agora a interacao acontece na fila ou no controle de seguranca, com instrucoes curtas e objetivas."),
+        build_listening_journey_step("gate_lookup", "Localizacao do portao", "O aluno precisa entender indicacoes sobre onde fica o portao de embarque."),
+        build_listening_journey_step("boarding", "Entrada no aviao", "A etapa agora e o embarque, com fila, prioridade e conferencia do cartao de embarque."),
+        build_listening_journey_step("in_flight", "Conversa dentro do aviao", "A fala acontece dentro do aviao, com pedidos simples, assento ou orientacoes da tripulacao."),
+        build_listening_journey_step("deplaning", "Saida do aviao", "A situacao avanca para o desembarque e as orientacoes para sair da aeronave."),
+        build_listening_journey_step("immigration", "Imigracao", "A conversa agora e na imigracao, com perguntas curtas sobre viagem, documentos e destino."),
+        build_listening_journey_step("baggage_claim", "Retirada da bagagem", "A etapa final e encontrar a esteira correta e lidar com a retirada da bagagem."),
+    ],
+    "restaurant": [
+        build_listening_journey_step("arrival", "Chegada ao restaurante", "O aluno esta chegando ao restaurante e precisa entender a recepcao inicial."),
+        build_listening_journey_step("table", "Pedido de mesa", "O foco e pedir ou confirmar uma mesa, quantidade de pessoas e tempo de espera."),
+        build_listening_journey_step("menu", "Leitura do cardapio", "Agora a conversa envolve cardapio, sugestoes e duvidas sobre pratos."),
+        build_listening_journey_step("drinks", "Pedido de bebidas", "A fala acontece no momento de escolher bebidas e fazer pequenos ajustes no pedido."),
+        build_listening_journey_step("meal", "Pedido principal", "A etapa avanca para pedir a comida principal e confirmar detalhes do prato."),
+        build_listening_journey_step("bill", "Conta e encerramento", "A etapa final e pedir a conta, confirmar pagamento e encerrar a interacao."),
+    ],
+    "hotel": [
+        build_listening_journey_step("arrival", "Chegada ao hotel", "O aluno acabou de chegar ao hotel e precisa entender a recepcao inicial."),
+        build_listening_journey_step("check_in", "Check-in", "A conversa e no balcao de check-in, com nome da reserva, documentos e horario."),
+        build_listening_journey_step("room_details", "Detalhes do quarto", "Agora a fala envolve numero do quarto, cafe da manha, elevador ou senha do wi-fi."),
+        build_listening_journey_step("request", "Pedido ao hotel", "A etapa avanca para um pedido simples, como toalhas, travesseiros ou late check-out."),
+        build_listening_journey_step("problem", "Resolver um problema", "A conversa foca em um problema no quarto e na solucao proposta pelo hotel."),
+        build_listening_journey_step("check_out", "Check-out", "A etapa final e fechar a estadia, confirmar conta e horario de saida."),
+    ],
+    "work": [
+        build_listening_journey_step("greeting", "Chegada ao trabalho", "O aluno ouve uma conversa curta do inicio do expediente."),
+        build_listening_journey_step("task_update", "Atualizacao de tarefa", "A fala agora e uma atualizacao simples sobre o que precisa ser feito."),
+        build_listening_journey_step("meeting", "Reuniao rapida", "A etapa avanca para uma reuniao curta com alinhamento e proximos passos."),
+        build_listening_journey_step("problem", "Resolver um problema", "O contexto agora e lidar com um bloqueio, atraso ou ajuste necessario."),
+        build_listening_journey_step("follow_up", "Retorno por mensagem ou fala", "A conversa foca em confirmar status, prazo ou expectativa."),
+        build_listening_journey_step("wrap_up", "Fechamento do dia", "A etapa final e encerrar o dia com resumo, entrega ou combinados."),
+    ],
+    "job_interview": [
+        build_listening_journey_step("welcome", "Inicio da entrevista", "O aluno ouve a abertura da entrevista e a apresentacao inicial."),
+        build_listening_journey_step("introduction", "Apresentacao pessoal", "A conversa passa para perguntas sobre apresentacao e experiencia."),
+        build_listening_journey_step("experience", "Experiencia profissional", "A etapa foca em experiencia anterior, habilidades e responsabilidades."),
+        build_listening_journey_step("strengths", "Pontos fortes", "Agora a fala envolve qualidades, exemplos e competencias."),
+        build_listening_journey_step("availability", "Disponibilidade e detalhes", "O contexto avanca para disponibilidade, formato de trabalho e expectativas."),
+        build_listening_journey_step("closing", "Encerramento", "A etapa final e agradecer, confirmar proximos passos e encerrar a entrevista."),
+    ],
+    "friends": [
+        build_listening_journey_step("greeting", "Inicio da conversa", "O aluno ouve a abertura de uma conversa casual entre amigos."),
+        build_listening_journey_step("catch_up", "Colocar o papo em dia", "A fala envolve rotina recente, novidades e perguntas simples."),
+        build_listening_journey_step("plans", "Combinar planos", "A etapa avanca para combinar algo, sugerir horario ou lugar."),
+        build_listening_journey_step("preferences", "Gostos e opinioes", "O contexto agora e comentar preferencias e reacoes naturais."),
+        build_listening_journey_step("change_of_plan", "Mudanca de plano", "A conversa foca em ajustar ou remarcar o combinado."),
+        build_listening_journey_step("goodbye", "Encerramento", "A etapa final e se despedir e confirmar o proximo contato."),
+    ],
+    "phone_call": [
+        build_listening_journey_step("answering", "Atender a ligacao", "O aluno ouve a abertura de um telefonema e a identificacao da pessoa."),
+        build_listening_journey_step("purpose", "Motivo da ligacao", "A fala passa para explicar rapidamente o motivo da chamada."),
+        build_listening_journey_step("details", "Confirmacao de detalhes", "A etapa envolve confirmar nomes, horarios, enderecos ou numeros."),
+        build_listening_journey_step("clarification", "Pedido de esclarecimento", "Agora a conversa foca em pedir repeticao ou confirmar entendimento."),
+        build_listening_journey_step("resolution", "Resolucao", "O contexto avanca para a solucao ou acordo principal da ligacao."),
+        build_listening_journey_step("closing", "Encerrar a ligacao", "A etapa final e agradecer e finalizar a chamada."),
+    ],
+    "tourism": [
+        build_listening_journey_step("arrival", "Chegada ao local", "O aluno acabou de chegar a um local turistico e precisa se orientar."),
+        build_listening_journey_step("directions", "Pedir direcoes", "A fala agora envolve pedir ou entender direcoes."),
+        build_listening_journey_step("tickets", "Ingressos ou acesso", "A etapa passa por comprar, confirmar ou retirar ingressos."),
+        build_listening_journey_step("recommendations", "Pedir recomendacoes", "O contexto foca em pedir sugestoes, horarios ou pontos importantes."),
+        build_listening_journey_step("problem", "Resolver um imprevisto", "A conversa agora trata de uma duvida, atraso ou desencontro."),
+        build_listening_journey_step("wrap_up", "Encerramento do passeio", "A etapa final e fechar a experiencia e combinar o proximo passo."),
+    ],
+}
+
+
+def build_default_listening_journey():
+    return {
+        "steps": [],
+        "current_step_index": 0,
+        "completed_step_ids": [],
+        "current_step_status": "pending",
+    }
+
+
+def normalize_listening_journey(journey):
+    normalized = build_default_listening_journey()
+    if isinstance(journey, dict):
+        normalized.update(journey)
+    steps = []
+    for step in normalized.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("id") or "").strip()
+        label = str(step.get("label") or "").strip()
+        prompt = str(step.get("prompt") or "").strip()
+        if not step_id or not label:
+            continue
+        steps.append({
+            "id": step_id,
+            "label": label,
+            "prompt": prompt,
+        })
+    normalized["steps"] = steps
+    step_count = len(steps)
+    try:
+        current_step_index = int(normalized.get("current_step_index") or 0)
+    except (TypeError, ValueError):
+        current_step_index = 0
+    normalized["current_step_index"] = max(0, min(current_step_index, max(step_count - 1, 0)))
+    completed_step_ids = []
+    seen = set()
+    valid_step_ids = {step["id"] for step in steps}
+    for step_id in normalized.get("completed_step_ids") or []:
+        value = str(step_id or "").strip()
+        if not value or value in seen or (valid_step_ids and value not in valid_step_ids):
+            continue
+        seen.add(value)
+        completed_step_ids.append(value)
+    normalized["completed_step_ids"] = completed_step_ids
+    status = str(normalized.get("current_step_status") or "pending").strip().lower()
+    normalized["current_step_status"] = status if status in {"pending", "active", "retry", "completed"} else "pending"
+    return normalized
+
+
+def build_listening_journey(scenario_key, scenario_label):
+    template = LISTENING_SCENARIO_JOURNEYS.get(scenario_key)
+    if template:
+        return [dict(step) for step in template]
+    base_label = str(scenario_label or "situacao").strip() or "situacao"
+    return [
+        build_listening_journey_step("arrival", f"Entrada em {base_label}", f"O aluno entra no contexto de {base_label} e precisa entender a primeira orientacao."),
+        build_listening_journey_step("interaction", "Primeira interacao", f"A conversa principal comeca no contexto de {base_label}, com uma pergunta ou resposta curta."),
+        build_listening_journey_step("clarification", "Esclarecimento", f"O aluno precisa entender um detalhe importante dentro do contexto de {base_label}."),
+        build_listening_journey_step("resolution", "Resolucao", f"A etapa avanca para resolver a necessidade principal no contexto de {base_label}."),
+        build_listening_journey_step("closing", "Encerramento", f"A experiencia termina com um fechamento natural dentro do contexto de {base_label}."),
+    ]
+
+
 def normalize_level_choice(value, fallback="A2"):
     normalized = str(value or "").strip().upper()
     return normalized if normalized in CEFR_LEVELS else fallback
@@ -214,6 +357,7 @@ def build_default_guided_state(mode, suggested_level="A2"):
         "summary_items": [],
         "preserve_level_on_scenario_change": False,
         "default_level_hint": level,
+        "listening_journey": build_default_listening_journey(),
     }
 
 
@@ -225,6 +369,7 @@ def normalize_guided_state(mode, base_state, suggested_level="A2", migrate_to_ac
         base_assessment = build_default_guided_state(mode, suggested_level=suggested_level)["assessment"]
         base_assessment.update(assessment)
         state["assessment"] = base_assessment
+        state["listening_journey"] = normalize_listening_journey(state.get("listening_journey"))
     if migrate_to_active and not state.get("scenario_label"):
         state["stage"] = "active"
         state["scenario_key"] = "free_conversation"
@@ -242,6 +387,7 @@ def normalize_guided_state(mode, base_state, suggested_level="A2", migrate_to_ac
     state["summary_items"] = unique_items(state.get("summary_items"), limit=8)
     if state.get("level"):
         state["level"] = normalize_level_choice(state["level"])
+    state["listening_journey"] = normalize_listening_journey(state.get("listening_journey"))
     return state
 
 

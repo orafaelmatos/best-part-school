@@ -368,6 +368,7 @@ class HomeworkSubmissionTests(TestCase):
         self.homework = Homework.objects.create(
             title='Writing task',
             status='pending',
+            auto_correction_enabled=False,
             teacher=self.teacher,
             student=self.student,
             lesson=self.lesson,
@@ -423,6 +424,116 @@ class HomeworkSubmissionTests(TestCase):
         answers = HomeworkAnswer.objects.filter(homework=self.homework, question=self.question, student=self.student)
         self.assertEqual(answers.count(), 1)
         self.assertEqual(answers.first().answer_text, 'Updated version for the teacher.')
+
+    def test_auto_correction_generates_second_chance_and_final_report(self):
+        auto_homework = Homework.objects.create(
+            title='Grammar drill',
+            status='pending',
+            auto_correction_enabled=True,
+            teacher=self.teacher,
+            student=self.student,
+            lesson=self.lesson,
+        )
+        auto_question = HomeworkQuestion.objects.create(
+            homework=auto_homework,
+            type='multiple_choice',
+            prompt='Choose the correct sentence.',
+            options=['He go to school every day.', 'He goes to school every day.'],
+            correct_option_index=1,
+            explanation='Use third person singular in the simple present.',
+            second_chance_mode='reserve',
+            reserve_type='multiple_choice',
+            reserve_prompt='Choose the correct sentence about Anna.',
+            reserve_options=['Anna work at home.', 'Anna works at home.'],
+            reserve_correct_option_index=1,
+            reserve_explanation='Remember to add -s for he, she and it.',
+            order=0,
+        )
+
+        self.client.force_authenticate(user=self.student)
+
+        list_response = self.client.get(f'/api/homework/{auto_homework.id}/')
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('correct_option_index', list_response.data['questions'][0])
+
+        first_response = self.client.post(
+            f'/api/homework/{auto_homework.id}/answer_question/',
+            {
+                'question': str(auto_question.id),
+                'selected_option_index': 0,
+            },
+            format='json',
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        auto_homework.refresh_from_db()
+        self.assertEqual(auto_homework.status, 'in_progress')
+        first_answer = HomeworkAnswer.objects.get(homework=auto_homework, question=auto_question, student=self.student)
+        self.assertFalse(first_answer.is_correct)
+        self.assertIsNotNone(first_response.data['answer']['second_chance_question'])
+
+        second_response = self.client.post(
+            f'/api/homework/{auto_homework.id}/answer_second_chance/',
+            {
+                'question': str(auto_question.id),
+                'selected_option_index': 1,
+            },
+            format='json',
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        auto_homework.refresh_from_db()
+        self.assertEqual(auto_homework.status, 'corrected')
+        first_answer.refresh_from_db()
+        self.assertTrue(first_answer.second_chance_is_correct)
+        self.assertEqual(auto_homework.student_report.get('accuracy'), 100)
+        self.assertEqual(auto_homework.student_report.get('second_chance_correct'), 1)
+
+    def test_student_can_request_second_chance_after_incorrect_answer(self):
+        auto_homework = Homework.objects.create(
+            title='Transport review',
+            status='pending',
+            auto_correction_enabled=True,
+            teacher=self.teacher,
+            student=self.student,
+            lesson=self.lesson,
+        )
+        auto_question = HomeworkQuestion.objects.create(
+            homework=auto_homework,
+            type='open_text',
+            prompt='How do you go to work?',
+            reference_answer='I go to work by car.',
+            explanation='Use a complete answer with transport.',
+            second_chance_mode='reserve',
+            reserve_type='open_text',
+            reserve_prompt='Now answer: How do you go to school?',
+            reserve_reference_answer='I go to school by bus.',
+            reserve_explanation='Use the same structure with another transport.',
+            order=0,
+        )
+
+        self.client.force_authenticate(user=self.student)
+        first_response = self.client.post(
+            f'/api/homework/{auto_homework.id}/answer_question/',
+            {
+                'question': str(auto_question.id),
+                'answer_text': 'cars para la',
+            },
+            format='json',
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+
+        request_response = self.client.post(
+            f'/api/homework/{auto_homework.id}/request_second_chance/',
+            {
+                'question': str(auto_question.id),
+            },
+            format='json',
+        )
+        self.assertEqual(request_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(request_response.data['homework']['status'], 'in_progress')
+        self.assertEqual(
+            request_response.data['answer']['second_chance_question']['prompt'],
+            'Now answer: How do you go to school?',
+        )
 
 
 class HomeworkQuestionMediaTests(TestCase):

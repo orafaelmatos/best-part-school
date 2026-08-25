@@ -29,6 +29,7 @@ from .vocabulary import (
     sync_new_word_card,
     vocabulary_stats,
 )
+from .homework_auto import HomeworkAutoCorrectionService
 from ai_study.services import LessonSummaryWorkflowService
 
 class AttachmentViewSet(viewsets.ModelViewSet):
@@ -254,6 +255,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             'classification': request.data.get('classification', ''),
             'status': request.data.get('status'),
             'due_date': request.data.get('due_date') or None,
+            'auto_correction_enabled': request.data.get('auto_correction_enabled', True),
             'teacher': request.data.get('teacher') or None,
             'student': request.data.get('student') or None,
             'lesson': request.data.get('lesson') or None,
@@ -323,6 +325,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             'classification': source.classification,
             'status': 'draft',
             'due_date': source.due_date,
+            'auto_correction_enabled': source.auto_correction_enabled,
             'teacher': source.teacher_id,
             'student': source.student_id,
             'lesson': source.lesson_id,
@@ -338,6 +341,18 @@ class HomeworkViewSet(viewsets.ModelViewSet):
                     'audio_transcript': question.audio_transcript,
                     'options': question.options,
                     'correct_option_index': question.correct_option_index,
+                    'reference_answer': question.reference_answer,
+                    'correction_instructions': question.correction_instructions,
+                    'explanation': question.explanation,
+                    'second_chance_mode': question.second_chance_mode,
+                    'reserve_question': {
+                        'type': question.reserve_type,
+                        'prompt': question.reserve_prompt,
+                        'options': question.reserve_options,
+                        'correct_option_index': question.reserve_correct_option_index,
+                        'reference_answer': question.reserve_reference_answer,
+                        'explanation': question.reserve_explanation,
+                    } if question.reserve_prompt else None,
                     'order': question.order,
                 }
                 for question in source.questions.all()
@@ -368,6 +383,18 @@ class HomeworkViewSet(viewsets.ModelViewSet):
                     'audio_transcript': question.audio_transcript,
                     'options': question.options,
                     'correct_option_index': question.correct_option_index,
+                    'reference_answer': question.reference_answer,
+                    'correction_instructions': question.correction_instructions,
+                    'explanation': question.explanation,
+                    'second_chance_mode': question.second_chance_mode,
+                    'reserve_question': {
+                        'type': question.reserve_type,
+                        'prompt': question.reserve_prompt,
+                        'options': question.reserve_options,
+                        'correct_option_index': question.reserve_correct_option_index,
+                        'reference_answer': question.reserve_reference_answer,
+                        'explanation': question.reserve_explanation,
+                    } if question.reserve_prompt else None,
                     'order': question.order,
                 }
                 for question in homework.questions.all()
@@ -380,6 +407,31 @@ class HomeworkViewSet(viewsets.ModelViewSet):
         homework = self.get_object()
         answers = request.data.get('answers', [])
         student = homework.student or request.user
+        if homework.auto_correction_enabled:
+            processed_answers = []
+            for answer_payload in answers:
+                question = homework.questions.filter(id=answer_payload.get('question')).first()
+                if not question:
+                    continue
+                existing = HomeworkAnswer.objects.filter(homework=homework, question=question, student=student).first()
+                if existing and existing.answered_at:
+                    processed_answers.append(existing)
+                    continue
+                processed_answers.append(
+                    HomeworkAutoCorrectionService.submit_primary_answer(
+                        homework,
+                        question,
+                        student,
+                        answer_text=answer_payload.get('answer_text', ''),
+                        selected_option_index=answer_payload.get('selected_option_index'),
+                    )
+                )
+            homework.refresh_from_db()
+            return Response({
+                'homework': self.get_serializer(homework).data,
+                'processed_answers': HomeworkAnswerSerializer(processed_answers, many=True, context=self.get_serializer_context()).data,
+                'report': homework.student_report or None,
+            })
         for answer in answers:
             question = homework.questions.filter(id=answer.get('question')).first()
             if not question:
@@ -396,6 +448,85 @@ class HomeworkViewSet(viewsets.ModelViewSet):
         homework.status = 'sent'
         homework.save()
         return Response(self.get_serializer(homework).data)
+
+    @action(detail=True, methods=['post'])
+    def answer_question(self, request, pk=None):
+        homework = self.get_object()
+        if not homework.auto_correction_enabled:
+            return Response({'error': 'A correção automática está desativada nesta homework.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        question = homework.questions.filter(id=request.data.get('question')).first()
+        if not question:
+            return Response({'error': 'Questão não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        student = homework.student or request.user
+        try:
+            answer = HomeworkAutoCorrectionService.submit_primary_answer(
+                homework,
+                question,
+                student,
+                answer_text=request.data.get('answer_text', ''),
+                selected_option_index=request.data.get('selected_option_index'),
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        homework.refresh_from_db()
+        return Response({
+            'homework': self.get_serializer(homework).data,
+            'answer': HomeworkAnswerSerializer(answer, context=self.get_serializer_context()).data,
+            'report': homework.student_report or None,
+        })
+
+    @action(detail=True, methods=['post'])
+    def answer_second_chance(self, request, pk=None):
+        homework = self.get_object()
+        question = homework.questions.filter(id=request.data.get('question')).first()
+        if not question:
+            return Response({'error': 'Questão não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        student = homework.student or request.user
+        try:
+            answer = HomeworkAutoCorrectionService.submit_second_chance_answer(
+                homework,
+                question,
+                student,
+                answer_text=request.data.get('answer_text', ''),
+                selected_option_index=request.data.get('selected_option_index'),
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        homework.refresh_from_db()
+        return Response({
+            'homework': self.get_serializer(homework).data,
+            'answer': HomeworkAnswerSerializer(answer, context=self.get_serializer_context()).data,
+            'report': homework.student_report or None,
+        })
+
+    @action(detail=True, methods=['post'])
+    def request_second_chance(self, request, pk=None):
+        homework = self.get_object()
+        question = homework.questions.filter(id=request.data.get('question')).first()
+        if not question:
+            return Response({'error': 'Questão não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        student = homework.student or request.user
+        try:
+            answer = HomeworkAutoCorrectionService.ensure_second_chance_question(
+                homework,
+                question,
+                student,
+            )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        homework.refresh_from_db()
+        return Response({
+            'homework': self.get_serializer(homework).data,
+            'answer': HomeworkAnswerSerializer(answer, context=self.get_serializer_context()).data,
+            'report': homework.student_report or None,
+        })
 
 class HomeworkAnswerViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkAnswerSerializer

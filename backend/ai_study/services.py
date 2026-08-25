@@ -32,6 +32,7 @@ from .models import (
 from .guided_tutor import (
     LEVEL_ASSESSMENT_QUESTIONS,
     action_instruction_for_value,
+    build_listening_journey,
     build_default_guided_state,
     build_guided_metadata,
     custom_scenario_prompt_message,
@@ -44,6 +45,7 @@ from .guided_tutor import (
     level_assessment_message,
     level_prompt_message,
     normalize_guided_state,
+    normalize_listening_journey,
     normalize_level_choice,
     parse_level_choice,
     placeholder_for_expected_input,
@@ -1104,6 +1106,24 @@ class AIStudyOpenAIService:
     def generate_listening_exercise(session, state):
         scenario_label = clean_context_text(state.get('scenario_label') or 'Conversacao livre', limit=120)
         level = clean_context_text(state.get('level') or getattr(session.student, 'level', 'A2') or 'A2', limit=10)
+        journey = normalize_listening_journey(state.get('listening_journey'))
+        steps = journey.get('steps') or []
+        current_step_index = max(0, min(int(journey.get('current_step_index') or 0), max(len(steps) - 1, 0)))
+        current_step = steps[current_step_index] if steps else {
+            'id': 'current_step',
+            'label': scenario_label,
+            'prompt': scenario_task_for_mode('listening', state.get('scenario_key'), scenario_label),
+        }
+        completed_steps = [
+            step.get('label')
+            for step in steps
+            if step.get('id') in set(journey.get('completed_step_ids') or [])
+        ]
+        remaining_steps = [
+            step.get('label')
+            for index, step in enumerate(steps)
+            if index > current_step_index and step.get('label')
+        ][:4]
         previous_transcripts = [
             clean_context_text(message.text, limit=280)
             for message in session.messages.order_by('-created_at')[:8]
@@ -1113,10 +1133,11 @@ class AIStudyOpenAIService:
             {
                 'role': 'system',
                 'content': (
-                    'You create listening transcription exercises for English learners. '
+                    'You create listening transcription exercises for English learners inside a continuous role-play journey. '
                     'Return only JSON. '
                     'The transcript must be natural spoken English, short enough for TTS, and suitable for a dictation activity. '
-                    'Provide exactly 4 alternatives in English, including the exact transcript once and 3 plausible distractors.'
+                    'Provide exactly 4 alternatives in English, including the exact transcript once and 3 plausible distractors. '
+                    'The sentence must clearly belong to the current step of the journey and must not jump ahead to future steps.'
                 ),
             },
             {
@@ -1125,14 +1146,26 @@ class AIStudyOpenAIService:
                     {
                         'mode': 'listening',
                         'scenario': scenario_label,
+                        'scenario_key': state.get('scenario_key') or '',
                         'student_level': level,
                         'student_profile_level': getattr(session.student, 'level', None),
+                        'journey': {
+                            'current_step': {
+                                'index': current_step_index + 1,
+                                'total_steps': len(steps) or 1,
+                                'label': current_step.get('label') or '',
+                                'prompt': current_step.get('prompt') or '',
+                            },
+                            'completed_steps': completed_steps[:6],
+                            'remaining_steps': remaining_steps,
+                        },
                         'avoid_repeating': previous_transcripts[:5],
                         'requirements': {
                             'max_words': 18,
                             'min_words': 5,
                             'single_sentence': True,
                             'language': 'English only',
+                            'step_continuity': 'Keep the audio tightly connected to the current journey step.',
                         },
                     },
                     ensure_ascii=False,
@@ -1674,6 +1707,39 @@ class AIStudyWorkflowService:
         )
 
     @staticmethod
+    def _listening_journey(state):
+        journey = normalize_listening_journey(state.get('listening_journey'))
+        state['listening_journey'] = journey
+        return journey
+
+    @staticmethod
+    def _listening_step_snapshot(state):
+        journey = AIStudyWorkflowService._listening_journey(state)
+        steps = journey.get('steps') or []
+        if not steps:
+            fallback_prompt = scenario_task_for_mode(
+                'listening',
+                state.get('scenario_key'),
+                state.get('scenario_label') or 'Conversacao livre',
+            )
+            fallback_step = {
+                'id': 'current_step',
+                'label': state.get('scenario_label') or 'Etapa atual',
+                'prompt': fallback_prompt,
+            }
+            return journey, fallback_step, 1, 1
+        index = max(0, min(int(journey.get('current_step_index') or 0), len(steps) - 1))
+        journey['current_step_index'] = index
+        return journey, steps[index], index + 1, len(steps)
+
+    @staticmethod
+    def _listening_progress_text(state):
+        journey, step, step_index, step_total = AIStudyWorkflowService._listening_step_snapshot(state)
+        if not journey.get('steps'):
+            return step.get('label') or 'Listening em andamento.'
+        return f"Etapa {step_index} de {step_total}: {step.get('label') or 'Etapa atual'}."
+
+    @staticmethod
     def prepare_listening_session(session, scenario_key, scenario_label, level):
         state = normalize_guided_state(
             'listening',
@@ -1688,13 +1754,27 @@ class AIStudyWorkflowService:
         state['level_source'] = 'selected'
         state['objective'] = default_session_objective('listening', state['scenario_label'], state['level'])
         state['difficulty'] = 'guided'
-        state['current_task'] = scenario_task_for_mode('listening', state['scenario_key'], state['scenario_label'])
+        state['listening_journey'] = normalize_listening_journey({
+            'steps': build_listening_journey(state['scenario_key'], state['scenario_label']),
+            'current_step_index': 0,
+            'completed_step_ids': [],
+            'current_step_status': 'active',
+        })
+        _, current_step, step_index, step_total = AIStudyWorkflowService._listening_step_snapshot(state)
+        state['current_task'] = clean_context_text(current_step.get('prompt'), limit=320) or scenario_task_for_mode(
+            'listening',
+            state['scenario_key'],
+            state['scenario_label'],
+        )
         state['expected_input'] = 'text_submission'
         state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
         state['last_activity_type'] = 'listening_setup'
         state['session_status'] = 'active'
         state['preserve_level_on_scenario_change'] = False
         state['listening_round'] = int(state.get('listening_round') or 0)
+        state['progress_summary'] = f"Jornada iniciada. Etapa {step_index} de {step_total}: {current_step.get('label') or state['scenario_label']}."
+        state['recommended_next_step'] = 'continue'
+        state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
         AIStudyWorkflowService.persist_guided_state(
             session,
             state,
@@ -1726,6 +1806,7 @@ class AIStudyWorkflowService:
     @staticmethod
     def _listening_metadata(session, state, exercise, audio_url, challenge_id, round_number):
         options, correct_option_id = AIStudyWorkflowService._listening_options(exercise)
+        journey, current_step, step_index, step_total = AIStudyWorkflowService._listening_step_snapshot(state)
         return {
             'supports_streaming': False,
             'mode': session.mode,
@@ -1741,6 +1822,20 @@ class AIStudyWorkflowService:
                 'options': options,
                 'correct_option_id': correct_option_id,
                 'focus_words': normalize_string_list(exercise.get('focus_words'), limit=6),
+                'step_id': current_step.get('id') or '',
+                'step_title': current_step.get('label') or '',
+                'step_prompt': current_step.get('prompt') or '',
+                'step_index': step_index,
+                'step_total': step_total,
+                'is_final_step': bool(step_total and step_index >= step_total),
+                'tts_unavailable': not bool(audio_url),
+                'journey_steps': [
+                    {
+                        'id': step.get('id') or '',
+                        'label': step.get('label') or '',
+                    }
+                    for step in journey.get('steps') or []
+                ],
                 'response_mode_choices': [
                     {'id': 'multiple_choice', 'label': 'Com alternativas'},
                     {'id': 'transcription', 'label': 'Escrever sozinho'},
@@ -1753,8 +1848,13 @@ class AIStudyWorkflowService:
         state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
         if session.mode != 'listening':
             raise ValueError('Listening challenge is only available for listening sessions.')
-        transcript_fallback = (
-            f"I am practicing English in a {clean_context_text(state.get('scenario_label') or 'daily life', limit=80).lower()} situation today."
+        journey = AIStudyWorkflowService._listening_journey(state)
+        if journey.get('steps') and len(journey.get('completed_step_ids') or []) >= len(journey.get('steps') or []):
+            raise ValueError('Essa jornada de listening ja foi concluida.')
+        _, current_step, step_index, step_total = AIStudyWorkflowService._listening_step_snapshot(state)
+        transcript_fallback = clean_context_text(
+            f"I am now at the {current_step.get('label') or 'current'} stage of this {state.get('scenario_label') or 'daily life'} situation.",
+            limit=280,
         )
         try:
             exercise = AIStudyOpenAIService.generate_listening_exercise(session, state)
@@ -1764,15 +1864,20 @@ class AIStudyWorkflowService:
                 'instructions': state.get('current_task') or 'Ouca o audio e transcreva o que ouvir.',
                 'alternatives': [
                     transcript_fallback,
-                    'I am practicing English in a daily situation today.',
-                    'I was practicing English in a daily life situation.',
-                    'I am studying English in this situation today.',
+                    'I am at this stage of the trip right now.',
+                    'I was at this stage of the trip just now.',
+                    'I am studying English in this part of the trip.',
                 ],
                 'correct_option_index': 0,
-                'focus_words': ['practicing', 'situation'],
+                'focus_words': ['stage', 'trip'],
             }
         transcript = clean_context_text(exercise.get('transcript'), limit=280) or transcript_fallback
-        audio_url = AIStudyOpenAIService.generate_tts(transcript)
+        audio_url = None
+        tts_unavailable = False
+        try:
+            audio_url = AIStudyOpenAIService.generate_tts(transcript)
+        except Exception:
+            tts_unavailable = True
         round_number = int(state.get('listening_round') or 0) + 1
         metadata = AIStudyWorkflowService._listening_metadata(
             session,
@@ -1784,6 +1889,8 @@ class AIStudyWorkflowService:
         )
         state['stage'] = 'active'
         state['session_status'] = 'active'
+        journey['current_step_status'] = 'active'
+        state['listening_journey'] = journey
         state['current_task'] = metadata['interpreter_exercise']['instructions'] or scenario_task_for_mode(
             'listening',
             state.get('scenario_key'),
@@ -1792,7 +1899,12 @@ class AIStudyWorkflowService:
         state['expected_input'] = 'text_submission'
         state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
         state['last_activity_type'] = 'listening_challenge'
-        state['progress_summary'] = f"Rodada {round_number} pronta para transcricao."
+        state['progress_summary'] = (
+            f"Audio {round_number} pronto. Etapa {step_index} de {step_total}: {current_step.get('label') or state.get('scenario_label')}."
+            if not tts_unavailable
+            else f"Etapa {step_index} de {step_total} preparada, mas o audio nao foi gerado agora."
+        )
+        state['recommended_next_step'] = 'continue'
         state['listening_round'] = round_number
         state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
         AIStudyWorkflowService.persist_guided_state(
@@ -1838,6 +1950,8 @@ class AIStudyWorkflowService:
             feedback_text = f'Quase la. Sua transcricao ficou {percent}% proxima do audio.'
         else:
             feedback_text = 'Ainda nao foi dessa vez. Revele a resposta para conferir o texto e tente novamente se quiser.'
+        journey, current_step, step_index, step_total = AIStudyWorkflowService._listening_step_snapshot(state)
+        current_step_label = current_step.get('label') or state.get('scenario_label') or 'Etapa atual'
 
         user_message = AIStudyWorkflowService._create_user_message(
             session,
@@ -1866,22 +1980,111 @@ class AIStudyWorkflowService:
             },
         )
         focus_words = normalize_string_list(exercise.get('focus_words'), limit=6)
+        follow_up_message = None
         if status == 'correct':
             state['learned_words'] = unique_items((state.get('learned_words') or []) + focus_words, limit=18)
-        state['completed_activities'] = unique_items(
-            (state.get('completed_activities') or []) + ['transcricao listening'],
-            limit=18,
-        )
+            completed_step_ids = unique_items((journey.get('completed_step_ids') or []) + [current_step.get('id')], limit=max(step_total, 1))
+            journey['completed_step_ids'] = completed_step_ids
+            state['completed_activities'] = unique_items(
+                (state.get('completed_activities') or []) + [f"listening: {current_step_label.lower()}"],
+                limit=18,
+            )
+            if step_index < step_total:
+                next_step = (journey.get('steps') or [])[step_index]
+                journey['current_step_index'] = step_index
+                journey['current_step_status'] = 'active'
+                state['listening_journey'] = journey
+                state['progress_summary'] = (
+                    f"Etapa {step_index} de {step_total} concluida: {current_step_label}. "
+                    f"Proxima etapa: {next_step.get('label') or 'Continuar a jornada'}."
+                )
+                state['current_task'] = clean_context_text(next_step.get('prompt'), limit=320) or scenario_task_for_mode(
+                    'listening',
+                    state.get('scenario_key'),
+                    state.get('scenario_label') or 'Conversacao livre',
+                )
+                state['expected_input'] = 'text_submission'
+                state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
+                state['recommended_next_step'] = 'continue'
+                state['last_activity_type'] = 'listening_answer'
+                state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
+                AIStudyWorkflowService.persist_guided_state(
+                    session,
+                    state,
+                    title=guided_session_title('listening', state.get('scenario_label')),
+                    touch=True,
+                )
+                follow_up_message = AIStudyWorkflowService.create_listening_challenge(session)
+            else:
+                journey['current_step_status'] = 'completed'
+                state['listening_journey'] = journey
+                state['stage'] = 'summary'
+                state['session_status'] = 'completed'
+                state['completed_activities'] = unique_items(
+                    (state.get('completed_activities') or []) + ['jornada listening concluida'],
+                    limit=18,
+                )
+                state['progress_summary'] = (
+                    f"Jornada concluida. Voce finalizou a etapa {step_index} de {step_total}: {current_step_label}."
+                )
+                state['current_task'] = ''
+                state['expected_input'] = 'choice'
+                state['input_placeholder'] = 'Jornada concluida. Inicie um novo treino quando quiser.'
+                state['recommended_next_step'] = 'completed'
+                state['last_activity_type'] = 'listening_answer'
+                state['summary_items'] = AIStudyWorkflowService._build_summary_items(
+                    state,
+                    extra_items=[f"concluiu a jornada completa de {state.get('scenario_label') or 'listening'}"],
+                )
+                AIStudyWorkflowService.persist_guided_state(
+                    session,
+                    state,
+                    title=guided_session_title('listening', state.get('scenario_label')),
+                    status='completed',
+                    touch=True,
+                )
+                follow_up_message = AIStudyWorkflowService._assistant_message(
+                    session,
+                    (
+                        f"Excelente. Voce concluiu a jornada de {state.get('scenario_label') or 'listening'} "
+                        f"e passou por {step_total} etapas, de {current_step_label.lower()} ate o final da situacao."
+                    ),
+                    {
+                        'supports_streaming': False,
+                        'mode': session.mode,
+                        'interpreter': True,
+                        'interpreter_journey_completed': True,
+                    },
+                )
+        else:
+            journey['current_step_status'] = 'retry'
+            state['listening_journey'] = journey
+            state['progress_summary'] = (
+                f"Continue na etapa {step_index} de {step_total}: {current_step_label}. "
+                f"Revise o audio e tente novamente."
+            )
+            state['current_task'] = clean_context_text(current_step.get('prompt'), limit=320) or state.get('current_task') or scenario_task_for_mode(
+                'listening',
+                state.get('scenario_key'),
+                state.get('scenario_label') or 'Conversacao livre',
+            )
+            state['expected_input'] = 'text_submission'
+            state['input_placeholder'] = placeholder_for_expected_input('listening', state['expected_input'], state['current_task'])
+            state['recommended_next_step'] = 'retry'
+            state['completed_activities'] = unique_items(
+                (state.get('completed_activities') or []) + ['transcricao listening'],
+                limit=18,
+            )
         state['last_activity_type'] = 'listening_answer'
-        state['progress_summary'] = feedback_text
         state['summary_items'] = AIStudyWorkflowService._build_summary_items(state)
-        AIStudyWorkflowService.persist_guided_state(
-            session,
-            state,
-            title=guided_session_title('listening', state.get('scenario_label')),
-            touch=True,
-        )
-        return user_message, assistant_message
+        if status != 'correct':
+            AIStudyWorkflowService.persist_guided_state(
+                session,
+                state,
+                title=guided_session_title('listening', state.get('scenario_label')),
+                touch=True,
+            )
+        return user_message, assistant_message, follow_up_message
 
     @staticmethod
     def _append_next_step_prompt(text, recommended_label='Continuar'):
@@ -2008,9 +2211,20 @@ class AIStudyWorkflowService:
         learned_words = state.get('learned_words') or []
         recurring_errors = state.get('recurring_errors') or []
         completed_activities = state.get('completed_activities') or []
+        journey = normalize_listening_journey(state.get('listening_journey'))
+        steps = journey.get('steps') or []
+        completed_step_ids = journey.get('completed_step_ids') or []
 
         if scenario_label:
             items.append(f"praticou o cenario {scenario_label}")
+        if steps:
+            current_index = max(0, min(int(journey.get('current_step_index') or 0), len(steps) - 1))
+            current_step = steps[current_index]
+            items.append(
+                f"progrediu {len(completed_step_ids)} de {len(steps)} etapas em {scenario_label}"
+            )
+            if state.get('session_status') != 'completed':
+                items.append(f"esta em {current_step.get('label') or 'uma nova etapa'}")
         if learned_words:
             items.append(f"aprendeu palavras como {', '.join(learned_words[:4])}")
         if recurring_errors:

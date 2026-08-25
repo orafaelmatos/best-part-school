@@ -241,10 +241,14 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         if session.mode != 'listening':
             return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
-        assistant_message = AIStudyWorkflowService.create_listening_challenge(session)
+        try:
+            assistant_message = AIStudyWorkflowService.create_listening_challenge(session)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        refreshed_session = AIStudySession.objects.get(pk=session.pk)
         return Response({
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
-            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
+            'session': AIStudySessionListSerializer(refreshed_session, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='listening/answer')
@@ -255,7 +259,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         serializer = ListeningAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            user_message, assistant_message = AIStudyWorkflowService.handle_listening_answer(
+            user_message, assistant_message, follow_up_message = AIStudyWorkflowService.handle_listening_answer(
                 session,
                 serializer.validated_data['message_id'],
                 serializer.validated_data['response_mode'],
@@ -264,10 +268,15 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        refreshed_session = AIStudySession.objects.get(pk=session.pk)
         return Response({
             'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data,
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data,
-            'session': AIStudySessionListSerializer(session, context={'request': request}).data,
+            'follow_up_message': (
+                AIConversationMessageSerializer(follow_up_message, context={'request': request}).data
+                if follow_up_message else None
+            ),
+            'session': AIStudySessionListSerializer(refreshed_session, context={'request': request}).data,
         })
 
     @action(detail=True, methods=['post'], url_path='translate-selection')
