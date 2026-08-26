@@ -102,6 +102,7 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
                          <div key={slot.index} className="flex flex-wrap items-center gap-3">
                            <input 
                              type="time" 
+                             step={1800}
                              value={slot.start.substring(0,5)} 
                              onChange={(e) => updateSlot(slot.index, 'start', e.target.value + ":00")}
                              className="border border-border rounded-md px-3 py-1.5 text-sm"
@@ -109,6 +110,7 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
                            <span className="text-muted-foreground">até</span>
                            <input 
                              type="time" 
+                             step={1800}
                              value={slot.end.substring(0,5)} 
                              onChange={(e) => updateSlot(slot.index, 'end', e.target.value + ":00")}
                              className="border border-border rounded-md px-3 py-1.5 text-sm"

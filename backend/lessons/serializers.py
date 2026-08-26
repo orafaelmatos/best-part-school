@@ -19,6 +19,7 @@ from .models import (
     LessonSummaryMistake,
     LessonSummaryNextTopic,
 )
+from .scheduling import lesson_end_time, lesson_start_times_overlap
 
 class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
@@ -27,6 +28,53 @@ class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRecurringSchedule
         fields = ['id', 'student', 'student_name', 'teacher', 'teacher_name', 'day_of_week', 'start_time', 'active']
+
+    def validate(self, attrs):
+        validated = super().validate(attrs)
+        teacher = validated.get('teacher', getattr(self.instance, 'teacher', None))
+        day_of_week = validated.get('day_of_week', getattr(self.instance, 'day_of_week', None))
+        start_time = validated.get('start_time', getattr(self.instance, 'start_time', None))
+        active = validated.get('active', getattr(self.instance, 'active', True))
+
+        if not active or teacher is None or day_of_week is None or start_time is None:
+            return validated
+
+        end_time, crosses_day = lesson_end_time(start_time)
+        if crosses_day:
+            raise serializers.ValidationError({
+                'start_time': 'A aula recorrente precisa terminar no mesmo dia.',
+            })
+
+        has_availability = TeacherAvailability.objects.filter(
+            teacher=teacher,
+            day_of_week=day_of_week,
+            start_time__lte=start_time,
+            end_time__gte=end_time,
+        ).exists()
+        if not has_availability:
+            raise serializers.ValidationError({
+                'start_time': 'O horário precisa caber dentro da disponibilidade do professor.',
+            })
+
+        conflicting_schedules = StudentRecurringSchedule.objects.filter(
+            teacher=teacher,
+            day_of_week=day_of_week,
+            active=True,
+        )
+        if self.instance:
+            conflicting_schedules = conflicting_schedules.exclude(pk=self.instance.pk)
+
+        for schedule in conflicting_schedules:
+            if lesson_start_times_overlap(schedule.start_time, start_time):
+                conflict_end_time, _ = lesson_end_time(schedule.start_time)
+                raise serializers.ValidationError({
+                    'start_time': (
+                        f'Esse horário se sobrepõe a outra aula recorrente do professor '
+                        f'({schedule.start_time.strftime("%H:%M")} - {conflict_end_time.strftime("%H:%M")}).'
+                    ),
+                })
+
+        return validated
 
 class TeacherAvailabilitySerializer(serializers.ModelSerializer):
     class Meta:

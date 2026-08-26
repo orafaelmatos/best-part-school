@@ -97,7 +97,6 @@ const Calendario = () => {
   });
 
   const availableSlots = availabilityInfo?.slots || [];
-  const busySlots = availabilityInfo?.busy || [];
   const teacherBlockedDates = availabilityInfo?.blocked || [];
 
   const { data: currentUserAvailability } = useQuery({
@@ -119,33 +118,6 @@ const Calendario = () => {
 
   const prev = () => setCurrentDate(new Date(year, month - 1, 1));
   const next = () => setCurrentDate(new Date(year, month + 1, 1));
-
-  const getTimeSlots = (date: Date) => {
-    const pyDay = jsToPyDay(date.getDay());
-    const dayAvails = availableSlots.filter((av: any) => av.day_of_week === pyDay);
-    let allPossible: string[] = [];
-
-    dayAvails.forEach((av: any) => {
-      const startHour = parseInt(av.start.split(':')[0]);
-      const endHour = parseInt(av.end.split(':')[0]);
-      for (let h = startHour; h < endHour; h++) {
-        allPossible.push(`${String(h).padStart(2, '0')}:00`);
-      }
-    });
-
-    const busyTimes = busySlots.map((b: string) => {
-      const bDate = new Date(b);
-      const isSameDay = bDate.getFullYear() === date.getFullYear() && bDate.getMonth() === date.getMonth() && bDate.getDate() === date.getDate();
-      if (isSameDay) return `${String(bDate.getHours()).padStart(2, '0')}:00`;
-      return null;
-    }).filter(Boolean);
-
-    const getLocalIsoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const localIsoStrDate = getLocalIsoDate(date);
-    if (teacherBlockedDates.includes(localIsoStrDate)) return [];
-
-    return allPossible.filter(time => !busyTimes.includes(time));
-  };
 
   const blockDateMutation = useMutation({
     mutationFn: async (dateStr: string) => {

@@ -8,7 +8,7 @@ import datetime
 from unittest.mock import patch
 import json
 from accounts.models import User
-from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, TeacherAvailability, VocabularyCard
+from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, StudentRecurringSchedule, TeacherAvailability, VocabularyCard
 from .vocabulary import schedule_card, vocabulary_stats
 
 class LessonVisibilityTests(TestCase):
@@ -76,7 +76,8 @@ class LessonSchedulingValidationTests(TestCase):
         self.student1 = User.objects.create_user(email='schedule-student1@test.com', password='123', role='student', name='Student 1', level='B1')
         self.student2 = User.objects.create_user(email='schedule-student2@test.com', password='123', role='student', name='Student 2', level='B1')
         self.template = Lesson.objects.create(title='B1 Template', level='B1', is_template=True, status='pending')
-        self.lesson_date = timezone.now().replace(minute=0, second=0, microsecond=0) + datetime.timedelta(days=3)
+        future_date = timezone.localdate() + datetime.timedelta(days=3)
+        self.lesson_date = timezone.make_aware(datetime.datetime.combine(future_date, datetime.time(12, 0)))
         TeacherAvailability.objects.create(
             teacher=self.teacher,
             day_of_week=self.lesson_date.weekday(),
@@ -157,7 +158,12 @@ class LessonSchedulingValidationTests(TestCase):
         self.assertEqual(lesson.date, new_date)
 
     def test_teacher_cannot_reschedule_past_lesson(self):
-        past_date = timezone.now().replace(minute=0, second=0, microsecond=0) - datetime.timedelta(days=1)
+        past_date = timezone.make_aware(
+            datetime.datetime.combine(
+                timezone.localdate() - datetime.timedelta(days=1),
+                datetime.time(12, 0),
+            )
+        )
         lesson = Lesson.objects.create(
             title='Past lesson',
             level='B1',
@@ -212,6 +218,86 @@ class LessonSchedulingValidationTests(TestCase):
         })
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_teacher_availability_api_returns_half_hour_slots_and_blocks_overlaps(self):
+        TeacherAvailability.objects.filter(teacher=self.teacher).delete()
+        TeacherAvailability.objects.create(
+            teacher=self.teacher,
+            day_of_week=self.lesson_date.weekday(),
+            start_time=datetime.time(8, 0),
+            end_time=datetime.time(21, 30),
+        )
+        Lesson.objects.create(
+            title='Half hour lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=self.lesson_date.replace(hour=12, minute=30),
+            status='scheduled',
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.get(
+            f'/api/teacher-availability/{self.teacher.id}/',
+            {'date': self.lesson_date.date().isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slots_by_time = {slot['time']: slot for slot in response.data['time_slots']}
+
+        self.assertTrue(slots_by_time['11:30']['available'])
+        self.assertFalse(slots_by_time['12:00']['available'])
+        self.assertEqual(slots_by_time['12:00']['reason'], 'busy')
+        self.assertFalse(slots_by_time['12:30']['available'])
+        self.assertEqual(slots_by_time['12:30']['reason'], 'busy')
+        self.assertFalse(slots_by_time['13:00']['available'])
+        self.assertEqual(slots_by_time['13:00']['reason'], 'busy')
+        self.assertTrue(slots_by_time['13:30']['available'])
+        self.assertTrue(slots_by_time['20:30']['available'])
+        self.assertNotIn('21:00', slots_by_time)
+
+    def test_recurring_schedule_rejects_half_hour_overlap_for_same_teacher(self):
+        StudentRecurringSchedule.objects.create(
+            student=self.student1,
+            teacher=self.teacher,
+            day_of_week=self.lesson_date.weekday(),
+            start_time=datetime.time(12, 30),
+            active=True,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/student-schedules/', {
+            'student': str(self.student2.id),
+            'teacher': str(self.teacher.id),
+            'day_of_week': self.lesson_date.weekday(),
+            'start_time': '13:00:00',
+            'active': True,
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('se sobrepõe', response.data['start_time'][0])
+
+    def test_recurring_schedule_accepts_next_half_hour_slot_after_lesson_window(self):
+        StudentRecurringSchedule.objects.create(
+            student=self.student1,
+            teacher=self.teacher,
+            day_of_week=self.lesson_date.weekday(),
+            start_time=datetime.time(12, 30),
+            active=True,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/student-schedules/', {
+            'student': str(self.student2.id),
+            'teacher': str(self.teacher.id),
+            'day_of_week': self.lesson_date.weekday(),
+            'start_time': '13:30:00',
+            'active': True,
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['start_time'], '13:30:00')
 
 
 class StudentLessonSequenceTests(TestCase):

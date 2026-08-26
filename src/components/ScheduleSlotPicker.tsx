@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Clock, Loader2 } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
@@ -33,6 +33,14 @@ const toPythonWeekday = (date: Date) => (date.getDay() + 6) % 7;
 const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }: ScheduleSlotPickerProps) => {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => value ? new Date(value) : new Date());
   const selectedDateKey = useMemo(() => selectedDate ? toLocalDateKey(selectedDate) : "", [selectedDate]);
+
+  useEffect(() => {
+    if (!value) return;
+    const nextSelectedDate = new Date(value);
+    if (!Number.isNaN(nextSelectedDate.getTime())) {
+      setSelectedDate(nextSelectedDate);
+    }
+  }, [value]);
 
   const { data, isFetching } = useQuery({
     queryKey: ["teacher-day-slots", teacherId, selectedDateKey, excludeLessonId],

@@ -17,6 +17,7 @@ JS_TO_PY_WEEKDAY = {
     6: 5,
 }
 LESSON_DURATION = datetime.timedelta(hours=1)
+SLOT_INTERVAL = datetime.timedelta(minutes=30)
 BUSY_STATUSES = ['scheduled', 'rescheduled', 'in_progress']
 REORDERABLE_STATUSES = ['pending', 'scheduled', 'rescheduled']
 STARTABLE_SEQUENCE_STATUSES = REORDERABLE_STATUSES + ['in_progress']
@@ -66,6 +67,19 @@ def lesson_end(lesson_date):
 
 def overlaps(start_a, end_a, start_b, end_b):
     return start_a < end_b and start_b < end_a
+
+
+def lesson_end_time(start_time):
+    start_dt = datetime.datetime.combine(datetime.date(2000, 1, 1), start_time)
+    end_dt = start_dt + LESSON_DURATION
+    return end_dt.time(), end_dt.date() != start_dt.date()
+
+
+def lesson_start_times_overlap(start_time_a, start_time_b):
+    reference_date = datetime.date(2000, 1, 1)
+    start_a = datetime.datetime.combine(reference_date, start_time_a)
+    start_b = datetime.datetime.combine(reference_date, start_time_b)
+    return overlaps(start_a, start_a + LESSON_DURATION, start_b, start_b + LESSON_DURATION)
 
 
 def is_blocked_date(teacher, lesson_date):
@@ -166,7 +180,7 @@ def get_day_time_slots(teacher_id, date_value, exclude_lesson_id=None):
                 'available': reason is None,
                 'reason': reason,
             })
-            cursor += LESSON_DURATION
+            cursor += SLOT_INTERVAL
 
     return slots
 

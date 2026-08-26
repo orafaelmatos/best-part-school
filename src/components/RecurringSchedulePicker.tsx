@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 type RecurringSlot = { day: string; time: string };
 type AvailabilitySlot = { day_of_week: number; start: string; end: string };
 type RecurringBusySlot = { day_of_week: number; start_time: string; student_name?: string };
+const SLOT_INTERVAL_MINUTES = 30;
+const LESSON_DURATION_MINUTES = 60;
 
 const DAYS = [
   { value: 0, label: "Seg", full: "Segunda" },
@@ -32,13 +34,29 @@ const nextDateForWeekday = (weekday: number) => {
   return target;
 };
 
-const hourSlots = (availability: AvailabilitySlot[]) => {
+const toMinutes = (time: string) => {
+  const [hours, minutes] = time.slice(0, 5).split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const toTime = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+const slotOverlaps = (startTime: string, otherStartTime: string) => {
+  const start = toMinutes(startTime);
+  const otherStart = toMinutes(otherStartTime);
+  return start < otherStart + LESSON_DURATION_MINUTES && otherStart < start + LESSON_DURATION_MINUTES;
+};
+
+const buildHalfHourSlots = (availability: AvailabilitySlot[]) => {
   const times = new Set<string>();
   availability.forEach((slot) => {
-    const start = Number(slot.start.slice(0, 2));
-    const end = Number(slot.end.slice(0, 2));
-    for (let hour = start; hour < end; hour += 1) {
-      times.add(`${String(hour).padStart(2, "0")}:00`);
+    let cursor = toMinutes(slot.start);
+    const end = toMinutes(slot.end);
+
+    while (cursor + LESSON_DURATION_MINUTES <= end) {
+      times.add(toTime(cursor));
+      cursor += SLOT_INTERVAL_MINUTES;
     }
   });
   return Array.from(times).sort();
@@ -102,7 +120,7 @@ const RecurringSchedulePicker = memo(({ teacherId, value, onChange }: {
       <div className="divide-y divide-border">
         {DAYS.map((day) => {
           const dayAvailability = availabilityByDay[day.value] || [];
-          const times = hourSlots(dayAvailability);
+          const times = buildHalfHourSlots(dayAvailability);
           const nextDate = nextDateForWeekday(day.value);
           const nextDateKey = toLocalDateKey(nextDate);
           const dayBlocked = blocked.includes(nextDateKey);
@@ -124,11 +142,11 @@ const RecurringSchedulePicker = memo(({ teacherId, value, onChange }: {
                 <div className="flex flex-wrap gap-2">
                   {times.map((time) => {
                     const recurringConflict = recurringBusy.find(
-                      (slot) => slot.day_of_week === day.value && slot.start_time === time
+                      (slot) => slot.day_of_week === day.value && slotOverlaps(time, slot.start_time)
                     );
                     const busyAtTime = busy.some((date: string) => {
                       const busyDate = new Date(date);
-                      return toLocalDateKey(busyDate) === nextDateKey && busyDate.toTimeString().slice(0, 5) === time;
+                      return toLocalDateKey(busyDate) === nextDateKey && slotOverlaps(time, busyDate.toTimeString().slice(0, 5));
                     });
                     const disabled = dayBlocked || busyAtTime || !!recurringConflict;
                     const selected = value.some((slot) => slot.day === String(day.value) && slot.time === time);
