@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
-from django.utils.html import strip_tags
+from django.utils.html import escape, strip_tags
 from openai import OpenAI
 from lessons.models import (
     Homework,
@@ -64,8 +64,19 @@ def media_url(path):
     return f"{base}{path}"
 
 
+def html_to_text(value):
+    text = str(value or '')
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<li\b[^>]*>', '- ', text, flags=re.IGNORECASE)
+    text = re.sub(r'</(p|div|h[1-6]|li|ul|ol|blockquote)>', '\n', text, flags=re.IGNORECASE)
+    text = strip_tags(text).replace('\xa0', ' ')
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n+', '\n', text)
+    return text.strip()
+
+
 def clean_context_text(value, limit=None):
-    text = strip_tags(str(value or '')).replace('\xa0', ' ').strip()
+    text = html_to_text(value)
     if limit and len(text) > limit:
         return f"{text[:limit].rstrip()}..."
     return text
@@ -1349,6 +1360,7 @@ class AIStudyOpenAIService:
                     'Write the summary in Portuguese as a single ready-to-use context block, but do not copy the '
                     'teacher notes verbatim. Distill the lesson into the key concepts, visual cues, and teaching '
                     'decisions that matter for future AI support. Keep learned words, examples, corrections and homework in the lesson language when useful. '
+                    'Do not use Markdown in JSON strings; the visible teacher summary is formatted separately as HTML. '
                     'When images are provided, infer the relevant classroom visual context and fold it into the '
                     'summary naturally without mentioning file names or URLs.'
                 ),
@@ -1372,25 +1384,80 @@ class AIStudyOpenAIService:
 class LessonSummaryWorkflowService:
     @staticmethod
     def _clean_text(value):
-        return strip_tags(str(value or '')).replace('\xa0', ' ').strip()
+        return clean_context_text(value)
+
+    @staticmethod
+    def _format_inline_html(value):
+        text = escape(LessonSummaryWorkflowService._clean_text(value))
+        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
+        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+        text = re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+        return text
 
     @staticmethod
     def _format_bullet_section(title, lines):
-        cleaned = [str(line).strip() for line in lines if str(line).strip()]
+        cleaned = [
+            LessonSummaryWorkflowService._clean_text(line)
+            for line in lines
+            if LessonSummaryWorkflowService._clean_text(line)
+        ]
         if not cleaned:
             return ''
-        return f"{title}:\n" + "\n".join(f"- {line}" for line in cleaned)
+        items = ''.join(f"<li>{LessonSummaryWorkflowService._format_inline_html(line)}</li>" for line in cleaned)
+        return f"<h2>{escape(title)}</h2><ul>{items}</ul>"
+
+    @staticmethod
+    def _format_word_section(words):
+        items = []
+        for item in words[:12]:
+            word = LessonSummaryWorkflowService._clean_text(item.get('word'))
+            meaning = LessonSummaryWorkflowService._clean_text(item.get('meaning'))
+            if not word:
+                continue
+            content = f"<strong>{escape(word)}</strong>"
+            if meaning:
+                content = f"{content} ({LessonSummaryWorkflowService._format_inline_html(meaning)})"
+            items.append(f"<li>{content}</li>")
+        if not items:
+            return ''
+        return f"<h2>{escape('Palavras aprendidas')}</h2><ul>{''.join(items)}</ul>"
+
+    @staticmethod
+    def _format_text_section(title, value):
+        cleaned = LessonSummaryWorkflowService._clean_text(value)
+        if not cleaned:
+            return ''
+
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        heading = f"<h2>{escape(title)}</h2>"
+        unordered_items = [
+            re.sub(r'^[-*]\s+', '', line).strip()
+            for line in lines
+            if re.match(r'^[-*]\s+', line)
+        ]
+        ordered_items = [
+            re.sub(r'^\d+[.)]\s+', '', line).strip()
+            for line in lines
+            if re.match(r'^\d+[.)]\s+', line)
+        ]
+
+        if unordered_items and len(unordered_items) == len(lines):
+            items = ''.join(f"<li>{LessonSummaryWorkflowService._format_inline_html(item)}</li>" for item in unordered_items)
+            return f"{heading}<ul>{items}</ul>"
+
+        if ordered_items and len(ordered_items) == len(lines):
+            items = ''.join(f"<li>{LessonSummaryWorkflowService._format_inline_html(item)}</li>" for item in ordered_items)
+            return f"{heading}<ol>{items}</ol>"
+
+        paragraphs = '<br />'.join(LessonSummaryWorkflowService._format_inline_html(line) for line in lines)
+        return f"{heading}<p>{paragraphs}</p>"
 
     @staticmethod
     def _build_teacher_summary(words, image_names, observations='', homework='', next_topics=None):
         sections = []
 
-        word_lines = [
-            f"{item['word']} ({item['meaning']})" if item.get('meaning') else item['word']
-            for item in words[:12]
-            if item.get('word')
-        ]
-        words_section = LessonSummaryWorkflowService._format_bullet_section('Palavras aprendidas', word_lines)
+        words_section = LessonSummaryWorkflowService._format_word_section(words)
         if words_section:
             sections.append(words_section)
 
@@ -1404,19 +1471,19 @@ class LessonSummaryWorkflowService:
 
         observations_text = LessonSummaryWorkflowService._clean_text(observations)
         if observations_text:
-            sections.append(f"Observações complementares:\n{observations_text}")
+            sections.append(LessonSummaryWorkflowService._format_text_section('Observações complementares', observations_text))
 
         homework_text = LessonSummaryWorkflowService._clean_text(homework)
         if homework_text:
-            sections.append(f"Homework:\n{homework_text}")
+            sections.append(LessonSummaryWorkflowService._format_text_section('Homework', homework_text))
 
         if not sections:
             return (
-                "As anotações acima já entram automaticamente no contexto da IA.\n"
-                "Use este campo apenas para complementar com palavras aprendidas, referências anexadas e observações."
+                "<p>As anotações acima já entram automaticamente no contexto da IA.</p>"
+                "<p>Use este campo apenas para complementar com palavras aprendidas, referências anexadas e observações.</p>"
             )
 
-        return "\n\n".join(sections)[:2200]
+        return ''.join(sections)
 
     @staticmethod
     def fallback_summary(lesson, payload):

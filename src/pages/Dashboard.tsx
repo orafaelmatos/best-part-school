@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import {
   formatLessonDate,
   getReviewPendingCount,
+  isActiveTrailLesson,
   isCompletedLesson,
   isUpcomingLesson,
   sortLessonsByDateAsc,
@@ -113,29 +114,29 @@ const StudentDashboard = () => {
     [summaries],
   );
 
-  const visibleLessons = useMemo(
-    () => lessons.filter((lesson) => lesson.status !== "pending"),
+  const trailLessonsBase = useMemo(
+    () => lessons.filter((lesson) => isActiveTrailLesson(lesson)),
     [lessons],
   );
 
   const upcomingLessons = useMemo(
-    () => sortLessonsByDateAsc(visibleLessons.filter((lesson) => isUpcomingLesson(lesson))),
-    [visibleLessons],
+    () => sortLessonsByDateAsc(trailLessonsBase.filter((lesson) => isUpcomingLesson(lesson))),
+    [trailLessonsBase],
   );
 
   const completedLessons = useMemo(
-    () => sortLessonsByDateDesc(visibleLessons.filter((lesson) => isCompletedLesson(lesson))),
-    [visibleLessons],
+    () => sortLessonsByDateDesc(trailLessonsBase.filter((lesson) => isCompletedLesson(lesson))),
+    [trailLessonsBase],
   );
 
   const nextLesson = upcomingLessons[0];
   const completedCount = completedLessons.length;
-  const progressPercent = visibleLessons.length ? Math.round((completedCount / visibleLessons.length) * 100) : 0;
+  const progressPercent = trailLessonsBase.length ? Math.round((completedCount / trailLessonsBase.length) * 100) : 0;
   const pendingHomeworkCount = homeworkItems.filter((item) => item.status !== "draft" && item.status !== "corrected").length;
   const dueReviewCount =
     (vocabularyStats?.due_today || 0) +
       (vocabularyStats?.overdue || 0) ||
-    visibleLessons.reduce(
+    trailLessonsBase.reduce(
       (total, lesson) => total + getReviewPendingCount(lesson, summaryByLesson.get(lesson.id)),
       0,
     );
@@ -244,7 +245,7 @@ const StudentDashboard = () => {
               icon={CheckCircle2}
               label="Progresso"
               value={`${progressPercent}%`}
-              note={`${completedCount} de ${visibleLessons.length || 0} aulas concluidas`}
+              note={`${completedCount} de ${trailLessonsBase.length || 0} aulas concluidas`}
             />
             <SummaryBlock
               icon={BookOpen}

@@ -30,6 +30,7 @@ import {
   countLearnedWords,
   formatLessonDate,
   getReviewPendingCount,
+  isActiveTrailLesson,
   isArchivedLesson,
   isCompletedLesson,
   isUpcomingLesson,
@@ -51,6 +52,25 @@ type AIStudyRecommendation = {
     id: string;
     title: string;
   } | null;
+};
+
+const readCount = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+};
+
+const formatStudentDate = (value?: string | null) => {
+  if (!value) {
+    return "Nao informado";
+  }
+
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) {
+    return "Nao informado";
+  }
+
+  return date.toLocaleDateString("pt-BR");
 };
 
 const AlunoTrilha = () => {
@@ -182,22 +202,35 @@ const AlunoTrilha = () => {
     [orderedLessons],
   );
 
-  const visibleLessons = useMemo(
-    () => orderedLessons.filter((lesson) => lesson.status !== "pending"),
+  const trailLessonsBase = useMemo(
+    () => orderedLessons.filter((lesson) => isActiveTrailLesson(lesson)),
     [orderedLessons],
   );
 
-  const completedCount = visibleLessons.filter((lesson) => isCompletedLesson(lesson)).length;
-  const progressPercent = visibleLessons.length
-    ? Math.round((completedCount / visibleLessons.length) * 100)
+  const actualCompletedCount = trailLessonsBase.filter((lesson) => isCompletedLesson(lesson)).length;
+  const plannedLessonsCount = readCount(
+    student?.effective_planned_lessons_count ?? student?.planned_lessons_count,
+    trailLessonsBase.length,
+  ) || trailLessonsBase.length;
+  const completedCount = Math.max(
+    actualCompletedCount,
+    readCount(student?.effective_completed_lessons_count ?? student?.completed_lessons_count),
+  );
+  const pendingLessonsCount = readCount(
+    student?.pending_lessons_count,
+    Math.max(plannedLessonsCount - completedCount, 0),
+  );
+  const progressPercent = plannedLessonsCount
+    ? Math.min(Math.round((completedCount / plannedLessonsCount) * 100), 100)
     : 0;
-  const learnedWords = countLearnedWords(visibleLessons);
-  const reviewPendingCount = visibleLessons.reduce(
+  const learnedWords = countLearnedWords(trailLessonsBase);
+  const reviewPendingCount = trailLessonsBase.reduce(
     (total, lesson) => total + getReviewPendingCount(lesson, summaryByLesson.get(lesson.id)),
     0,
   );
   const openHomeworkCount = homeworkItems.filter((item) => item.status !== "draft" && item.status !== "corrected").length;
-  const recentCompletedLesson = historyLessons[0] || orderedLessons.find((lesson) => lesson.status === "completed") || orderedLessons[0];
+  const completedLessonRecords = sortLessonsByDateDesc(trailLessonsBase.filter((lesson) => isCompletedLesson(lesson)));
+  const recentCompletedLesson = completedLessonRecords[0] || trailLessonsBase[0] || orderedLessons[0];
 
   const recommendationMutation = useMutation({
     mutationFn: async ({ mode, clear }: { mode?: PracticeMode; clear?: boolean }) => {
@@ -349,9 +382,9 @@ const AlunoTrilha = () => {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-            <MetricCard title="Aulas" value={visibleLessons.length} description="Registros visiveis" icon={BookOpenCheck} tone="default" />
-            <MetricCard title="Concluidas" value={completedCount} description="Historico finalizado" icon={CheckCircle2} tone="success" />
-            <MetricCard title="Futuras" value={futureQueueLessons.length + currentLessons.length} description="Planejamento ativo" icon={CalendarClock} tone="default" />
+            <MetricCard title="Aulas" value={plannedLessonsCount} description="Planejadas" icon={BookOpenCheck} tone="default" />
+            <MetricCard title="Concluidas" value={completedCount} description="Ja feitas" icon={CheckCircle2} tone="success" />
+            <MetricCard title="Pendentes" value={pendingLessonsCount} description="A cumprir" icon={CalendarClock} tone="default" />
             <MetricCard title="Palavras" value={learnedWords} description="Vocabulos registrados" icon={Sparkles} tone="success" />
             <MetricCard title="Homework" value={openHomeworkCount} description="Itens em aberto" icon={NotebookText} tone={openHomeworkCount > 0 ? "warning" : "default"} />
             <MetricCard title="Revisoes" value={reviewPendingCount} description="Pontos que pedem reforco" icon={Target} tone={reviewPendingCount > 0 ? "warning" : "success"} />
@@ -365,7 +398,7 @@ const AlunoTrilha = () => {
               </div>
               <Progress value={progressPercent} className="h-3 bg-slate-200" />
               <p className="mt-2 text-xs text-muted-foreground">
-                {completedCount} de {visibleLessons.length || 0} aulas concluidas
+                {completedCount} de {plannedLessonsCount || 0} aulas concluidas
               </p>
             </div>
 
@@ -450,6 +483,13 @@ const AlunoTrilha = () => {
               </div>
             </div>
           </div>
+
+          <StudentTrackingPanel
+            student={student}
+            plannedLessonsCount={plannedLessonsCount}
+            completedCount={completedCount}
+            pendingLessonsCount={pendingLessonsCount}
+          />
         </section>
 
         {isLoading ? (
@@ -750,6 +790,61 @@ const SkillMeter = ({ label, value }: { label: string; value: number }) => (
     <div className="h-2 overflow-hidden rounded-full bg-slate-200">
       <div className="h-full rounded-full bg-slate-900" style={{ width: `${Math.max(0, Math.min(100, value * 10))}%` }} />
     </div>
+  </div>
+);
+
+const StudentTrackingPanel = ({
+  student,
+  plannedLessonsCount,
+  completedCount,
+  pendingLessonsCount,
+}: {
+  student: any;
+  plannedLessonsCount: number;
+  completedCount: number;
+  pendingLessonsCount: number;
+}) => {
+  const textBlocks = [
+    { label: "Objetivo que quer aprender ingles", value: student?.learning_goal },
+    { label: "O que ja foi ensinado", value: student?.taught_content },
+    { label: "O que precisa ensinar", value: student?.content_to_teach },
+    { label: "Pontos fortes", value: student?.strengths },
+    { label: "Pontos fracos", value: student?.weaknesses },
+  ];
+
+  return (
+    <div className="mt-6 rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-semibold text-card-foreground">Acompanhamento do aluno</p>
+        <p className="text-xs leading-5 text-muted-foreground">Resumo operacional para contrato, progresso e planejamento pedagogico.</p>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <TrackingMetric label="Aulas planejadas" value={plannedLessonsCount} />
+        <TrackingMetric label="Aulas ja feitas" value={completedCount} />
+        <TrackingMetric label="Aulas pendentes" value={pendingLessonsCount} />
+        <TrackingMetric label="Inicio do contrato" value={formatStudentDate(student?.contract_start_date)} />
+        <TrackingMetric label="Fim do contrato" value={formatStudentDate(student?.contract_end_date)} />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {textBlocks.map((block) => (
+          <div key={block.label} className={block.label.startsWith("Objetivo") ? "rounded-2xl border border-slate-200 bg-slate-50/80 p-4 lg:col-span-2" : "rounded-2xl border border-slate-200 bg-slate-50/80 p-4"}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{block.label}</p>
+            <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">
+              {block.value?.trim() || "Nao informado"}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const TrackingMetric = ({ label, value }: { label: string; value: number | string }) => (
+  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="mt-1 text-base font-semibold text-foreground">{value}</p>
   </div>
 );
 

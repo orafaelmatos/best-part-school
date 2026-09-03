@@ -536,8 +536,9 @@ class AIStudyAPITests(TestCase):
         })
         snapshot = AIStudyContextService.lesson_snapshot(self.lesson)
 
-        self.assertIn('Palavras aprendidas:', summary.summary)
-        self.assertIn('Referências anexadas:', summary.summary)
+        self.assertIn('<h2>Palavras aprendidas</h2>', summary.summary)
+        self.assertIn('<strong>default profile</strong>', summary.summary)
+        self.assertIn('<h2>Referências anexadas</h2>', summary.summary)
         self.assertNotIn('Practiced past tense and travel vocabulary.', summary.summary)
         self.assertEqual(
             snapshot['ai_context_summary'],

@@ -32,6 +32,7 @@ import {
   formatLessonDateShort,
   getLessonDateValue,
   getReviewPendingCount,
+  isActiveTrailLesson,
   isArchivedLesson,
   isCompletedLesson,
   isUpcomingLesson,
@@ -120,29 +121,34 @@ const MinhasAulas = () => {
     return map;
   }, [homeworkItems]);
 
-  const visibleLessons = useMemo(
+  const nonPendingLessons = useMemo(
     () => lessons.filter((lesson) => lesson.status !== "pending"),
     [lessons],
   );
 
+  const trailLessonsBase = useMemo(
+    () => nonPendingLessons.filter((lesson) => isActiveTrailLesson(lesson)),
+    [nonPendingLessons],
+  );
+
   const upcomingLessons = useMemo(
-    () => sortLessonsByDateAsc(visibleLessons.filter((lesson) => isUpcomingLesson(lesson))),
-    [visibleLessons],
+    () => sortLessonsByDateAsc(trailLessonsBase.filter((lesson) => isUpcomingLesson(lesson))),
+    [trailLessonsBase],
   );
 
   const completedLessons = useMemo(
-    () => sortLessonsByDateDesc(visibleLessons.filter((lesson) => isCompletedLesson(lesson))),
-    [visibleLessons],
+    () => sortLessonsByDateDesc(trailLessonsBase.filter((lesson) => isCompletedLesson(lesson))),
+    [trailLessonsBase],
   );
 
   const archivedLessons = useMemo(
-    () => sortLessonsByDateDesc(visibleLessons.filter((lesson) => isArchivedLesson(lesson))),
-    [visibleLessons],
+    () => sortLessonsByDateDesc(nonPendingLessons.filter((lesson) => isArchivedLesson(lesson))),
+    [nonPendingLessons],
   );
 
   const trailLessons = useMemo(
     () =>
-      [...visibleLessons].sort((left, right) => {
+      [...trailLessonsBase].sort((left, right) => {
         const leftOrder = typeof left.order === "number" ? left.order : Number.MAX_SAFE_INTEGER;
         const rightOrder = typeof right.order === "number" ? right.order : Number.MAX_SAFE_INTEGER;
         if (leftOrder !== rightOrder) {
@@ -150,21 +156,21 @@ const MinhasAulas = () => {
         }
         return getLessonDateValue(left.date) - getLessonDateValue(right.date);
       }),
-    [visibleLessons],
+    [trailLessonsBase],
   );
 
   const completedCount = completedLessons.length;
-  const progressPercent = visibleLessons.length
-    ? Math.round((completedCount / visibleLessons.length) * 100)
+  const progressPercent = trailLessonsBase.length
+    ? Math.round((completedCount / trailLessonsBase.length) * 100)
     : 0;
 
   const nextLesson = upcomingLessons[0];
   const latestCompletedLesson = completedLessons[0];
-  const learnedWords = vocabularyStats?.total_learned_words || countLearnedWords(visibleLessons);
+  const learnedWords = vocabularyStats?.total_learned_words || countLearnedWords(trailLessonsBase);
   const dueReviewCount =
     (vocabularyStats?.due_today || 0) +
     (vocabularyStats?.overdue || 0) ||
-    visibleLessons.reduce((total, lesson) => total + getReviewPendingCount(lesson, summaryByLesson.get(lesson.id)), 0);
+    trailLessonsBase.reduce((total, lesson) => total + getReviewPendingCount(lesson, summaryByLesson.get(lesson.id)), 0);
   const pendingHomeworkCount = homeworkItems.filter((item) => item.status !== "draft" && item.status !== "corrected").length;
   const correctedHomeworkCount = homeworkItems.filter((item) => item.status === "corrected").length;
   const remainingLessonsCount = upcomingLessons.length;
@@ -239,7 +245,7 @@ const MinhasAulas = () => {
                     eyebrow="Andamento da trilha"
                     title={`${progressPercent}% concluido`}
                     description={
-                      visibleLessons.length
+                      trailLessonsBase.length
                         ? `${remainingLessonsCount} aula${remainingLessonsCount === 1 ? "" : "s"} restante${remainingLessonsCount === 1 ? "" : "s"} nesta trilha`
                         : "Sua trilha aparecera aqui assim que as aulas forem organizadas."
                     }
@@ -298,7 +304,7 @@ const MinhasAulas = () => {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Resumo do ciclo atual</p>
               <p className="mt-2 text-xl font-semibold text-foreground">
-                {visibleLessons.length ? `${completedCount} de ${visibleLessons.length} aulas concluidas` : "Ainda sem aulas visiveis"}
+                {trailLessonsBase.length ? `${completedCount} de ${trailLessonsBase.length} aulas concluidas` : "Ainda sem aulas visiveis"}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Use a trilha ao lado para entender rapidamente o que ja passou e o que vem depois.

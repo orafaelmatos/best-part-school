@@ -86,6 +86,9 @@ export type LessonHistorySummary = {
 const UPCOMING_STATUSES = ["scheduled", "rescheduled", "in_progress"];
 const ARCHIVED_STATUSES = ["canceled", "missed"];
 
+export const isPendingLesson = (lesson: LessonHistoryLesson) =>
+  lesson.status === "pending";
+
 export const isUpcomingLesson = (lesson: LessonHistoryLesson) =>
   UPCOMING_STATUSES.includes(lesson.status);
 
@@ -94,6 +97,9 @@ export const isCompletedLesson = (lesson: LessonHistoryLesson) =>
 
 export const isArchivedLesson = (lesson: LessonHistoryLesson) =>
   ARCHIVED_STATUSES.includes(lesson.status);
+
+export const isActiveTrailLesson = (lesson: LessonHistoryLesson) =>
+  !isPendingLesson(lesson) && !isArchivedLesson(lesson);
 
 export const getLessonDateValue = (value?: string | null) => {
   if (!value) {
@@ -137,18 +143,33 @@ export const formatLessonDateShort = (value?: string | null) => {
   });
 };
 
+const addHtmlTextBreaks = (value: string) =>
+  value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<li\b[^>]*>/gi, "- ")
+    .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote)>/gi, "\n");
+
+const normalizePlainText = (value: string) =>
+  value
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 export const stripHtml = (value?: string) => {
   if (!value) {
     return "";
   }
 
+  const prepared = addHtmlTextBreaks(value);
+
   if (typeof document === "undefined") {
-    return value.replace(/<[^>]+>/g, " ");
+    return normalizePlainText(prepared.replace(/<[^>]+>/g, " "));
   }
 
   const element = document.createElement("div");
-  element.innerHTML = value;
-  return element.textContent || element.innerText || "";
+  element.innerHTML = prepared;
+  return normalizePlainText(element.textContent || element.innerText || "");
 };
 
 export const getSummaryPreview = (summary?: LessonHistorySummary | null) => {

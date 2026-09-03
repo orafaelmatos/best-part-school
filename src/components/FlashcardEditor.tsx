@@ -78,7 +78,15 @@ export const FlashcardItem = ({ nw, isTeacher, isStudent, onEdit, onDelete, onSt
   );
 };
 
-export const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () => void }) => {
+export const FlashcardEditor = ({
+  lesson,
+  refetch,
+  onBeforePersist,
+}: {
+  lesson: any;
+  refetch: () => void;
+  onBeforePersist?: () => Promise<boolean> | boolean;
+}) => {
   const [word, setWord] = useState('');
   const [meaning, setMeaning] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -93,6 +101,10 @@ export const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () 
     if (!word || !meaning) return;
     setLoading(true);
     try {
+      const canPersist = await onBeforePersist?.();
+      if (canPersist === false) {
+        return;
+      }
       if (editingId) {
         await api.patch(`/new-words/${editingId}/`, { word, meaning });
         setEditingId(null);
@@ -118,6 +130,10 @@ export const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () 
   const handleDeleteClick = async (id: string) => {
     if (!window.confirm('Tem certeza que deseja excluir este flashcard?')) return;
     try {
+      const canPersist = await onBeforePersist?.();
+      if (canPersist === false) {
+        return;
+      }
       await api.delete(`/new-words/${id}/`);
       refetch();
     } catch (err) {
@@ -128,6 +144,10 @@ export const FlashcardEditor = ({ lesson, refetch }: { lesson: any, refetch: () 
 
   const handleStatusUpdate = async (id: string, status: string) => {
     try {
+      const canPersist = await onBeforePersist?.();
+      if (canPersist === false) {
+        return;
+      }
       await api.patch(`/new-words/${id}/`, { status });
       refetch();
     } catch (err) {

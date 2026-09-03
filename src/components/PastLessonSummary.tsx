@@ -136,9 +136,9 @@ const PastLessonSummary = ({ currentLesson, student, buttonClassName, buttonVari
 
   return (
     <>
-      <Button type="button" variant={buttonVariant} className={buttonClassName} onClick={() => setOpen(true)}>
+      {/* <Button type="button" variant={buttonVariant} className={buttonClassName} onClick={() => setOpen(true)}>
         <History className="mr-2 h-4 w-4" /> {compact ? "Resumo" : "Resumo Aula Passada"}
-      </Button>
+      </Button> */}
       {open && (
         <PastLessonSummaryModal
           currentLesson={currentLesson}

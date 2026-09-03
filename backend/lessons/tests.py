@@ -9,6 +9,7 @@ from unittest.mock import patch
 import json
 from accounts.models import User
 from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, StudentRecurringSchedule, TeacherAvailability, VocabularyCard
+from .scheduling import create_student_schedule_and_lessons, next_occurrence
 from .vocabulary import schedule_card, vocabulary_stats
 
 class LessonVisibilityTests(TestCase):
@@ -67,6 +68,30 @@ class LessonVisibilityTests(TestCase):
         self.assertIn('Template Lesson', titles, "Professores devem ter visibilidade dos templates")
         self.assertIn('Student 1 Lesson', titles)
         self.assertIn('Student 2 Lesson', titles)
+
+    def test_teacher_can_save_notes_without_changing_lesson_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{self.student1_lesson.id}/', {
+            'student': str(self.student1.id),
+            'notes': '<p>Plano salvo para esta aula.</p>',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.student1_lesson.refresh_from_db()
+        self.assertEqual(self.student1_lesson.student, self.student1)
+        self.assertEqual(self.student1_lesson.notes, '<p>Plano salvo para esta aula.</p>')
+
+    def test_teacher_cannot_move_existing_lesson_to_another_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{self.student1_lesson.id}/', {
+            'student': str(self.student2.id),
+            'notes': '<p>Plano no aluno errado.</p>',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.student1_lesson.refresh_from_db()
+        self.assertEqual(self.student1_lesson.student, self.student1)
+        self.assertNotEqual(self.student1_lesson.notes, '<p>Plano no aluno errado.</p>')
 
 
 class LessonSchedulingValidationTests(TestCase):
@@ -400,6 +425,30 @@ class StudentLessonSequenceTests(TestCase):
         self.assertEqual(self.lesson_c.status, 'rescheduled')
         self.assertEqual(self.lesson_c.date, original_third_date + datetime.timedelta(days=7))
 
+    def test_start_lesson_renames_existing_custom_placeholder(self):
+        placeholder = Lesson.objects.create(
+            title='Aula personalizada 4',
+            level='B1',
+            student=self.student,
+            teacher=self.teacher,
+            date=self.lesson_c.date + datetime.timedelta(days=7),
+            status='scheduled',
+            order=4,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(f'/api/lessons/{placeholder.id}/start_lesson/', {
+            'custom_lesson_title': 'Conversation practice',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(str(response.data['id']), str(placeholder.id))
+
+        placeholder.refresh_from_db()
+        self.assertEqual(placeholder.title, 'Conversation practice')
+        self.assertEqual(placeholder.status, 'in_progress')
+        self.assertEqual(Lesson.objects.filter(student=self.student, is_template=False).count(), 4)
+
     def test_reorder_student_lessons_updates_future_sequence_dates(self):
         original_first_date = self.lesson_a.date
         original_second_date = self.lesson_b.date
@@ -436,6 +485,110 @@ class StudentLessonSequenceTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.lesson_a.refresh_from_db()
         self.assertEqual(self.lesson_a.status, 'completed')
+
+
+class StudentRecurringScheduleChangeTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(
+            email='schedule-change-teacher@test.com',
+            password='123',
+            role='teacher',
+            name='Teacher',
+        )
+        self.other_student = User.objects.create_user(
+            email='other-student@test.com',
+            password='123',
+            role='student',
+            name='Other Student',
+            level='B1',
+        )
+        self.student = User.objects.create_user(
+            email='schedule-change-student@test.com',
+            password='123',
+            role='student',
+            name='Student',
+            level='B1',
+        )
+        for title in ['Lesson A', 'Lesson B', 'Lesson C']:
+            Lesson.objects.create(title=title, level='B1', is_template=True, status='pending')
+
+        TeacherAvailability.objects.create(
+            teacher=self.teacher,
+            day_of_week=1,
+            start_time=datetime.time(8, 0),
+            end_time=datetime.time(20, 0),
+        )
+        TeacherAvailability.objects.create(
+            teacher=self.teacher,
+            day_of_week=4,
+            start_time=datetime.time(18, 30),
+            end_time=datetime.time(21, 0),
+        )
+
+        create_student_schedule_and_lessons(
+            self.student,
+            teacher=self.teacher,
+            schedule_entries=[{'day_of_week': 1, 'time': '12:00'}],
+        )
+        self.schedule = StudentRecurringSchedule.objects.get(student=self.student, teacher=self.teacher)
+
+    def test_teacher_can_change_student_recurring_schedule_and_shift_future_lessons(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(
+            f'/api/student-schedules/{self.schedule.id}/change_slot/',
+            {
+                'day_of_week': 4,
+                'start_time': '18:30:00',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['updated_lessons'], 3)
+
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.day_of_week, 4)
+        self.assertEqual(self.schedule.start_time, datetime.time(18, 30))
+
+        lessons = list(
+            Lesson.objects.filter(student=self.student, teacher=self.teacher, is_template=False).order_by('order')
+        )
+        expected_first_date = next_occurrence(4, datetime.time(18, 30))
+        if expected_first_date <= timezone.now():
+            expected_first_date += datetime.timedelta(days=7)
+
+        for index, lesson in enumerate(lessons):
+            localized_lesson_date = timezone.localtime(lesson.date)
+            expected_lesson_date = timezone.localtime(expected_first_date + datetime.timedelta(weeks=index))
+            self.assertEqual(localized_lesson_date.weekday(), 4)
+            self.assertEqual(localized_lesson_date.time(), datetime.time(18, 30))
+            self.assertEqual(localized_lesson_date, expected_lesson_date)
+
+    def test_change_slot_rejects_conflicting_recurring_slot(self):
+        StudentRecurringSchedule.objects.create(
+            student=self.other_student,
+            teacher=self.teacher,
+            day_of_week=4,
+            start_time=datetime.time(18, 30),
+            active=True,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.patch(
+            f'/api/student-schedules/{self.schedule.id}/change_slot/',
+            {
+                'day_of_week': 4,
+                'start_time': '18:30:00',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('se sobrepõe', response.data['start_time'][0])
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.day_of_week, 1)
+        self.assertEqual(self.schedule.start_time, datetime.time(12, 0))
 
 
 class HomeworkSubmissionTests(TestCase):

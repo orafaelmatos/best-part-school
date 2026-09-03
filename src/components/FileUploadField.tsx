@@ -8,6 +8,10 @@ type FileUploadFieldProps = {
   accept?: string;
   file: File | null;
   onChange: (file: File | null) => void;
+  existingUrl?: string | null;
+  existingName?: string;
+  onRemoveExisting?: () => void;
+  formatsLabel?: string;
   maxSizeMb?: number;
   error?: string;
 };
@@ -15,6 +19,7 @@ type FileUploadFieldProps = {
 const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 const isImage = (file: File | null) => Boolean(file && file.type.startsWith("image/"));
+const isImageUrl = (url?: string | null) => Boolean(url && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(url));
 
 const FileUploadField = ({
   label,
@@ -22,6 +27,10 @@ const FileUploadField = ({
   accept = ".pdf,.png,.jpg,.jpeg",
   file,
   onChange,
+  existingUrl,
+  existingName,
+  onRemoveExisting,
+  formatsLabel = "PDF, PNG, JPG ou JPEG",
   maxSizeMb = 8,
   error,
 }: FileUploadFieldProps) => {
@@ -37,6 +46,11 @@ const FileUploadField = ({
     setPreviewUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
+
+  const activePreviewUrl = previewUrl || (isImageUrl(existingUrl) ? existingUrl || null : null);
+  const showPreviewCard = Boolean(file || existingUrl || existingName);
+  const previewLabel = file?.name || existingName || "Arquivo atual";
+  const previewSize = file ? formatBytes(file.size) : "Arquivo atual";
 
   return (
     <div className="space-y-3">
@@ -59,7 +73,7 @@ const FileUploadField = ({
           </div>
           <div>
             <p className="text-sm font-medium">{file ? "Trocar arquivo" : "Selecionar arquivo"}</p>
-            <p className="text-xs text-muted-foreground">PDF, PNG, JPG ou JPEG ate {maxSizeMb} MB.</p>
+            <p className="text-xs text-muted-foreground">{formatsLabel} ate {maxSizeMb} MB.</p>
           </div>
         </div>
       </button>
@@ -72,26 +86,38 @@ const FileUploadField = ({
         onChange={(event) => onChange(event.target.files?.[0] || null)}
       />
 
-      {file && (
+      {showPreviewCard && (
         <div className="rounded-xl border border-border bg-card p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="rounded-lg bg-muted p-2 text-foreground">
-                {isImage(file) ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                {activePreviewUrl ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
               </div>
               <div>
-                <p className="text-sm font-medium">{file.name}</p>
-                <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+                <p className="text-sm font-medium">{previewLabel}</p>
+                <p className="text-xs text-muted-foreground">{previewSize}</p>
               </div>
             </div>
-            <button type="button" onClick={() => onChange(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
+            {(file || onRemoveExisting) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (file) {
+                    onChange(null);
+                    return;
+                  }
+                  onRemoveExisting?.();
+                }}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
-          {previewUrl && (
+          {activePreviewUrl && (
             <div className="mt-3 overflow-hidden rounded-lg border border-border">
-              <img src={previewUrl} alt={file.name} className="max-h-48 w-full object-cover" />
+              <img src={activePreviewUrl} alt={previewLabel} className="max-h-48 w-full object-cover" />
             </div>
           )}
         </div>

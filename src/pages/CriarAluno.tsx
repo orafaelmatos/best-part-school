@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, BadgeDollarSign, BookOpen, CalendarClock, CheckCircle2, UserRound } from "lucide-react";
+import { ArrowLeft, BadgeDollarSign, BookOpen, CheckCircle2, ClipboardList, UserRound } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -17,17 +17,33 @@ import { APP_PATHS } from "@/lib/routes";
 const STEPS = [
   { key: "personal", label: "Dados pessoais", icon: UserRound },
   { key: "academic", label: "Dados academicos", icon: BookOpen },
+  { key: "tracking", label: "Acompanhamento", icon: ClipboardList },
   { key: "finance", label: "Financeiro", icon: BadgeDollarSign },
   { key: "review", label: "Revisao", icon: CheckCircle2 },
 ] as const;
 
 const MAX_UPLOAD_SIZE = 8 * 1024 * 1024;
+const trackingTextFields = [
+  { key: "learningGoal", label: "Objetivo que quer aprender ingles", rows: 3 },
+  { key: "taughtContent", label: "O que ja foi ensinado", rows: 4 },
+  { key: "contentToTeach", label: "O que precisa ensinar", rows: 4 },
+  { key: "strengths", label: "Pontos fortes", rows: 3 },
+  { key: "weaknesses", label: "Pontos fracos", rows: 3 },
+] as const;
+
+const getTotalLessons = (level: string) => {
+  const levelData = curriculumData[level as keyof typeof curriculumData] || { lessons: [], grammar: [] };
+  const transversalData = curriculumData["ALL LEVELS"] || { lessons: [], grammar: [] };
+  return levelData.lessons.length + levelData.grammar.length + transversalData.lessons.length + transversalData.grammar.length;
+};
 
 const CriarAluno = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [stepIndex, setStepIndex] = useState(0);
+  const [studentPhoto, setStudentPhoto] = useState<File | null>(null);
+  const [studentPhotoError, setStudentPhotoError] = useState("");
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [contractError, setContractError] = useState("");
   const [formData, setFormData] = useState({
@@ -39,6 +55,15 @@ const CriarAluno = () => {
     speaking: 1,
     reading: 1,
     writing: 1,
+    plannedLessons: String(getTotalLessons("A1/A2")),
+    completedLessons: "0",
+    contractStartDate: "",
+    contractEndDate: "",
+    learningGoal: "",
+    taughtContent: "",
+    contentToTeach: "",
+    strengths: "",
+    weaknesses: "",
     monthlyFee: "",
     dueDay: "10",
     financeNotes: "",
@@ -66,6 +91,15 @@ const CriarAluno = () => {
       payload.append("speaking", String(formData.speaking));
       payload.append("reading", String(formData.reading));
       payload.append("writing", String(formData.writing));
+      payload.append("planned_lessons_count", formData.plannedLessons || "0");
+      payload.append("completed_lessons_count", formData.completedLessons || "0");
+      if (formData.contractStartDate) payload.append("contract_start_date", formData.contractStartDate);
+      if (formData.contractEndDate) payload.append("contract_end_date", formData.contractEndDate);
+      payload.append("learning_goal", formData.learningGoal);
+      payload.append("taught_content", formData.taughtContent);
+      payload.append("content_to_teach", formData.contentToTeach);
+      payload.append("strengths", formData.strengths);
+      payload.append("weaknesses", formData.weaknesses);
       payload.append("teacher_id", user?.user_id || "");
       payload.append("monthly_fee", formData.monthlyFee || String(financeSettings?.default_monthly_fee || 0));
       payload.append("due_day", formData.dueDay || String(financeSettings?.default_due_day || 10));
@@ -77,6 +111,9 @@ const CriarAluno = () => {
       if (contractFile) {
         payload.append("contract_file", contractFile);
         payload.append("contract_name", contractFile.name);
+      }
+      if (studentPhoto) {
+        payload.append("photo", studentPhoto);
       }
 
       const res = await api.post("/accounts/register/", payload, {
@@ -94,6 +131,9 @@ const CriarAluno = () => {
         description:
           err.response?.data?.schedule ||
           err.response?.data?.monthly_fee?.[0] ||
+          err.response?.data?.completed_lessons_count?.[0] ||
+          err.response?.data?.contract_end_date?.[0] ||
+          err.response?.data?.photo?.[0] ||
           err.response?.data?.email?.[0] ||
           err.response?.data?.error ||
           "Verifique os dados e tente novamente.",
@@ -102,14 +142,41 @@ const CriarAluno = () => {
     },
   });
 
+  const pendingLessons = Math.max(Number(formData.plannedLessons || 0) - Number(formData.completedLessons || 0), 0);
+
   const reviewItems = useMemo(() => [
     { label: "Aluno", value: formData.name || "Nao informado" },
     { label: "E-mail", value: formData.email || "Nao informado" },
     { label: "Nivel", value: formData.level },
+    { label: "Foto", value: studentPhoto ? "Adicionada" : "Sem foto" },
+    { label: "Aulas planejadas", value: `${formData.plannedLessons || 0} aulas` },
+    { label: "Aulas ja feitas", value: `${formData.completedLessons || 0} aulas` },
+    { label: "Aulas pendentes", value: `${pendingLessons} aulas` },
+    { label: "Inicio do contrato", value: formData.contractStartDate || "Nao informado" },
+    { label: "Fim do contrato", value: formData.contractEndDate || "Nao informado" },
+    { label: "Objetivo", value: formData.learningGoal || "Nao informado" },
     { label: "Mensalidade", value: `R$ ${formData.monthlyFee || financeSettings?.default_monthly_fee || "0,00"}` },
     { label: "Vencimento", value: `Dia ${formData.dueDay || financeSettings?.default_due_day || 10}` },
     { label: "Horarios", value: formData.schedules.length ? `${formData.schedules.length} horarios selecionados` : "Sem agenda recorrente" },
-  ], [financeSettings, formData]);
+  ], [financeSettings, formData, pendingLessons, studentPhoto]);
+
+  const handleStudentPhotoChange = (file: File | null) => {
+    if (!file) {
+      setStudentPhoto(null);
+      setStudentPhotoError("");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setStudentPhotoError("A foto precisa ser uma imagem valida.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_SIZE) {
+      setStudentPhotoError("A foto deve ter no maximo 8 MB.");
+      return;
+    }
+    setStudentPhotoError("");
+    setStudentPhoto(file);
+  };
 
   const handleContractChange = (file: File | null) => {
     if (!file) {
@@ -123,6 +190,16 @@ const CriarAluno = () => {
     }
     setContractError("");
     setContractFile(file);
+  };
+
+  const handleLevelChange = (level: string) => {
+    const currentDefault = String(getTotalLessons(formData.level));
+    const nextDefault = String(getTotalLessons(level));
+    setFormData({
+      ...formData,
+      level,
+      plannedLessons: formData.plannedLessons === currentDefault ? nextDefault : formData.plannedLessons,
+    });
   };
 
   const nextStep = () => setStepIndex((current) => Math.min(current + 1, STEPS.length - 1));
@@ -146,7 +223,7 @@ const CriarAluno = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           {STEPS.map((step, index) => {
             const active = index === stepIndex;
             const done = index < stepIndex;
@@ -195,9 +272,20 @@ const CriarAluno = () => {
                   <input required type="password" className="w-full rounded-lg border border-border bg-background p-3 text-sm" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
                 </div>
               </div>
-              <div className="rounded-2xl bg-muted/40 p-6">
-                <h3 className="text-sm font-semibold">Visao rapida</h3>
-                <p className="mt-2 text-sm text-muted-foreground">O professor consegue cadastrar o aluno, configurar a mensalidade e já sair com a trilha e as cobrancas prontas.</p>
+              <div className="space-y-4 rounded-2xl bg-muted/40 p-6">
+                <FileUploadField
+                  label="Foto do aluno"
+                  description="A foto aparece na lista de alunos. Sem foto, o sistema mostra as iniciais."
+                  accept=".png,.jpg,.jpeg,.webp"
+                  formatsLabel="PNG, JPG, JPEG ou WEBP"
+                  file={studentPhoto}
+                  onChange={handleStudentPhotoChange}
+                  error={studentPhotoError}
+                />
+                <div>
+                  <h3 className="text-sm font-semibold">Visao rapida</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">O professor consegue cadastrar o aluno, configurar a mensalidade e ja sair com a trilha e as cobrancas prontas.</p>
+                </div>
               </div>
             </section>
           )}
@@ -211,7 +299,7 @@ const CriarAluno = () => {
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">Nivel base</label>
-                  <select className="w-full rounded-lg border border-border bg-background p-3 text-sm" value={formData.level} onChange={(e) => setFormData({ ...formData, level: e.target.value })}>
+                  <select className="w-full rounded-lg border border-border bg-background p-3 text-sm" value={formData.level} onChange={(e) => handleLevelChange(e.target.value)}>
                     {Object.keys(curriculumData).filter((level) => level !== "ALL LEVELS").map((level) => (
                       <option key={level} value={level}>{level}</option>
                     ))}
@@ -232,6 +320,82 @@ const CriarAluno = () => {
                   <p className="text-sm text-muted-foreground">Selecione os horarios fixos. A sequencia de aulas sera gerada automaticamente.</p>
                 </div>
                 <RecurringSchedulePicker teacherId={user?.user_id} value={formData.schedules} onChange={(schedules) => setFormData({ ...formData, schedules })} />
+              </div>
+            </section>
+          )}
+
+          {currentStep === "tracking" && (
+            <section className="space-y-6 p-6">
+              <div>
+                <h2 className="text-lg font-semibold">Acompanhamento do aluno</h2>
+                <p className="text-sm text-muted-foreground">Plano de aulas, contrato e pontos pedagogicos para orientar as proximas aulas.</p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Quantidade de aulas que ele tera</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                    value={formData.plannedLessons}
+                    onChange={(e) => setFormData({ ...formData, plannedLessons: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Quantidade de aulas que ele ja teve</label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                    value={formData.completedLessons}
+                    onChange={(e) => setFormData({ ...formData, completedLessons: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Aulas pendentes</label>
+                  <input
+                    type="number"
+                    readOnly
+                    className="w-full rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground"
+                    value={pendingLessons}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Data que comecou o contrato</label>
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                    value={formData.contractStartDate}
+                    onChange={(e) => setFormData({ ...formData, contractStartDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Data que terminara o contrato</label>
+                  <input
+                    type="date"
+                    className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                    value={formData.contractEndDate}
+                    onChange={(e) => setFormData({ ...formData, contractEndDate: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                {trackingTextFields.map((field) => (
+                  <div key={field.key} className={field.key === "learningGoal" ? "lg:col-span-2" : ""}>
+                    <label className="mb-1 block text-sm font-medium">{field.label}</label>
+                    <textarea
+                      rows={field.rows}
+                      className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                      value={formData[field.key]}
+                      onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                    />
+                  </div>
+                ))}
               </div>
             </section>
           )}
@@ -289,7 +453,7 @@ const CriarAluno = () => {
                 <div className="mt-4 space-y-3 text-sm text-muted-foreground">
                   <p>O perfil financeiro do aluno sera criado com contrato, mensalidade e vencimento.</p>
                   <p>As mensalidades iniciais do aluno serao geradas automaticamente para os proximos meses.</p>
-                  <p>A agenda recorrente continua alimentando a trilha de aulas conforme o nivel.</p>
+                  <p>A trilha sera criada com {formData.plannedLessons || 0} aulas, considerando {formData.completedLessons || 0} ja feitas.</p>
                 </div>
               </div>
             </section>

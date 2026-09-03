@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions, filters, status, exceptions
 from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Max, Q
+from django.db import transaction
 from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .permissions import IsStudentOrTeacher
@@ -17,6 +18,7 @@ from .scheduling import (
     parse_lesson_datetime,
     reorder_student_lessons as reorder_student_lessons_service,
     get_day_time_slots,
+    realign_student_lessons_to_schedule,
     swap_student_lesson_slot,
     validate_lesson_schedule,
 )
@@ -585,6 +587,15 @@ class LessonViewSet(viewsets.ModelViewSet):
         if not Lesson.objects.filter(student_id=student_id, teacher=user, is_template=False).exists():
             raise exceptions.PermissionDenied('Você não tem acesso à trilha deste aluno.')
 
+    def _ensure_lesson_student_context_stays_put(self, lesson):
+        if 'student' not in self.request.data or not lesson.student_id:
+            return
+        requested_student_id = self.request.data.get('student')
+        if str(requested_student_id) != str(lesson.student_id):
+            raise exceptions.ValidationError({
+                'student': 'Esta aula já está vinculada a outro aluno. Abra ou crie uma aula no contexto correto para anotar.',
+            })
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         
@@ -671,6 +682,15 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         lesson.status = 'completed'
         lesson.save(update_fields=['status', 'updated_at'])
+        if lesson.student_id:
+            completed_count = Lesson.objects.filter(
+                student=lesson.student,
+                is_template=False,
+                status='completed',
+            ).count()
+            if completed_count > int(getattr(lesson.student, 'completed_lessons_count', 0) or 0):
+                lesson.student.completed_lessons_count = completed_count
+                lesson.student.save(update_fields=['completed_lessons_count'])
         return Response(self.get_serializer(lesson).data)
 
     @action(detail=True, methods=['post'], url_path='generate-summary')
@@ -841,8 +861,14 @@ class LessonViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+    def update(self, request, *args, **kwargs):
+        lesson = self.get_object()
+        self._ensure_lesson_student_context_stays_put(lesson)
+        return super().update(request, *args, **kwargs)
+
     def partial_update(self, request, *args, **kwargs):
         lesson = self.get_object()
+        self._ensure_lesson_student_context_stays_put(lesson)
         date_value = request.data.get('date')
         teacher_value = request.data.get('teacher')
         status_value = request.data.get('status', lesson.status)
@@ -855,7 +881,19 @@ class LessonViewSet(viewsets.ModelViewSet):
                 validate_lesson_schedule(teacher, parse_lesson_datetime(date_value), exclude_lesson_id=lesson.id)
             except ValueError as exc:
                 return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return super().partial_update(request, *args, **kwargs)
+        response = super().partial_update(request, *args, **kwargs)
+        if response.status_code < 400 and status_value == 'completed':
+            updated_lesson = Lesson.objects.select_related('student').filter(pk=lesson.pk).first()
+            if updated_lesson and updated_lesson.student_id:
+                completed_count = Lesson.objects.filter(
+                    student=updated_lesson.student,
+                    is_template=False,
+                    status='completed',
+                ).count()
+                if completed_count > int(getattr(updated_lesson.student, 'completed_lessons_count', 0) or 0):
+                    updated_lesson.student.completed_lessons_count = completed_count
+                    updated_lesson.student.save(update_fields=['completed_lessons_count'])
+        return response
 
     def get_queryset(self):
         user = self.request.user
@@ -920,9 +958,10 @@ class TeacherAvailabilityAPIView(APIView):
         blocked = [bd.date.isoformat() for bd in blocked_dates]
         recurring_busy = [
             {
+                'id': str(schedule.id),
                 'day_of_week': schedule.day_of_week,
                 'start_time': schedule.start_time.strftime('%H:%M'),
-                'student': schedule.student_id,
+                'student': str(schedule.student_id),
                 'student_name': getattr(schedule.student, 'name', ''),
             }
             for schedule in StudentRecurringSchedule.objects.filter(
@@ -1081,6 +1120,40 @@ class StudentRecurringScheduleViewSet(viewsets.ModelViewSet):
         if user.role == 'teacher':
             return qs.filter(teacher=user)
         return qs.filter(student=user)
+
+    @action(detail=True, methods=['patch'])
+    def change_slot(self, request, pk=None):
+        schedule = self.get_object()
+        if request.user.role not in ['teacher', 'admin']:
+            return Response(
+                {'error': 'Somente professores podem alterar horários recorrentes.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = self.get_serializer(
+            schedule,
+            data={
+                'day_of_week': request.data.get('day_of_week'),
+                'start_time': request.data.get('start_time'),
+            },
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            with transaction.atomic():
+                updated_schedule = serializer.save()
+                updated_lessons = realign_student_lessons_to_schedule(
+                    updated_schedule.student,
+                    teacher=updated_schedule.teacher,
+                )
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            **self.get_serializer(updated_schedule).data,
+            'updated_lessons': len(updated_lessons),
+        })
 
 class CalendarAPIView(APIView):
     permission_classes = [permissions.AllowAny]
