@@ -7,11 +7,12 @@ import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import FileUploadField from "@/components/FileUploadField";
+import RichTextEditor from "@/components/RichTextEditor";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import RecurringSchedulePicker from "@/components/RecurringSchedulePicker";
 import { useToast } from "@/hooks/use-toast";
 import { curriculumData } from "@/data/curriculum";
-import { BookOpenCheck, CalendarClock, Edit2, Search, Trash2 } from "lucide-react";
+import { BookOpenCheck, CalendarClock, Edit2, Eye, EyeOff, Search, Trash2 } from "lucide-react";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import { APP_PATHS } from "@/lib/routes";
 import { absoluteMediaUrl } from "@/lib/config";
@@ -182,6 +183,7 @@ const Alunos = () => {
   const [contractError, setContractError] = useState("");
   const [currentContractName, setCurrentContractName] = useState("");
   const [currentContractUrl, setCurrentContractUrl] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState<StudentFormData>(createEmptyFormData);
 
   const { data: students = [], isLoading } = useQuery({
@@ -403,7 +405,7 @@ const Alunos = () => {
       speaking: student.speaking ?? 1,
       reading: student.reading ?? 1,
       writing: student.writing ?? 1,
-      plannedLessons: String(getPlannedLessons(student)),
+      plannedLessons: String(student.planned_lessons_count ?? getPlannedLessons(student)),
       completedLessons: String(getCompletedLessons(student)),
       contractStartDate: toDateInputValue(student.contract_start_date),
       contractEndDate: toDateInputValue(student.contract_end_date),
@@ -425,6 +427,7 @@ const Alunos = () => {
     setContractError("");
     setCurrentContractName(financeProfile.contract_name || "");
     setCurrentContractUrl(absoluteMediaUrl(financeProfile.contract_url));
+    setShowPassword(false);
     setEditingStudentId(student.id);
     setIsModalOpen(true);
   };
@@ -440,6 +443,7 @@ const Alunos = () => {
     setContractError("");
     setCurrentContractName("");
     setCurrentContractUrl(null);
+    setShowPassword(false);
     setFormData(createEmptyFormData());
   };
 
@@ -450,7 +454,7 @@ const Alunos = () => {
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <PageHeader title="Alunos" description={`${students.length} alunos cadastrados`} />
         <Button asChild className="rounded-lg">
-          <Link to={APP_PATHS.newStudent}>+ Novo Aluno</Link>
+          <Link to={APP_PATHS.newStudent}>+ Novo aluno ou grupo</Link>
         </Button>
       </div>
 
@@ -697,13 +701,24 @@ const Alunos = () => {
                         <label className="block text-sm font-medium mb-1">
                           {editingStudentId ? "Nova Senha (opcional)" : "Senha Inicial"}
                         </label>
-                        <input
-                          required={!editingStudentId}
-                          type="password"
-                          className="w-full rounded-lg border border-border bg-background p-3 text-sm"
-                          value={formData.password}
-                          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        />
+                        <div className="relative">
+                          <input
+                            required={!editingStudentId}
+                            type={showPassword ? "text" : "password"}
+                            className="w-full rounded-lg border border-border bg-background p-3 pr-12 text-sm"
+                            value={formData.password}
+                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                          />
+                          <button
+                            type="button"
+                            className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-muted-foreground transition hover:text-foreground"
+                            onClick={() => setShowPassword((current) => !current)}
+                            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                            title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -812,11 +827,11 @@ const Alunos = () => {
                     {trackingTextFields.map((field) => (
                       <div key={field.key} className={field.key === "learningGoal" ? "lg:col-span-2" : ""}>
                         <label className="mb-1 block text-sm font-medium">{field.label}</label>
-                        <textarea
-                          rows={field.rows}
-                          className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                        <RichTextEditor
                           value={formData[field.key]}
-                          onChange={(e) => setFormData({ ...formData, [field.key]: e.target.value })}
+                          minHeight={field.rows * 42}
+                          placeholder="Registre observacoes, listas e pontos importantes."
+                          onChange={(value) => setFormData({ ...formData, [field.key]: value })}
                         />
                       </div>
                     ))}

@@ -3,10 +3,10 @@ import { Navigate, useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
-import { ChevronLeft, ChevronRight, X, Clock, Calendar, Ban, AlertCircle, Settings, Lock, Unlock, PlayCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Clock, Calendar, Ban, AlertCircle, Settings, Lock, Unlock, PlayCircle, CalendarPlus } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { addDays, isPast, isToday, parseISO } from "date-fns";
+import { isToday } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import TeacherAvailabilityModal from "./TeacherAvailabilityModal";
@@ -38,6 +38,11 @@ const Calendario = () => {
   const [startingCustomLessonTitle, setStartingCustomLessonTitle] = useState("");
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [selectedDayOptions, setSelectedDayOptions] = useState<Date | null>(null);
+  const [isExtraLessonModalOpen, setIsExtraLessonModalOpen] = useState(false);
+  const [extraLessonStudentId, setExtraLessonStudentId] = useState("");
+  const [extraLessonTitle, setExtraLessonTitle] = useState("Aula extra");
+  const [extraLessonDateTime, setExtraLessonDateTime] = useState("");
+  const [extraLessonInitialDate, setExtraLessonInitialDate] = useState<Date | null>(null);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -54,9 +59,15 @@ const Calendario = () => {
 
   const lessons = Array.isArray(data) ? data : [];
 
-  if (user?.role === "student") {
-    return <Navigate to={APP_PATHS.lessons} replace />;
-  }
+  const { data: extraLessonStudents = [] } = useQuery({
+    queryKey: ["students-for-extra-lesson"],
+    enabled: user?.role === "teacher",
+    queryFn: async () => {
+      const res = await api.get("/accounts/users/");
+      const usersData = Array.isArray(res.data) ? res.data : (res.data.results || []);
+      return usersData.filter((item: any) => item.role === "student");
+    },
+  });
 
   const { data: startingLessonOptions = [] } = useQuery({
     queryKey: ["student-start-options", startingLesson?.student],
@@ -74,7 +85,7 @@ const Calendario = () => {
         Array.isArray(res.data) ? res.data : res.data.results || [],
       );
       return studentLessons
-        .filter((lesson: any) => !["completed", "canceled", "missed"].includes(lesson.status))
+        .filter((lesson: any) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
         .map((lesson: any) => ({
           label: formatSequenceOptionLabel(lesson),
           value: lesson.id,
@@ -119,6 +130,26 @@ const Calendario = () => {
   const prev = () => setCurrentDate(new Date(year, month - 1, 1));
   const next = () => setCurrentDate(new Date(year, month + 1, 1));
 
+  const resetExtraLessonForm = () => {
+    setExtraLessonStudentId("");
+    setExtraLessonTitle("Aula extra");
+    setExtraLessonDateTime("");
+    setExtraLessonInitialDate(null);
+  };
+
+  const closeExtraLessonModal = () => {
+    setIsExtraLessonModalOpen(false);
+    resetExtraLessonForm();
+  };
+
+  const openExtraLessonModal = (initialDate?: Date) => {
+    resetExtraLessonForm();
+    const visibleMonthDay = Math.min(new Date().getDate(), daysInMonth);
+    setExtraLessonInitialDate(initialDate || new Date(year, month, visibleMonthDay));
+    setIsExtraLessonModalOpen(true);
+    setSelectedDayOptions(null);
+  };
+
   const blockDateMutation = useMutation({
     mutationFn: async (dateStr: string) => {
       return api.post('/blocked-dates/', { date: dateStr });
@@ -139,6 +170,31 @@ const Calendario = () => {
       queryClient.invalidateQueries({ queryKey: ['teacher-availability'] });
       setSelectedDayOptions(null);
     }
+  });
+
+  const extraLessonMutation = useMutation({
+    mutationFn: async () => {
+      return api.post("/lessons/extra/", {
+        student: extraLessonStudentId,
+        title: extraLessonTitle,
+        date: extraLessonDateTime,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lessons'] });
+      queryClient.invalidateQueries({ queryKey: ['calendar'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
+      queryClient.invalidateQueries({ queryKey: ['teacher-day-slots'] });
+      toast({ title: "Aula extra criada", description: "Ela entrou no calendário sem alterar a sequência da trilha." });
+      closeExtraLessonModal();
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Erro ao criar aula extra",
+        description: err.response?.data?.error || "Não foi possível criar a aula extra.",
+        variant: "destructive",
+      });
+    },
   });
 
   const actionMutation = useMutation({
@@ -213,7 +269,9 @@ const Calendario = () => {
     return lessons.filter((l: any) => l.date && l.date.split("T")[0] === dateStr && l.status !== "pending");
   };
 
-  const getLessonColor = (status: string) => {
+  const getLessonColor = (status: string, isExtra?: boolean) => {
+    if (isExtra) return "bg-cyan-500/10 text-cyan-800 border-cyan-500/25";
+
     switch (status) {
       case 'completed': return "bg-green-500/10 text-green-700 border-green-500/20";
       case 'in_progress': return "bg-blue-500/10 text-blue-700 border-blue-500/20";
@@ -225,7 +283,9 @@ const Calendario = () => {
     }
   };
 
-  const getLessonHoverColor = (status: string) => {
+  const getLessonHoverColor = (status: string, isExtra?: boolean) => {
+    if (isExtra) return "hover:bg-cyan-500/20 hover:border-cyan-500/40";
+
     switch (status) {
       case 'completed': return "hover:bg-green-500/20 hover:border-green-500/40";
       case 'in_progress': return "hover:bg-blue-500/20 hover:border-blue-500/40";
@@ -243,10 +303,16 @@ const Calendario = () => {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
+  const formatDetailedDate = (dateString?: string | null) => {
+    if (!dateString) return "";
+    return new Date(dateString).toLocaleDateString("pt-BR", {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  };
+
   const completedCount = lessons.filter((l: any) => l.status === "completed").length;
   const upcomingCount = lessons.filter((l: any) => l.status === "scheduled" || l.status === "rescheduled" || l.status === "in_progress").length;
-  const missedCount = lessons.filter((l: any) => l.status === "missed").length;
-
   const upcomingLessons = lessons
     .filter((l: any) => l.status === "scheduled" || l.status === "rescheduled")
     .map((l: any) => new Date(l.date))
@@ -259,6 +325,10 @@ const Calendario = () => {
     const first = upcomingLessons[0].toLocaleDateString("pt-BR");
     const last = upcomingLessons[upcomingLessons.length - 1].toLocaleDateString("pt-BR");
     periodText = `${first} até ${last}`;
+  }
+
+  if (user?.role === "student") {
+    return <Navigate to={APP_PATHS.lessons} replace />;
   }
 
   const cells = [];
@@ -355,7 +425,7 @@ const Calendario = () => {
                     setSelectedLesson(l);
                   }
                 }}
-                className={`px-1.5 py-1 text-[10px] sm:text-[11px] rounded-md border flex items-center gap-1 cursor-pointer transition-colors ${getLessonColor(l.status)} ${getLessonHoverColor(l.status)}`}
+                className={`px-1.5 py-1 text-[10px] sm:text-[11px] rounded-md border flex items-center gap-1 cursor-pointer transition-colors ${getLessonColor(l.status, l.is_extra)} ${getLessonHoverColor(l.status, l.is_extra)}`}
               >
                 <Clock size={10} className="shrink-0 opacity-70" />
                 <span className="font-semibold">{formatTimeStr(l.date)}</span>
@@ -386,13 +456,22 @@ const Calendario = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <PageHeader title="Calendário" description="Visualize suas aulas no calendário." />
         {user?.role === 'teacher' && (
-          <button
-            onClick={() => setIsAvailabilityModalOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-sm font-medium transition"
-          >
-            <Settings size={18} />
-            Configurar Horários
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => openExtraLessonModal()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700"
+            >
+              <CalendarPlus size={18} />
+              Aula extra
+            </button>
+            <button
+              onClick={() => setIsAvailabilityModalOpen(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-sm font-medium transition"
+            >
+              <Settings size={18} />
+              Configurar Horários
+            </button>
+          </div>
         )}
       </div>
 
@@ -416,6 +495,7 @@ const Calendario = () => {
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-blue-500/20 border border-blue-500/30 shadow-sm" /> Em andamento</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-primary/20 border border-primary/30 shadow-sm" /> Agendada</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-warning/20 border border-warning/30 shadow-sm" /> Reagendada</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-cyan-500/20 border border-cyan-500/30 shadow-sm" /> Aula extra</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-destructive/20 border border-destructive/30 shadow-sm" /> Cancelada</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-md bg-purple-500/20 border border-purple-500/30 shadow-sm" /> Falta</span>
       </div>
@@ -477,7 +557,7 @@ const Calendario = () => {
                 return (
                   <div
                     key={l.id}
-                    className={`p-3 border rounded-xl cursor-pointer transition-all text-left flex items-center justify-between ${getLessonColor(l.status)} ${getLessonHoverColor(l.status)}`}
+                    className={`p-3 border rounded-xl cursor-pointer transition-all text-left flex items-center justify-between ${getLessonColor(l.status, l.is_extra)} ${getLessonHoverColor(l.status, l.is_extra)}`}
                     onClick={() => {
                       setSelectedLesson(l);
                       setSelectedLessons(null);
@@ -489,6 +569,9 @@ const Calendario = () => {
                         <span className="font-semibold">{time}</span>
                       </div>
                       <p className="font-medium text-sm">{l.title}</p>
+                      {l.is_extra && (
+                        <p className="text-xs font-medium text-cyan-700 mt-1">Aula extra</p>
+                      )}
                       {user?.role === 'teacher' && l.student_name && (
                         <p className="text-xs opacity-80 mt-1">Aluno: {l.student_name}</p>
                       )}
@@ -512,11 +595,18 @@ const Calendario = () => {
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">{selectedLesson.title}</h3>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {new Date(selectedLesson.date).toLocaleDateString("pt-BR", {
-                    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                  })}
+                  {formatDetailedDate(selectedLesson.date)}
                 </p>
+                {selectedLesson.is_extra && (
+                  <p className="mt-1 text-xs font-medium text-cyan-700">
+                    Aula extra: conta no total do aluno, mas não altera a sequência da trilha.
+                  </p>
+                )}
+                {selectedLesson.schedule_exception && selectedLesson.original_date && (
+                  <p className="text-xs text-amber-700 mt-1 font-medium">
+                    Aula remarcada somente nesta semana. Horário original: {formatDetailedDate(selectedLesson.original_date)}
+                  </p>
+                )}
                 {user?.role === 'teacher' && selectedLesson.student_name && (
                   <p className="text-sm text-primary mt-1 font-medium">Aluno: {selectedLesson.student_name}</p>
                 )}
@@ -565,6 +655,8 @@ const Calendario = () => {
                       onClick={() => {
                         if (selectedLesson.status === 'in_progress') {
                           navigate(`${APP_PATHS.annotateLesson(selectedLesson.id)}?from=calendar`);
+                        } else if (selectedLesson.is_extra) {
+                          startLessonMutation.mutate({ lessonId: selectedLesson.id });
                         } else {
                           setStartingLesson(selectedLesson);
                           setStartingSequenceLessonId(selectedLesson.id);
@@ -572,9 +664,10 @@ const Calendario = () => {
                           setSelectedLesson(null);
                         }
                       }}
+                      disabled={startLessonMutation.isPending}
                       className="col-span-1 sm:col-span-2 flex items-center justify-center gap-2 w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition"
                     >
-                      <PlayCircle size={16} /> {selectedLesson.status === 'in_progress' ? 'Continuar Aula' : 'Iniciar Aula'}
+                      <PlayCircle size={16} /> {selectedLesson.status === 'in_progress' ? 'Continuar Aula' : selectedLesson.is_extra ? 'Iniciar Aula Extra' : 'Iniciar Aula'}
                     </button>
 
                     {['scheduled', 'rescheduled'].includes(selectedLesson.status) && (
@@ -586,7 +679,7 @@ const Calendario = () => {
                           }}
                           className="flex items-center justify-center gap-2 w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition"
                         >
-                          <Calendar size={16} /> Reagendar
+                          <Calendar size={16} /> Reagendar só esta aula
                         </button>
 
                         <button
@@ -619,13 +712,18 @@ const Calendario = () => {
           setSelectedRescheduleDate(null);
           setSelectedRescheduleDateTime("");
         }}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-w-[400px] w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl shadow-lg p-6 max-h-[90vh] max-w-4xl w-full overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-2">
               <div>
-                <h3 className="font-semibold text-lg">Horários Disponíveis</h3>
+                <h3 className="font-semibold text-lg">Reagendar somente esta aula</h3>
                 <p className="text-sm text-muted-foreground capitalize">
                   {selectedRescheduleDate.toLocaleDateString("pt-BR", { weekday: 'long', day: 'numeric', month: 'long' })}
                 </p>
+                {reschedulingLesson?.date && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    As próximas aulas do aluno continuam no horário fixo.
+                  </p>
+                )}
               </div>
               <button onClick={() => {
                 setSelectedRescheduleDate(null);
@@ -657,8 +755,79 @@ const Calendario = () => {
               }}
               className="mt-4 w-full py-3 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {actionMutation.isPending ? "Reagendando..." : "Confirmar Reagendamento"}
+              {actionMutation.isPending ? "Reagendando..." : "Salvar alteração pontual"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {isExtraLessonModalOpen && (
+        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={closeExtraLessonModal}>
+          <div className="bg-card rounded-2xl shadow-lg p-6 max-h-[90vh] max-w-4xl w-full overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h3 className="font-semibold text-lg text-card-foreground">Adicionar aula extra</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Esta aula entra no calendário e no total do aluno, mas não muda a ordem das aulas da trilha.
+                </p>
+              </div>
+              <button onClick={closeExtraLessonModal} className="p-1 rounded-lg hover:bg-accent sidebar-transition">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mb-5 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Aluno</label>
+                <select
+                  className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                  value={extraLessonStudentId}
+                  onChange={(event) => setExtraLessonStudentId(event.target.value)}
+                >
+                  <option value="">Selecione um aluno</option>
+                  {extraLessonStudents.map((student: any) => (
+                    <option key={student.id} value={student.id}>
+                      {student.name || student.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Título</label>
+                <input
+                  type="text"
+                  className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                  value={extraLessonTitle}
+                  onChange={(event) => setExtraLessonTitle(event.target.value)}
+                  placeholder="Aula extra"
+                />
+              </div>
+            </div>
+
+            <ScheduleSlotPicker
+              teacherId={user?.user_id}
+              initialDate={extraLessonInitialDate || undefined}
+              value={extraLessonDateTime}
+              onChange={setExtraLessonDateTime}
+            />
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeExtraLessonModal}
+                className="rounded-xl border border-border px-4 py-2 text-sm font-medium hover:bg-accent"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!extraLessonStudentId || !extraLessonDateTime || extraLessonMutation.isPending}
+                onClick={() => extraLessonMutation.mutate()}
+                className="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {extraLessonMutation.isPending ? "Criando..." : "Criar aula extra"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -805,6 +974,19 @@ const Calendario = () => {
                 <div>
                   <p className="font-medium text-sm">Visualizar Aulas</p>
                   <p className="text-xs text-muted-foreground">Ver agenda deste dia</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => openExtraLessonModal(selectedDayOptions)}
+                className="flex items-center gap-3 w-full p-3 rounded-lg border border-cyan-200 bg-cyan-50 hover:bg-cyan-100 transition-colors text-left"
+              >
+                <div className="bg-white p-2 rounded-lg text-cyan-700">
+                  <CalendarPlus size={18} />
+                </div>
+                <div>
+                  <p className="font-medium text-sm text-cyan-950">Adicionar Aula Extra</p>
+                  <p className="text-xs text-cyan-800/80">Criar aula pontual sem mexer na trilha</p>
                 </div>
               </button>
 

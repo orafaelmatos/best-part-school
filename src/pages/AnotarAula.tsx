@@ -28,22 +28,42 @@ import {
   ArrowLeft,
   CalendarClock,
   CheckCircle,
+  Crop,
   History,
   ImagePlus,
   Link as LinkIcon,
   Loader2,
+  MoveHorizontal,
+  MoveVertical,
   NotebookPen,
+  RefreshCcw,
   Save,
   Trash2,
+  ZoomIn,
   XCircle,
 } from "lucide-react";
-import ReactQuill from "react-quill";
+import ReactQuill, { Quill } from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { FlashcardEditor } from "@/components/FlashcardEditor";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import LessonSummarySection from "@/components/LessonSummarySection";
+import { Slider } from "@/components/ui/slider";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  LESSON_NOTE_IMAGE_ACTIVE_ATTR,
+  LESSON_NOTE_IMAGE_CLASS,
+  LESSON_NOTE_IMAGE_DEFAULTS,
+  applyLessonNoteImageValue,
+  buildLessonNoteImageValue,
+  findLessonNoteImageElement,
+  normalizeLessonNoteImageValue,
+  normalizeLessonNoteImagesHtml,
+  readLessonNoteImageValue,
+  serializeLessonNoteEditorHtml,
+  stripLessonNoteImageTransientState,
+  type LessonNoteImageValue,
+} from "@/lib/lessonNoteImages";
 import { APP_PATHS } from "@/lib/routes";
 import { sortLessonsBySequence } from "@/lib/lessonSequence";
 import type { LessonHistoryLesson } from "@/lib/studentLessonHistory";
@@ -64,6 +84,45 @@ type ManualSaveAction = {
 const PLANNABLE_STATUSES = ["pending", "scheduled", "rescheduled", "in_progress"];
 
 const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
+
+type QuillBlockEmbedConstructor = {
+  new (...args: unknown[]): unknown;
+  create: (value?: unknown) => HTMLElement;
+};
+
+const registerLessonNoteImageBlot = () => {
+  const registry = globalThis as typeof globalThis & { __bpsLessonNoteImageBlotRegistered?: boolean };
+  if (registry.__bpsLessonNoteImageBlotRegistered) {
+    return;
+  }
+
+  const BlockEmbed = Quill.import("blots/block/embed") as QuillBlockEmbedConstructor;
+
+  class LessonNoteImageBlot extends BlockEmbed {
+    static blotName = "lessonNoteImage";
+    static tagName = "figure";
+    static className = LESSON_NOTE_IMAGE_CLASS;
+
+    static create(value: LessonNoteImageValue | string) {
+      const normalized = typeof value === "string" ? buildLessonNoteImageValue(value) : normalizeLessonNoteImageValue(value);
+      const node = super.create() as HTMLElement;
+      const image = node.ownerDocument.createElement("img");
+      node.innerHTML = "";
+      node.appendChild(image);
+      applyLessonNoteImageValue(node, normalized);
+      return node;
+    }
+
+    static value(node: HTMLElement) {
+      return readLessonNoteImageValue(node);
+    }
+  }
+
+  Quill.register(LessonNoteImageBlot, true);
+  registry.__bpsLessonNoteImageBlotRegistered = true;
+};
+
+registerLessonNoteImageBlot();
 
 const makeLessonFormSnapshot = ({
   title,
@@ -87,6 +146,11 @@ const removeImageFromNotesHtml = (html: string, imageUrl?: string) => {
   element.innerHTML = html;
   element.querySelectorAll("img").forEach((image) => {
     if (image.getAttribute("src") === imageUrl || image.src === imageUrl) {
+      const container = image.closest("[data-bps-note-image='true'], figure.bps-note-image");
+      if (container) {
+        container.remove();
+        return;
+      }
       image.remove();
     }
   });
@@ -111,6 +175,9 @@ const isPastAnnotatedLesson = (lesson: LessonHistoryLesson) => {
 };
 
 const isFuturePlannableLesson = (lesson: LessonHistoryLesson) => {
+  if (lesson.is_extra) {
+    return false;
+  }
   if (!PLANNABLE_STATUSES.includes(lesson.status)) {
     return false;
   }
@@ -130,6 +197,7 @@ const AnotarAula = () => {
   const { user } = useAuth();
   const quillRef = useRef<ReactQuill | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedImageElementRef = useRef<HTMLElement | null>(null);
   const populatedLessonIdRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef("");
@@ -148,6 +216,7 @@ const AnotarAula = () => {
   const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>("idle");
   const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
   const [isSwitchingLesson, setIsSwitchingLesson] = useState(false);
+  const [selectedNoteImage, setSelectedNoteImage] = useState<LessonNoteImageValue | null>(null);
 
   const { data: lesson, isLoading } = useQuery({
     queryKey: ["lesson", id],
@@ -257,7 +326,7 @@ const AnotarAula = () => {
     if (lesson && populatedLessonIdRef.current !== lesson.id) {
       const initialTitle = lesson.title || "";
       const initialStudentId = lesson.student || "";
-      const initialNotes = lesson.notes || "";
+      const initialNotes = normalizeLessonNoteImagesHtml(lesson.notes || "");
       const initialMeetingUrl = lesson.meeting_url || lesson.recording_url || "";
       let initialDate = "";
       let initialTime = "";
@@ -283,6 +352,8 @@ const AnotarAula = () => {
       hydratingSnapshotRef.current = initialSnapshot;
       setAutosaveStatus("saved");
       populatedLessonIdRef.current = lesson.id;
+      selectedImageElementRef.current = null;
+      setSelectedNoteImage(null);
     }
   }, [lesson]);
 
@@ -411,19 +482,114 @@ const AnotarAula = () => {
   }), []);
 
   const quillFormats = useMemo(
-    () => ["header", "bold", "italic", "underline", "strike", "blockquote", "list", "bullet", "link", "image"],
+    () => ["header", "bold", "italic", "underline", "strike", "blockquote", "list", "bullet", "link", "image", "lessonNoteImage"],
     [],
   );
+
+  const clearSelectedNoteImage = useCallback(() => {
+    selectedImageElementRef.current?.removeAttribute(LESSON_NOTE_IMAGE_ACTIVE_ATTR);
+    selectedImageElementRef.current = null;
+    setSelectedNoteImage(null);
+  }, []);
+
+  const selectNoteImage = useCallback((element: HTMLElement) => {
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
+
+    selectedImageElementRef.current?.removeAttribute(LESSON_NOTE_IMAGE_ACTIVE_ATTR);
+    const container = findLessonNoteImageElement(element) || element;
+    container.setAttribute(LESSON_NOTE_IMAGE_ACTIVE_ATTR, "true");
+    selectedImageElementRef.current = container;
+    setSelectedNoteImage(readLessonNoteImageValue(container));
+
+    const blot = Quill.find(container);
+    if (blot) {
+      const index = editor.getIndex(blot);
+      editor.setSelection(index, 1, "silent");
+    }
+  }, []);
+
+  const updateSelectedNoteImage = useCallback((changes: Partial<LessonNoteImageValue>) => {
+    const editor = quillRef.current?.getEditor();
+    const activeElement = editor?.root.querySelector(`[${LESSON_NOTE_IMAGE_ACTIVE_ATTR}='true']`) as HTMLElement | null;
+    const imageElement = activeElement || selectedImageElementRef.current;
+    if (!editor || !imageElement) return;
+
+    const current = readLessonNoteImageValue(imageElement);
+    const next = applyLessonNoteImageValue(imageElement, { ...current, ...changes, src: current.src });
+    imageElement.setAttribute(LESSON_NOTE_IMAGE_ACTIVE_ATTR, "true");
+    selectedImageElementRef.current = imageElement;
+    setSelectedNoteImage(next);
+    setNotes(serializeLessonNoteEditorHtml(editor.root));
+  }, []);
+
+  const resetSelectedNoteImage = useCallback(() => {
+    if (!selectedNoteImage) return;
+    updateSelectedNoteImage({
+      fit: LESSON_NOTE_IMAGE_DEFAULTS.fit,
+      zoom: LESSON_NOTE_IMAGE_DEFAULTS.zoom,
+      positionX: LESSON_NOTE_IMAGE_DEFAULTS.positionX,
+      positionY: LESSON_NOTE_IMAGE_DEFAULTS.positionY,
+      height: LESSON_NOTE_IMAGE_DEFAULTS.height,
+    });
+  }, [selectedNoteImage, updateSelectedNoteImage]);
+
+  useEffect(() => {
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
+
+    const root = editor.root;
+    const handleEditorClick = (event: MouseEvent) => {
+      const imageElement = findLessonNoteImageElement(event.target);
+      if (imageElement) {
+        selectNoteImage(imageElement);
+        return;
+      }
+      clearSelectedNoteImage();
+    };
+    const handleSelectionChange = (range: { index: number; length: number } | null) => {
+      if (!range) {
+        return;
+      }
+
+      if (range.length !== 1) {
+        clearSelectedNoteImage();
+        return;
+      }
+
+      const [leaf] = editor.getLeaf(range.index);
+      const domNode = leaf?.domNode as HTMLElement | undefined;
+      const imageElement = domNode ? findLessonNoteImageElement(domNode) : null;
+      if (imageElement) {
+        selectNoteImage(imageElement);
+        return;
+      }
+      clearSelectedNoteImage();
+    };
+
+    root.addEventListener("click", handleEditorClick);
+    editor.on("selection-change", handleSelectionChange);
+
+    return () => {
+      root.removeEventListener("click", handleEditorClick);
+      editor.off("selection-change", handleSelectionChange);
+    };
+  }, [clearSelectedNoteImage, lesson?.id, selectNoteImage]);
+
+  const handleNotesChange = useCallback((value: string) => {
+    setNotes(stripLessonNoteImageTransientState(value));
+  }, []);
 
   const insertImageAtCursor = (imageUrl: string) => {
     const editor = quillRef.current?.getEditor();
     if (!editor) return;
     const selection = editor.getSelection(true);
     const index = selection?.index ?? editor.getLength();
-    editor.insertEmbed(index, "image", imageUrl, "user");
+    editor.insertEmbed(index, "lessonNoteImage", buildLessonNoteImageValue(imageUrl), "user");
     editor.insertText(index + 1, "\n", "user");
-    editor.setSelection(index + 2, 0);
-    setNotes(editor.root.innerHTML);
+    editor.setSelection(index + 2, 0, "silent");
+    clearSelectedNoteImage();
+    setNotes(serializeLessonNoteEditorHtml(editor.root));
   };
 
   const uploadImagesToNotes = async (files: FileList | null) => {
@@ -814,18 +980,111 @@ const AnotarAula = () => {
               {isUploadingImages ? "Enviando imagens..." : "Adicionar imagens"}
             </Button>
           </div>
-          <div className="bg-background rounded-md overflow-hidden border border-border h-80">
+          <div className="lesson-notes-editor bg-background rounded-md overflow-hidden border border-border h-80">
             <ReactQuill 
               ref={quillRef}
               theme="snow" 
               value={notes} 
-              onChange={setNotes} 
+              onChange={handleNotesChange}
               placeholder="Escreva o contexto da aula aqui. Você pode misturar texto, links e imagens."
               style={{ height: '100%', border: 'none' }}
               modules={quillModules}
               formats={quillFormats}
             />
           </div>
+          {selectedNoteImage && (
+            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-card-foreground">
+                  <Crop className="h-4 w-4 text-primary" />
+                  Ajuste da imagem
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={selectedNoteImage.fit === "contain" ? "default" : "outline"}
+                    onClick={() => updateSelectedNoteImage({ fit: "contain", zoom: 100 })}
+                  >
+                    <ImagePlus className="mr-2 h-4 w-4" />
+                    Inteira
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={selectedNoteImage.fit === "cover" ? "default" : "outline"}
+                    onClick={() => updateSelectedNoteImage({ fit: "cover", zoom: Math.max(selectedNoteImage.zoom, 115) })}
+                  >
+                    <Crop className="mr-2 h-4 w-4" />
+                    Recortar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={resetSelectedNoteImage}
+                  >
+                    <RefreshCcw className="mr-2 h-4 w-4" />
+                    Resetar
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><ZoomIn className="h-3.5 w-3.5" /> Zoom</span>
+                    <span>{selectedNoteImage.zoom}%</span>
+                  </span>
+                  <Slider
+                    value={[selectedNoteImage.zoom]}
+                    min={100}
+                    max={300}
+                    step={5}
+                    onValueChange={([zoom]) => updateSelectedNoteImage({ zoom })}
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><Crop className="h-3.5 w-3.5" /> Altura</span>
+                    <span>{selectedNoteImage.height}px</span>
+                  </span>
+                  <Slider
+                    value={[selectedNoteImage.height]}
+                    min={140}
+                    max={560}
+                    step={20}
+                    onValueChange={([height]) => updateSelectedNoteImage({ height })}
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><MoveHorizontal className="h-3.5 w-3.5" /> Horizontal</span>
+                    <span>{selectedNoteImage.positionX}%</span>
+                  </span>
+                  <Slider
+                    value={[selectedNoteImage.positionX]}
+                    min={0}
+                    max={100}
+                    step={1}
+                    onValueChange={([positionX]) => updateSelectedNoteImage({ positionX })}
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><MoveVertical className="h-3.5 w-3.5" /> Vertical</span>
+                    <span>{selectedNoteImage.positionY}%</span>
+                  </span>
+                  <Slider
+                    value={[selectedNoteImage.positionY]}
+                    min={0}
+                    max={100}
+                    step={1}
+                    onValueChange={([positionY]) => updateSelectedNoteImage({ positionY })}
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           <div className="mt-4 space-y-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Imagens vinculadas a esta anotação

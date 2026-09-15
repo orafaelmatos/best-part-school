@@ -189,7 +189,11 @@ class UserSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
         planned_count = attrs.get('planned_lessons_count', getattr(self.instance, 'planned_lessons_count', 0) if self.instance else 0) or 0
         completed_count = attrs.get('completed_lessons_count', getattr(self.instance, 'completed_lessons_count', 0) if self.instance else 0) or 0
-        if planned_count and completed_count > planned_count:
+        extra_count = 0
+        if self.instance:
+            from lessons.scheduling import active_extra_lesson_count
+            extra_count = active_extra_lesson_count(self.instance)
+        if planned_count and completed_count > planned_count + extra_count:
             raise serializers.ValidationError({
                 'completed_lessons_count': 'Aulas ja feitas nao podem passar da quantidade total de aulas.'
             })
@@ -280,6 +284,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     schedule_time = serializers.TimeField(required=False, write_only=True, allow_null=True)
     schedules = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
     teacher_id = serializers.UUIDField(required=False, write_only=True, allow_null=True)
+    first_lesson_date = serializers.DateTimeField(required=False, write_only=True, allow_null=True)
     monthly_fee = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, write_only=True)
     due_day = serializers.IntegerField(required=False, write_only=True)
     finance_notes = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -293,7 +298,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'reading', 'writing',
             *STUDENT_TRACKING_FIELDS,
             'schedule_day', 'schedule_time', 'schedules', 'teacher_id',
-            'monthly_fee', 'due_day', 'finance_notes', 'contract_file', 'contract_name'
+            'first_lesson_date', 'monthly_fee', 'due_day', 'finance_notes', 'contract_file', 'contract_name'
         ]
         extra_kwargs = {
             'photo': {'write_only': True, 'required': False, 'allow_null': True},
@@ -323,6 +328,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         schedule_time = validated_data.pop('schedule_time', None)
         schedules = validated_data.pop('schedules', None)
         teacher_id = validated_data.pop('teacher_id', None)
+        first_lesson_date = validated_data.pop('first_lesson_date', None)
         monthly_fee = validated_data.pop('monthly_fee', None)
         due_day = validated_data.pop('due_day', None)
         finance_notes = validated_data.pop('finance_notes', '')
@@ -370,7 +376,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             if schedules is None and schedule_day is not None and schedule_time is not None:
                 schedules = [{'day': schedule_day, 'time': schedule_time, 'source': 'js'}]
             try:
-                create_student_schedule_and_lessons(user, teacher=teacher, schedule_entries=schedules or [])
+                create_student_schedule_and_lessons(
+                    user,
+                    teacher=teacher,
+                    schedule_entries=schedules or [],
+                    first_lesson_date=first_lesson_date,
+                )
             except ValueError as exc:
                 raise serializers.ValidationError({'schedule': str(exc)})
 

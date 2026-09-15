@@ -229,8 +229,24 @@ def get_student_lesson_templates(student):
     return list(Lesson.objects.filter(is_template=True, level__in=levels).order_by('order', 'id'))
 
 
-def actual_completed_lesson_count(student, teacher=None):
+def active_extra_lesson_count(student, teacher=None):
+    qs = Lesson.objects.filter(student=student, is_template=False, is_extra=True).exclude(status__in=ARCHIVED_STATUSES)
+    if teacher is not None:
+        qs = qs.filter(teacher=teacher)
+    return qs.count()
+
+
+def completed_extra_lesson_count(student, teacher=None):
+    qs = Lesson.objects.filter(student=student, is_template=False, is_extra=True, status='completed')
+    if teacher is not None:
+        qs = qs.filter(teacher=teacher)
+    return qs.count()
+
+
+def actual_completed_lesson_count(student, teacher=None, include_extra=True):
     qs = Lesson.objects.filter(student=student, is_template=False, status='completed')
+    if not include_extra:
+        qs = qs.exclude(is_extra=True)
     if teacher is not None:
         qs = qs.filter(teacher=teacher)
     return qs.count()
@@ -243,12 +259,19 @@ def effective_completed_lesson_count(student, teacher=None):
 
 def effective_planned_lesson_count(student, teacher=None):
     manual_count = int(getattr(student, 'planned_lessons_count', 0) or 0)
-    qs = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES)
+    extra_count = active_extra_lesson_count(student, teacher=teacher)
+    manual_sequence_count = max(manual_count - extra_count, 0) if extra_count else manual_count
+
+    qs = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True)
     if teacher is not None:
         qs = qs.filter(teacher=teacher)
     existing_count = qs.count()
     template_count = len(get_student_lesson_templates(student))
-    return max(manual_count, existing_count, template_count, effective_completed_lesson_count(student, teacher=teacher))
+    completed_sequence_count = max(
+        int(getattr(student, 'completed_lessons_count', 0) or 0) - completed_extra_lesson_count(student, teacher=teacher),
+        actual_completed_lesson_count(student, teacher=teacher, include_extra=False),
+    )
+    return max(manual_sequence_count, existing_count, template_count, completed_sequence_count) + extra_count
 
 
 def pending_lesson_count(student, teacher=None):
@@ -363,12 +386,17 @@ def lesson_spec_for_order(student, templates, order):
     }
 
 
-def planned_count_for_student(student, templates=None, current_count=0):
+def planned_count_for_student(student, templates=None, current_count=0, teacher=None):
     templates = templates if templates is not None else get_student_lesson_templates(student)
     manual_count = int(getattr(student, 'planned_lessons_count', 0) or 0)
-    completed_count = int(getattr(student, 'completed_lessons_count', 0) or 0)
-    if manual_count > 0:
-        return max(manual_count, completed_count)
+    extra_count = active_extra_lesson_count(student, teacher=teacher)
+    manual_sequence_count = max(manual_count - extra_count, 0) if extra_count else manual_count
+    completed_count = max(
+        int(getattr(student, 'completed_lessons_count', 0) or 0) - completed_extra_lesson_count(student, teacher=teacher),
+        actual_completed_lesson_count(student, teacher=teacher, include_extra=False),
+    )
+    if manual_sequence_count > 0:
+        return max(manual_sequence_count, completed_count)
     return max(len(templates), current_count, completed_count)
 
 
@@ -379,7 +407,7 @@ def persist_default_planned_count(student, planned_count):
 
 
 def sync_planned_count_from_existing_lessons(student):
-    lesson_count = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).count()
+    lesson_count = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True).count()
     if lesson_count > int(getattr(student, 'planned_lessons_count', 0) or 0):
         student.planned_lessons_count = lesson_count
         student.save(update_fields=['planned_lessons_count'])
@@ -402,6 +430,8 @@ def lesson_slot_snapshot(lesson):
         'meeting_url': lesson.meeting_url,
         'recording_url': lesson.recording_url,
         'order': lesson.order,
+        'schedule_exception': lesson.schedule_exception,
+        'original_date': lesson.original_date,
     }
 
 
@@ -470,11 +500,14 @@ def build_student_sequence_dates(student, teacher, after_datetime, lesson_count,
 
 @transaction.atomic
 def sync_student_completed_lesson_count(student, teacher=None):
-    target_count = int(getattr(student, 'completed_lessons_count', 0) or 0)
+    target_count = max(
+        int(getattr(student, 'completed_lessons_count', 0) or 0) - completed_extra_lesson_count(student, teacher=teacher),
+        0,
+    )
     if target_count <= 0:
         return []
 
-    queryset = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES)
+    queryset = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(teacher=teacher)
     ordered_lessons = sorted(list(queryset), key=sequence_order_key)
@@ -501,12 +534,12 @@ def sync_student_completed_lesson_count(student, teacher=None):
 
 @transaction.atomic
 def sync_student_lesson_plan(student, teacher=None):
-    queryset = Lesson.objects.filter(student=student, is_template=False)
+    queryset = Lesson.objects.filter(student=student, is_template=False).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(Q(teacher=teacher) | Q(teacher__isnull=True))
     current_lessons = sorted(list(queryset), key=sequence_order_key)
     templates = get_student_lesson_templates(student)
-    planned_count = planned_count_for_student(student, templates=templates, current_count=len(current_lessons))
+    planned_count = planned_count_for_student(student, templates=templates, current_count=len(current_lessons), teacher=teacher)
     persist_default_planned_count(student, planned_count)
 
     if len(current_lessons) < planned_count:
@@ -586,6 +619,8 @@ def build_appended_sequence_slot(sequence_lessons, student, teacher):
         'meeting_url': last_lesson.meeting_url,
         'recording_url': last_lesson.recording_url,
         'order': next_order,
+        'schedule_exception': False,
+        'original_date': None,
     }
 
 
@@ -593,6 +628,8 @@ def build_appended_sequence_slot(sequence_lessons, student, teacher):
 def swap_student_lesson_slot(current_lesson, target_lesson):
     if current_lesson.student_id != target_lesson.student_id:
         raise ValueError('A aula escolhida não pertence à trilha deste aluno.')
+    if current_lesson.is_extra or target_lesson.is_extra:
+        raise ValueError('Aulas extras não participam da sequência da trilha.')
     if target_lesson.status not in STARTABLE_SEQUENCE_STATUSES:
         raise ValueError('Só é possível iniciar aulas que ainda fazem parte da trilha ativa do aluno.')
 
@@ -604,12 +641,16 @@ def swap_student_lesson_slot(current_lesson, target_lesson):
     current_lesson.meeting_url = target_slot['meeting_url']
     current_lesson.recording_url = target_slot['recording_url']
     current_lesson.order = target_slot['order']
+    current_lesson.schedule_exception = target_slot['schedule_exception']
+    current_lesson.original_date = target_slot['original_date']
 
     target_lesson.date = current_slot['date']
     target_lesson.status = current_slot['status']
     target_lesson.meeting_url = current_slot['meeting_url']
     target_lesson.recording_url = current_slot['recording_url']
     target_lesson.order = current_slot['order']
+    target_lesson.schedule_exception = current_slot['schedule_exception']
+    target_lesson.original_date = current_slot['original_date']
 
     if current_lesson.teacher and not target_lesson.teacher:
         target_lesson.teacher = current_lesson.teacher
@@ -626,6 +667,8 @@ def insert_custom_lesson_into_student_sequence(current_lesson, custom_title):
         raise ValueError('Informe o título da nova aula.')
     if not current_lesson.student_id:
         raise ValueError('A aula precisa estar vinculada a um aluno.')
+    if current_lesson.is_extra:
+        raise ValueError('Aulas extras não reposicionam a trilha do aluno.')
     if current_lesson.status not in STARTABLE_SEQUENCE_STATUSES:
         raise ValueError('Esta aula não pode ser reposicionada na trilha.')
     if current_lesson.template_id is None and current_lesson.title.startswith('Aula personalizada '):
@@ -638,7 +681,7 @@ def insert_custom_lesson_into_student_sequence(current_lesson, custom_title):
         student_id=current_lesson.student_id,
         is_template=False,
         status__in=STARTABLE_SEQUENCE_STATUSES,
-    )
+    ).exclude(is_extra=True)
     if current_lesson.teacher_id is not None:
         queryset = queryset.filter(Q(teacher_id=current_lesson.teacher_id) | Q(teacher__isnull=True))
 
@@ -671,6 +714,8 @@ def insert_custom_lesson_into_student_sequence(current_lesson, custom_title):
         is_template=False,
         template=None,
         order=slot_snapshots[0]['order'],
+        schedule_exception=slot_snapshots[0]['schedule_exception'],
+        original_date=slot_snapshots[0]['original_date'],
     )
 
     updated_at = timezone.now()
@@ -680,13 +725,25 @@ def insert_custom_lesson_into_student_sequence(current_lesson, custom_title):
         lesson.meeting_url = slot['meeting_url']
         lesson.recording_url = slot['recording_url']
         lesson.order = slot['order']
+        lesson.schedule_exception = slot['schedule_exception']
+        lesson.original_date = slot['original_date']
         lesson.updated_at = updated_at
         if current_lesson.teacher and not lesson.teacher:
             lesson.teacher = current_lesson.teacher
 
     Lesson.objects.bulk_update(
         trailing_lessons,
-        ['date', 'status', 'meeting_url', 'recording_url', 'order', 'teacher', 'updated_at'],
+        [
+            'date',
+            'status',
+            'meeting_url',
+            'recording_url',
+            'order',
+            'schedule_exception',
+            'original_date',
+            'teacher',
+            'updated_at',
+        ],
     )
     sync_planned_count_from_existing_lessons(current_lesson.student)
     return inserted_lesson
@@ -698,7 +755,7 @@ def reorder_student_lessons(student, ordered_lesson_ids, teacher=None):
         student=student,
         is_template=False,
         status__in=REORDERABLE_STATUSES,
-    )
+    ).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(teacher=teacher)
 
@@ -723,11 +780,22 @@ def reorder_student_lessons(student, ordered_lesson_ids, teacher=None):
         lesson.meeting_url = slot['meeting_url']
         lesson.recording_url = slot['recording_url']
         lesson.order = slot['order']
+        lesson.schedule_exception = slot['schedule_exception']
+        lesson.original_date = slot['original_date']
         lesson.updated_at = updated_at
 
     Lesson.objects.bulk_update(
         ordered_lessons,
-        ['date', 'status', 'meeting_url', 'recording_url', 'order', 'updated_at'],
+        [
+            'date',
+            'status',
+            'meeting_url',
+            'recording_url',
+            'order',
+            'schedule_exception',
+            'original_date',
+            'updated_at',
+        ],
     )
     return sorted(ordered_lessons, key=sequence_order_key)
 
@@ -738,7 +806,7 @@ def realign_student_lessons_to_schedule(student, teacher=None):
         student=student,
         is_template=False,
         status__in=REORDERABLE_STATUSES,
-    )
+    ).exclude(schedule_exception=True).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(teacher=teacher)
 
@@ -746,7 +814,7 @@ def realign_student_lessons_to_schedule(student, teacher=None):
     if not lessons_to_realign:
         return []
 
-    all_student_lessons = Lesson.objects.filter(student=student, is_template=False)
+    all_student_lessons = Lesson.objects.filter(student=student, is_template=False).exclude(is_extra=True)
     if teacher is not None:
         all_student_lessons = all_student_lessons.filter(teacher=teacher)
     ordered_lessons = sorted(list(all_student_lessons), key=sequence_order_key)
@@ -794,8 +862,57 @@ def realign_student_lessons_to_schedule(student, teacher=None):
     return lessons_to_realign
 
 
+def build_initial_schedule_dates(student, teacher, entries, lesson_count, first_lesson_date=None):
+    if lesson_count <= 0:
+        return []
+
+    assigned_dates = []
+    planned_intervals = []
+    if first_lesson_date:
+        lesson_date = parse_lesson_datetime(first_lesson_date)
+        validate_lesson_schedule(teacher, lesson_date, allow_past=True)
+        assigned_dates.append(lesson_date)
+        planned_intervals.append((lesson_date, lesson_end(lesson_date)))
+
+        if lesson_count == 1:
+            return assigned_dates
+
+        assigned_dates.extend(
+            build_student_sequence_dates(
+                student,
+                teacher,
+                lesson_date,
+                lesson_count - 1,
+            )
+        )
+        return assigned_dates
+
+    ordered_slots = [
+        {
+            **entry,
+            'next_date': next_occurrence(entry['day_of_week'], entry['start_time']),
+        }
+        for entry in entries
+    ]
+    ordered_slots.sort(key=lambda slot: slot['next_date'])
+
+    future_lesson_index = 0
+    while len(assigned_dates) < lesson_count:
+        slot = ordered_slots[future_lesson_index % len(ordered_slots)]
+        week_offset = future_lesson_index // len(ordered_slots)
+        lesson_date = slot['next_date'] + datetime.timedelta(weeks=week_offset)
+        validate_lesson_schedule(teacher, lesson_date)
+        if any(overlaps(start, end, lesson_date, lesson_end(lesson_date)) for start, end in planned_intervals):
+            raise ValueError('Existem horários recorrentes conflitantes na agenda do aluno.')
+        planned_intervals.append((lesson_date, lesson_end(lesson_date)))
+        assigned_dates.append(lesson_date)
+        future_lesson_index += 1
+
+    return assigned_dates
+
+
 @transaction.atomic
-def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=None):
+def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=None, first_lesson_date=None):
     entries = build_schedule_entries(schedule_entries)
     validate_recurring_schedule_entries(student, teacher, entries)
 
@@ -809,22 +926,20 @@ def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=
         )
 
     templates = get_student_lesson_templates(student)
-    planned_count = planned_count_for_student(student, templates=templates)
+    planned_count = planned_count_for_student(student, templates=templates, teacher=teacher)
     persist_default_planned_count(student, planned_count)
     completed_count = min(int(getattr(student, 'completed_lessons_count', 0) or 0), planned_count)
 
     lessons_to_create = []
-    planned_intervals = []
-    future_lesson_index = 0
     if entries:
-        ordered_slots = [
-            {
-                **entry,
-                'next_date': next_occurrence(entry['day_of_week'], entry['start_time']),
-            }
-            for entry in entries
-        ]
-        ordered_slots.sort(key=lambda slot: slot['next_date'])
+        scheduled_dates = build_initial_schedule_dates(
+            student,
+            teacher,
+            entries,
+            planned_count - completed_count,
+            first_lesson_date=first_lesson_date,
+        )
+        scheduled_date_index = 0
 
         for index in range(planned_count):
             order = index + 1
@@ -834,14 +949,8 @@ def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=
             lesson_status = 'completed' if is_completed_on_entry else 'scheduled'
 
             if not is_completed_on_entry:
-                slot = ordered_slots[future_lesson_index % len(ordered_slots)]
-                week_offset = future_lesson_index // len(ordered_slots)
-                lesson_date = slot['next_date'] + datetime.timedelta(weeks=week_offset)
-                validate_lesson_schedule(teacher, lesson_date)
-                if any(overlaps(start, end, lesson_date, lesson_end(lesson_date)) for start, end in planned_intervals):
-                    raise ValueError('Existem horários recorrentes conflitantes na agenda do aluno.')
-                planned_intervals.append((lesson_date, lesson_end(lesson_date)))
-                future_lesson_index += 1
+                lesson_date = scheduled_dates[scheduled_date_index]
+                scheduled_date_index += 1
 
             lessons_to_create.append(Lesson(
                 title=spec['title'],
@@ -855,14 +964,26 @@ def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=
                 order=order,
             ))
     else:
+        first_lesson_datetime = parse_lesson_datetime(first_lesson_date) if first_lesson_date else None
+        if first_lesson_datetime:
+            validate_lesson_schedule(teacher, first_lesson_datetime, allow_past=True)
+        first_lesson_assigned = False
+
         for index in range(planned_count):
             order = index + 1
             spec = lesson_spec_for_order(student, templates, order)
+            is_completed_on_entry = index < completed_count
+            lesson_date = None
+            lesson_status = 'completed' if is_completed_on_entry else 'pending'
+            if first_lesson_datetime and not is_completed_on_entry and not first_lesson_assigned:
+                lesson_date = first_lesson_datetime
+                lesson_status = 'scheduled'
+                first_lesson_assigned = True
             lessons_to_create.append(Lesson(
                 title=spec['title'],
                 level=spec['level'],
-                date=None,
-                status='completed' if index < completed_count else 'pending',
+                date=lesson_date,
+                status=lesson_status,
                 student=student,
                 teacher=teacher,
                 is_template=False,

@@ -92,7 +92,7 @@ const CriarAula = () => {
           );
           setLessonOptions(
             lessonsData
-              .filter((lesson: any) => !["completed", "canceled", "missed"].includes(lesson.status))
+              .filter((lesson: any) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
               .map((lesson: any) => ({
                 label: formatSequenceOptionLabel(lesson),
                 value: lesson.id,

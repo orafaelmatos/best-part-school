@@ -3,13 +3,14 @@ import type { AxiosError } from "axios";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Navigate, useNavigate } from "react-router-dom";
-import { User, Lock, ArrowRight, Sparkles } from "lucide-react";
+import { User, Lock, ArrowRight, Eye, EyeOff, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { APP_PATHS } from "@/lib/routes";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { login, user, isLoading: isAuthLoading } = useAuth();
   const navigate = useNavigate();
@@ -138,13 +139,22 @@ const Login = () => {
                       <Lock size={18} />
                     </div>
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="w-full rounded-2xl border border-slate-200 bg-white/90 py-3 pl-10 pr-4 text-sm text-slate-900 shadow-sm transition-all focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-sky-100"
+                      className="w-full rounded-2xl border border-slate-200 bg-white/90 py-3 pl-10 pr-12 text-sm text-slate-900 shadow-sm transition-all focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-sky-100"
                       placeholder="••••••••"
                     />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 transition hover:text-slate-700"
+                      onClick={() => setShowPassword((current) => !current)}
+                      aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                      title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
                 </div>
 

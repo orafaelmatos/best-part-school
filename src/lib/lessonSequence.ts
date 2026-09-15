@@ -4,6 +4,9 @@ export type SequenceLesson = {
   status: string;
   order?: number | null;
   date?: string | null;
+  schedule_exception?: boolean;
+  original_date?: string | null;
+  is_extra?: boolean;
 };
 
 const REORDERABLE_STATUSES = ["pending", "scheduled", "rescheduled"];
@@ -24,7 +27,7 @@ const dateValue = (lesson: SequenceLesson) => {
 };
 
 export const isReorderableLesson = (lesson: SequenceLesson) =>
-  REORDERABLE_STATUSES.includes(lesson.status);
+  !lesson.is_extra && REORDERABLE_STATUSES.includes(lesson.status);
 
 export const sortLessonsBySequence = <T extends SequenceLesson>(lessons: T[]) =>
   [...lessons].sort((left, right) => {

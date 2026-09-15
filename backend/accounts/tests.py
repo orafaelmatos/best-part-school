@@ -2,6 +2,7 @@ import datetime
 import base64
 import shutil
 import tempfile
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -185,6 +186,47 @@ class StudentRegistrationScheduleTests(TestCase):
             self.assertEqual(local_lesson_date.minute, 0)
             if index > 0:
                 self.assertEqual((lesson.date - scheduled_lessons[index - 1].date).days, 7)
+
+    def test_student_creation_can_use_manual_first_lesson_date_that_already_passed_today(self):
+        fixed_now = timezone.make_aware(datetime.datetime(2026, 9, 14, 11, 0))
+        first_lesson_date = timezone.make_aware(datetime.datetime(2026, 9, 14, 9, 30))
+        TeacherAvailability.objects.create(
+            teacher=self.teacher,
+            day_of_week=first_lesson_date.weekday(),
+            start_time=datetime.time(8, 0),
+            end_time=datetime.time(22, 0),
+        )
+
+        with patch('lessons.scheduling.timezone.now', return_value=fixed_now), patch(
+            'lessons.scheduling.timezone.localdate',
+            return_value=fixed_now.date(),
+        ):
+            response = self.client.post('/api/accounts/register/', {
+                'email': 'student_manual_first@test.com',
+                'name': 'Manual First',
+                'password': '123',
+                'role': 'student',
+                'level': 'B1',
+                'planned_lessons_count': 3,
+                'completed_lessons_count': 0,
+                'teacher_id': str(self.teacher.id),
+                'schedules': [
+                    {
+                        'day_of_week': first_lesson_date.weekday(),
+                        'time': first_lesson_date.time().isoformat(),
+                    },
+                ],
+                'first_lesson_date': first_lesson_date.isoformat(),
+            }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        student = User.objects.get(email='student_manual_first@test.com')
+        lessons = list(Lesson.objects.filter(student=student).order_by('order'))
+
+        self.assertEqual(len(lessons), 3)
+        self.assertEqual(lessons[0].status, 'scheduled')
+        self.assertEqual(lessons[0].date, first_lesson_date)
+        self.assertEqual(lessons[1].date, first_lesson_date + datetime.timedelta(days=7))
 
 
 class UserPhotoUpdateTests(TestCase):

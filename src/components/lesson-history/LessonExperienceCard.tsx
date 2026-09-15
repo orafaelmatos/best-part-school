@@ -19,6 +19,7 @@ import { FlashcardEditor } from "@/components/FlashcardEditor";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
 import LessonSummarySection from "@/components/LessonSummarySection";
 import PastLessonSummary from "@/components/PastLessonSummary";
+import RichTextContent from "@/components/RichTextContent";
 import StatusBadge from "@/components/StatusBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { APP_PATHS } from "@/lib/routes";
@@ -50,6 +51,7 @@ type LessonExperienceCardProps = {
 };
 
 const surfaceByStatus: Record<string, string> = {
+  extra: "border-cyan-200/70 bg-[linear-gradient(135deg,rgba(236,254,255,0.95),rgba(255,255,255,0.98))]",
   completed: "border-emerald-200/70 bg-[linear-gradient(135deg,rgba(236,253,245,0.95),rgba(255,255,255,0.98))]",
   scheduled: "border-sky-200/70 bg-[linear-gradient(135deg,rgba(239,246,255,0.95),rgba(255,255,255,0.98))]",
   rescheduled: "border-amber-200/70 bg-[linear-gradient(135deg,rgba(255,251,235,0.95),rgba(255,255,255,0.98))]",
@@ -104,7 +106,7 @@ const LessonExperienceCard = ({
   ].filter(Boolean) as { key: keyof typeof indicatorStyles; label: string }[];
 
   return (
-    <article className={cn("overflow-hidden rounded-[26px] border shadow-[0_16px_50px_-30px_rgba(15,23,42,0.35)]", surfaceByStatus[lesson.status] || "border-border bg-card")}>
+    <article className={cn("overflow-hidden rounded-[26px] border shadow-[0_16px_50px_-30px_rgba(15,23,42,0.35)]", surfaceByStatus[lesson.is_extra ? "extra" : lesson.status] || "border-border bg-card")}>
       <button
         type="button"
         onClick={onToggle}
@@ -123,12 +125,22 @@ const LessonExperienceCard = ({
 
             <div className="min-w-0 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                {typeof lesson.order === "number" && lesson.order > 0 && (
+                {!lesson.is_extra && typeof lesson.order === "number" && lesson.order > 0 && (
                   <span className="rounded-full bg-background/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Aula {lesson.order}
                   </span>
                 )}
+                {lesson.is_extra && (
+                  <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-800">
+                    Aula extra
+                  </span>
+                )}
                 <StatusBadge status={lesson.status as any} />
+                {lesson.schedule_exception && (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">
+                    Alteração pontual
+                  </span>
+                )}
                 {pendingHomeworkCount > 0 && (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">
                     Homework pendente
@@ -228,9 +240,9 @@ const LessonExperienceCard = ({
                   <BookOpenCheck className="h-4 w-4 text-primary" />
                   <h4 className="font-semibold text-card-foreground">Anotações da aula</h4>
                 </div>
-                <div
+                <RichTextContent
+                  value={lesson.notes}
                   className="prose prose-sm max-w-none text-card-foreground"
-                  dangerouslySetInnerHTML={{ __html: lesson.notes }}
                 />
               </section>
             )}

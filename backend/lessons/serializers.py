@@ -247,7 +247,7 @@ class LessonSerializer(serializers.ModelSerializer):
             'id', 'title', 'level', 'date', 'status', 'notes', 
             'meeting_url', 'recording_url', 'new_words', 'attachments', 
             'teacher', 'student', 'student_name', 'teacher_name', 'is_template',
-            'template', 'template_title', 'order'
+            'is_extra', 'template', 'template_title', 'order', 'schedule_exception', 'original_date'
         ]
 
 class HomeworkQuestionSerializer(serializers.ModelSerializer):

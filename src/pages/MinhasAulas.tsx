@@ -149,8 +149,8 @@ const MinhasAulas = () => {
   const trailLessons = useMemo(
     () =>
       [...trailLessonsBase].sort((left, right) => {
-        const leftOrder = typeof left.order === "number" ? left.order : Number.MAX_SAFE_INTEGER;
-        const rightOrder = typeof right.order === "number" ? right.order : Number.MAX_SAFE_INTEGER;
+        const leftOrder = typeof left.order === "number" && left.order > 0 ? left.order : Number.MAX_SAFE_INTEGER;
+        const rightOrder = typeof right.order === "number" && right.order > 0 ? right.order : Number.MAX_SAFE_INTEGER;
         if (leftOrder !== rightOrder) {
           return leftOrder - rightOrder;
         }
@@ -383,7 +383,9 @@ const MinhasAulas = () => {
                                       <div className="min-w-[220px]">
                                         <p className="font-semibold text-foreground">{lesson.title}</p>
                                         <p className="mt-1 text-xs text-muted-foreground">
-                                          {typeof lesson.order === "number" && lesson.order > 0
+                                          {lesson.is_extra
+                                            ? "Aula extra"
+                                            : typeof lesson.order === "number" && lesson.order > 0
                                             ? `Aula ${lesson.order}`
                                             : "Ordem nao definida"}
                                         </p>
@@ -843,9 +845,14 @@ const TrailStep = ({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {typeof lesson.order === "number" && lesson.order > 0 && (
+            {!lesson.is_extra && typeof lesson.order === "number" && lesson.order > 0 && (
               <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ring-1 ring-black/5">
                 Aula {lesson.order}
+              </span>
+            )}
+            {lesson.is_extra && (
+              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-800 ring-1 ring-cyan-100">
+                Aula extra
               </span>
             )}
             <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-black/5">

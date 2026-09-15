@@ -15,6 +15,7 @@ type TimeSlot = {
 type ScheduleSlotPickerProps = {
   teacherId?: string;
   value?: string;
+  initialDate?: Date | string;
   excludeLessonId?: string;
   onChange: (isoDatetime: string) => void;
 };
@@ -30,9 +31,18 @@ const toLocalDateKey = (date: Date) =>
 
 const toPythonWeekday = (date: Date) => (date.getDay() + 6) % 7;
 
-const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }: ScheduleSlotPickerProps) => {
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => value ? new Date(value) : new Date());
+const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonId, onChange }: ScheduleSlotPickerProps) => {
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
+    if (value) return new Date(value);
+    if (initialDate) return new Date(initialDate);
+    return new Date();
+  });
   const selectedDateKey = useMemo(() => selectedDate ? toLocalDateKey(selectedDate) : "", [selectedDate]);
+  const selectedValueDateKey = useMemo(() => {
+    if (!value) return "";
+    const valueDate = new Date(value);
+    return Number.isNaN(valueDate.getTime()) ? "" : toLocalDateKey(valueDate);
+  }, [value]);
 
   useEffect(() => {
     if (!value) return;
@@ -41,6 +51,14 @@ const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }
       setSelectedDate(nextSelectedDate);
     }
   }, [value]);
+
+  useEffect(() => {
+    if (value || !initialDate) return;
+    const nextSelectedDate = new Date(initialDate);
+    if (!Number.isNaN(nextSelectedDate.getTime())) {
+      setSelectedDate(nextSelectedDate);
+    }
+  }, [initialDate, value]);
 
   const { data, isFetching } = useQuery({
     queryKey: ["teacher-day-slots", teacherId, selectedDateKey, excludeLessonId],
@@ -64,22 +82,32 @@ const ScheduleSlotPicker = memo(({ teacherId, value, excludeLessonId, onChange }
     if (!data?.slots) return false;
     return !availableWeekdays.has(toPythonWeekday(date)) || blockedDates.includes(toLocalDateKey(date));
   };
+  const handleDateSelect = (date?: Date) => {
+    setSelectedDate(date);
+    if (!date) {
+      if (value) onChange("");
+      return;
+    }
+    if (selectedValueDateKey && selectedValueDateKey !== toLocalDateKey(date)) {
+      onChange("");
+    }
+  };
   const selectedTime = value ? new Date(value).toTimeString().slice(0, 5) : "";
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-[310px_1fr]">
+    <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+      <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[310px_minmax(0,1fr)]">
         <div className="border-b lg:border-b-0 lg:border-r border-border bg-muted/30">
           <Calendar
             mode="single"
             selected={selectedDate}
-            onSelect={setSelectedDate}
+            onSelect={handleDateSelect}
             disabled={[{ before: new Date(new Date().setHours(0, 0, 0, 0)) }, isUnavailableDate]}
             className="w-full"
           />
         </div>
 
-        <div className="p-4">
+        <div className="min-w-0 p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold">Horários disponíveis</p>

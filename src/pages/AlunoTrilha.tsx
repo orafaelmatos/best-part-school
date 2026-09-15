@@ -16,6 +16,7 @@ import {
 import DashboardLayout from "@/components/DashboardLayout";
 import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
 import PageHeader from "@/components/PageHeader";
+import RichTextContent from "@/components/RichTextContent";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import StatusBadge from "@/components/StatusBadge";
 import { Progress } from "@/components/ui/progress";
@@ -291,7 +292,7 @@ const AlunoTrilha = () => {
       queryClient.invalidateQueries({ queryKey: ["student-lesson-feed", studentId] });
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
       queryClient.invalidateQueries({ queryKey: ["teacher-day-slots"] });
-      toast({ title: "Aula reagendada", description: "O novo horario foi salvo na agenda do aluno." });
+      toast({ title: "Aula reagendada", description: "A mudança vale somente para esta aula." });
       setReschedulingLesson(null);
       setRescheduleDate("");
     },
@@ -689,14 +690,19 @@ const AlunoTrilha = () => {
           >
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-card-foreground">Reagendar aula</h3>
+                <h3 className="text-lg font-semibold text-card-foreground">Reagendar somente esta aula</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Escolha um novo horario livre na agenda do professor.
+                  Escolha um novo horario livre. As proximas aulas continuam seguindo o horario fixo do aluno.
                 </p>
                 <p className="mt-2 text-sm font-medium text-foreground">{reschedulingLesson.title}</p>
                 <p className="text-xs text-muted-foreground">
                   Horario atual: {formatLessonDate(reschedulingLesson.date)}
                 </p>
+                {reschedulingLesson.schedule_exception && reschedulingLesson.original_date && (
+                  <p className="text-xs text-amber-700">
+                    Horario original: {formatLessonDate(reschedulingLesson.original_date)}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -739,7 +745,7 @@ const AlunoTrilha = () => {
                 onClick={() => rescheduleMutation.mutate({ id: reschedulingLesson.id, date: rescheduleDate })}
                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {rescheduleMutation.isPending ? "Reagendando..." : "Confirmar reagendamento"}
+                {rescheduleMutation.isPending ? "Reagendando..." : "Salvar alteração pontual"}
               </button>
             </div>
           </div>
@@ -831,9 +837,7 @@ const StudentTrackingPanel = ({
         {textBlocks.map((block) => (
           <div key={block.label} className={block.label.startsWith("Objetivo") ? "rounded-2xl border border-slate-200 bg-slate-50/80 p-4 lg:col-span-2" : "rounded-2xl border border-slate-200 bg-slate-50/80 p-4"}>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{block.label}</p>
-            <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">
-              {block.value?.trim() || "Nao informado"}
-            </p>
+            <RichTextContent value={block.value} className="mt-2 text-sm text-slate-700" />
           </div>
         ))}
       </div>

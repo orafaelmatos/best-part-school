@@ -40,6 +40,9 @@ class Lesson(models.Model):
     meeting_url = models.URLField(blank=True, null=True)
     recording_url = models.URLField(blank=True, null=True)
     is_template = models.BooleanField(default=False)
+    is_extra = models.BooleanField(default=False)
+    schedule_exception = models.BooleanField(default=False)
+    original_date = models.DateTimeField(null=True, blank=True)
     template = models.ForeignKey(
         'self',
         null=True,

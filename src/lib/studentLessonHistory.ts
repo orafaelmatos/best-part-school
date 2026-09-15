@@ -30,6 +30,9 @@ export type LessonHistoryLesson = {
   student_name?: string;
   template_title?: string;
   order?: number | null;
+  is_extra?: boolean;
+  schedule_exception?: boolean;
+  original_date?: string | null;
   new_words?: LessonWord[];
   attachments?: LessonAttachment[];
 };

@@ -563,7 +563,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['teacher', 'student', 'status', 'level', 'is_template']
+    filterset_fields = ['teacher', 'student', 'status', 'level', 'is_template', 'is_extra']
     ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
 
@@ -611,6 +611,59 @@ class LessonViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'], url_path='extra')
+    def create_extra_lesson(self, request):
+        user = request.user
+        if not getattr(user, 'is_authenticated', False):
+            raise exceptions.NotAuthenticated()
+        if user.role not in ['teacher', 'admin']:
+            raise exceptions.PermissionDenied('Somente professores podem criar aulas extras.')
+
+        student_id = request.data.get('student')
+        date_value = request.data.get('date')
+        title = (request.data.get('title') or 'Aula extra').strip() or 'Aula extra'
+
+        if not student_id:
+            return Response({'error': 'Aluno obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_value:
+            return Response({'error': 'Data e horário são obrigatórios.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        student = User.objects.filter(id=student_id, role='student').first()
+        if not student:
+            return Response({'error': 'Aluno não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.role == 'admin':
+            teacher_id = request.data.get('teacher') or request.data.get('teacher_id')
+            teacher = User.objects.filter(id=teacher_id, role='teacher').first() if teacher_id else None
+            if not teacher:
+                return Response({'error': 'Professor obrigatório para criar aula extra.'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            teacher = user
+            if not Lesson.objects.filter(student=student, teacher=teacher, is_template=False).exists():
+                raise exceptions.PermissionDenied('Você só pode criar aulas extras para seus alunos.')
+
+        try:
+            lesson_date = parse_lesson_datetime(date_value)
+            validate_lesson_schedule(teacher, lesson_date)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        lesson = Lesson.objects.create(
+            title=title,
+            level=student.level or 'A1/A2',
+            date=lesson_date,
+            teacher=teacher,
+            student=student,
+            status='scheduled',
+            is_template=False,
+            is_extra=True,
+            template=None,
+            order=0,
+        )
+        return Response(self.get_serializer(lesson).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['patch'])
     def start_lesson(self, request, pk=None):
         lesson = self.get_object()
@@ -624,6 +677,12 @@ class LessonViewSet(viewsets.ModelViewSet):
         selected_lesson_id = request.data.get('selected_lesson')
         if custom_lesson_title and selected_lesson_id:
             return Response({'error': 'Escolha uma aula da trilha ou crie uma nova, mas não envie os dois ao mesmo tempo.'}, status=status.HTTP_400_BAD_REQUEST)
+        if lesson.is_extra:
+            if custom_lesson_title or selected_lesson_id:
+                return Response({'error': 'Aula extra não troca nem insere aulas na trilha.'}, status=status.HTTP_400_BAD_REQUEST)
+            lesson.status = 'in_progress'
+            lesson.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(lesson).data)
 
         if custom_lesson_title:
             try:
@@ -760,9 +819,18 @@ class LessonViewSet(viewsets.ModelViewSet):
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        lesson.date = new_date
-        lesson.status = 'rescheduled'
-        lesson.save(update_fields=['date', 'status', 'updated_at'])
+        original_date = lesson.original_date or lesson.date
+        if original_date and new_date == original_date:
+            lesson.date = new_date
+            lesson.status = 'scheduled'
+            lesson.schedule_exception = False
+            lesson.original_date = None
+        else:
+            lesson.date = new_date
+            lesson.status = 'rescheduled'
+            lesson.schedule_exception = True
+            lesson.original_date = original_date
+        lesson.save(update_fields=['date', 'status', 'schedule_exception', 'original_date', 'updated_at'])
         return Response(self.get_serializer(lesson).data)
 
     @action(detail=False, methods=['get'])
