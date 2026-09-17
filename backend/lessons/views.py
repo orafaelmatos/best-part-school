@@ -646,7 +646,7 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         try:
             lesson_date = parse_lesson_datetime(date_value)
-            validate_lesson_schedule(teacher, lesson_date)
+            validate_lesson_schedule(teacher, lesson_date, allow_past=True)
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1040,10 +1040,16 @@ class TeacherAvailabilityAPIView(APIView):
 
         date_param = request.query_params.get('date')
         exclude_lesson_id = request.query_params.get('exclude_lesson')
+        allow_past = request.query_params.get('allow_past') == 'true'
         time_slots = None
         if date_param:
             try:
-                time_slots = get_day_time_slots(teacher_id, date_param, exclude_lesson_id=exclude_lesson_id)
+                time_slots = get_day_time_slots(
+                    teacher_id,
+                    date_param,
+                    exclude_lesson_id=exclude_lesson_id,
+                    allow_past=allow_past,
+                )
             except ValueError:
                 return Response({'error': 'Data inválida.'}, status=status.HTTP_400_BAD_REQUEST)
             

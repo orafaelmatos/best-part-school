@@ -257,7 +257,7 @@ class HomeworkQuestionSerializer(serializers.ModelSerializer):
     audio_path = serializers.CharField(write_only=True, required=False, allow_blank=True)
     remove_image = serializers.BooleanField(write_only=True, required=False, default=False)
     remove_audio = serializers.BooleanField(write_only=True, required=False, default=False)
-    reserve_question = serializers.JSONField(write_only=True, required=False)
+    reserve_question = serializers.JSONField(write_only=True, required=False, allow_null=True)
     has_reserve_question = serializers.SerializerMethodField()
 
     class Meta:

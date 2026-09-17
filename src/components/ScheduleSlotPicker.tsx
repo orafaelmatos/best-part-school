@@ -17,6 +17,7 @@ type ScheduleSlotPickerProps = {
   value?: string;
   initialDate?: Date | string;
   excludeLessonId?: string;
+  allowPast?: boolean;
   onChange: (isoDatetime: string) => void;
 };
 
@@ -31,7 +32,7 @@ const toLocalDateKey = (date: Date) =>
 
 const toPythonWeekday = (date: Date) => (date.getDay() + 6) % 7;
 
-const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonId, onChange }: ScheduleSlotPickerProps) => {
+const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonId, allowPast = false, onChange }: ScheduleSlotPickerProps) => {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
     if (value) return new Date(value);
     if (initialDate) return new Date(initialDate);
@@ -61,12 +62,13 @@ const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonI
   }, [initialDate, value]);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["teacher-day-slots", teacherId, selectedDateKey, excludeLessonId],
+    queryKey: ["teacher-day-slots", teacherId, selectedDateKey, excludeLessonId, allowPast],
     queryFn: async () => {
       const res = await api.get(`/teacher-availability/${teacherId}/`, {
         params: {
           date: selectedDateKey,
           exclude_lesson: excludeLessonId,
+          allow_past: allowPast ? "true" : undefined,
         },
       });
       return res.data;
@@ -102,7 +104,7 @@ const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonI
             mode="single"
             selected={selectedDate}
             onSelect={handleDateSelect}
-            disabled={[{ before: new Date(new Date().setHours(0, 0, 0, 0)) }, isUnavailableDate]}
+            disabled={[...(allowPast ? [] : [{ before: new Date(new Date().setHours(0, 0, 0, 0)) }]), isUnavailableDate]}
             className="w-full"
           />
         </div>

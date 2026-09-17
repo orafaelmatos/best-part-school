@@ -390,6 +390,66 @@ class LessonSchedulingValidationTests(TestCase):
         self.assertEqual(self.student1.planned_lessons_count, 2)
         self.assertEqual(effective_planned_lesson_count(self.student1, teacher=self.teacher), 3)
 
+    def test_teacher_can_create_extra_lesson_in_the_past(self):
+        past_date = timezone.make_aware(
+            datetime.datetime.combine(
+                timezone.localdate() - datetime.timedelta(days=1),
+                datetime.time(10, 0),
+            )
+        )
+        TeacherAvailability.objects.get_or_create(
+            teacher=self.teacher,
+            day_of_week=past_date.weekday(),
+            start_time=datetime.time(8, 0),
+            defaults={'end_time': datetime.time(22, 0)},
+        )
+        Lesson.objects.create(
+            title='Existing student lesson',
+            level='B1',
+            student=self.student1,
+            teacher=self.teacher,
+            template=self.template,
+            date=self.lesson_date,
+            status='scheduled',
+            order=1,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/lessons/extra/', {
+            'student': str(self.student1.id),
+            'title': 'Morning extra class',
+            'date': past_date.isoformat(),
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data['is_extra'])
+        self.assertEqual(response.data['title'], 'Morning extra class')
+
+    def test_teacher_availability_can_allow_past_slots_for_extra_lessons(self):
+        past_date = timezone.make_aware(
+            datetime.datetime.combine(
+                timezone.localdate() - datetime.timedelta(days=1),
+                datetime.time(10, 0),
+            )
+        )
+        TeacherAvailability.objects.get_or_create(
+            teacher=self.teacher,
+            day_of_week=past_date.weekday(),
+            start_time=datetime.time(8, 0),
+            defaults={'end_time': datetime.time(22, 0)},
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.get(
+            f'/api/teacher-availability/{self.teacher.id}/',
+            {'date': past_date.date().isoformat(), 'allow_past': 'true'},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        slots_by_time = {slot['time']: slot for slot in response.data['time_slots']}
+        self.assertTrue(slots_by_time['10:00']['available'])
+        self.assertIsNone(slots_by_time['10:00']['reason'])
+
     def test_recurring_schedule_rejects_half_hour_overlap_for_same_teacher(self):
         StudentRecurringSchedule.objects.create(
             student=self.student1,

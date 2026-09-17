@@ -4,9 +4,11 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, X } from "lucide-react";
+import { AlertCircle, BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 type QuestionType = "open_text" | "multiple_choice";
 type HomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "corrected";
@@ -85,6 +87,156 @@ type HomeworkTemplate = {
   description?: string;
   classification?: string;
   questions: HomeworkQuestion[];
+};
+
+type QuestionErrorKey = "prompt" | "options" | "correct_option_index" | "reserve_question";
+
+type HomeworkEditorErrors = {
+  general: string[];
+  fields: Record<string, string[]>;
+  questions: Record<number, Partial<Record<QuestionErrorKey, string[]>>>;
+};
+
+const emptyEditorErrors = (): HomeworkEditorErrors => ({
+  general: [],
+  fields: {},
+  questions: {},
+});
+
+const addQuestionError = (
+  errors: HomeworkEditorErrors,
+  index: number,
+  field: QuestionErrorKey,
+  message: string,
+) => {
+  errors.questions[index] = {
+    ...errors.questions[index],
+    [field]: [...(errors.questions[index]?.[field] || []), message],
+  };
+};
+
+const addFieldError = (errors: HomeworkEditorErrors, field: string, message: string) => {
+  errors.fields[field] = [...(errors.fields[field] || []), message];
+};
+
+const hasEditorErrors = (errors: HomeworkEditorErrors) => (
+  errors.general.length > 0 ||
+  Object.keys(errors.fields).length > 0 ||
+  Object.keys(errors.questions).length > 0
+);
+
+const translateApiMessage = (field: string, message: string) => {
+  if (field === "reserve_question" && message === "This field may not be null.") {
+    return "Cadastre a questão reserva ou selecione \"Sem segunda chance\".";
+  }
+  if (field === "non_field_errors") return message;
+  return message;
+};
+
+const normalizeMessages = (value: unknown, field = ""): string[] => {
+  if (!value) return [];
+  if (typeof value === "string") return [translateApiMessage(field, value)];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeMessages(item, field));
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => normalizeMessages(item, key));
+  }
+  return [String(value)];
+};
+
+const parseHomeworkApiErrors = (data: unknown): HomeworkEditorErrors => {
+  const errors = emptyEditorErrors();
+
+  if (!data || typeof data !== "object") {
+    errors.general.push("Não foi possível salvar a lição de casa. Confira os campos e tente novamente.");
+    return errors;
+  }
+
+  Object.entries(data as Record<string, unknown>).forEach(([field, value]) => {
+    if (field === "questions" && Array.isArray(value)) {
+      value.forEach((questionErrors, index) => {
+        if (!questionErrors || typeof questionErrors !== "object") {
+          normalizeMessages(questionErrors).forEach((message) => addQuestionError(errors, index, "prompt", message));
+          return;
+        }
+        Object.entries(questionErrors as Record<string, unknown>).forEach(([questionField, questionValue]) => {
+          const key = questionField as QuestionErrorKey;
+          if (["prompt", "options", "correct_option_index", "reserve_question"].includes(questionField)) {
+            normalizeMessages(questionValue, questionField).forEach((message) => addQuestionError(errors, index, key, message));
+            return;
+          }
+          normalizeMessages(questionValue, questionField).forEach((message) => {
+            errors.general.push(`Pergunta ${index + 1}: ${message}`);
+          });
+        });
+      });
+      return;
+    }
+
+    if (field === "detail" || field === "error" || field === "non_field_errors") {
+      errors.general.push(...normalizeMessages(value, field));
+      return;
+    }
+
+    normalizeMessages(value, field).forEach((message) => addFieldError(errors, field, message));
+  });
+
+  if (!hasEditorErrors(errors)) {
+    errors.general.push("Não foi possível salvar a lição de casa. Confira os campos e tente novamente.");
+  }
+
+  return errors;
+};
+
+const validateHomeworkForm = (form: Partial<Homework> & { questions: HomeworkQuestion[] }) => {
+  const errors = emptyEditorErrors();
+
+  form.questions.forEach((question, index) => {
+    if (!question.prompt.trim()) {
+      addQuestionError(errors, index, "prompt", "Preencha o texto da pergunta.");
+    }
+
+    if (question.type === "multiple_choice") {
+      const filledOptions = question.options.filter((option) => option.trim());
+      if (filledOptions.length < 2) {
+        addQuestionError(errors, index, "options", "Adicione pelo menos duas opções.");
+      }
+      if (
+        question.correct_option_index === null ||
+        question.correct_option_index < 0 ||
+        question.correct_option_index >= question.options.length ||
+        !question.options[question.correct_option_index]?.trim()
+      ) {
+        addQuestionError(errors, index, "correct_option_index", "Selecione a alternativa correta.");
+      }
+    }
+
+    if (form.auto_correction_enabled && question.second_chance_mode !== "none") {
+      const reserveQuestion = question.reserve_question;
+      if (!reserveQuestion?.prompt.trim()) {
+        addQuestionError(errors, index, "reserve_question", "Cadastre a questão reserva ou selecione \"Sem segunda chance\".");
+        return;
+      }
+
+      if (reserveQuestion.type === "multiple_choice") {
+        const filledReserveOptions = reserveQuestion.options.filter((option) => option.trim());
+        if (filledReserveOptions.length < 2) {
+          addQuestionError(errors, index, "reserve_question", "A questão reserva precisa ter pelo menos duas opções.");
+        }
+        if (
+          reserveQuestion.correct_option_index === null ||
+          reserveQuestion.correct_option_index < 0 ||
+          reserveQuestion.correct_option_index >= reserveQuestion.options.length ||
+          !reserveQuestion.options[reserveQuestion.correct_option_index]?.trim()
+        ) {
+          addQuestionError(errors, index, "reserve_question", "Selecione a alternativa correta da questão reserva.");
+        }
+      }
+    }
+  });
+
+  return errors;
 };
 
 const emptyQuestion = (order: number): HomeworkQuestion => ({
@@ -192,12 +344,14 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
 
 export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: () => void }) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const isTeacher = user?.role === "teacher" || user?.role === "admin";
   const isStudent = user?.role === "student";
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Homework | null>(null);
   const [form, setForm] = useState(emptyForm(lesson));
+  const [editorErrors, setEditorErrors] = useState<HomeworkEditorErrors>(emptyEditorErrors);
 
   const { data: homeworkItems = [] } = useQuery({
     queryKey: ["homework", lesson.id],
@@ -218,6 +372,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
 
   useEffect(() => {
     setForm(emptyForm(lesson));
+    setEditorErrors(emptyEditorErrors());
   }, [lesson.id]);
 
   const refresh = () => {
@@ -228,6 +383,13 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
 
   const saveMutation = useMutation({
     mutationFn: async (status: HomeworkStatus) => {
+      const validationErrors = validateHomeworkForm(form);
+      if (hasEditorErrors(validationErrors)) {
+        setEditorErrors(validationErrors);
+        throw new Error("homework-validation");
+      }
+
+      setEditorErrors(emptyEditorErrors());
       const payload = buildPayload(form, status);
       if (editing) {
         const res = await api.put(`/homework/${editing.id}/`, payload);
@@ -241,6 +403,25 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       setOpen(false);
       setEditing(null);
       setForm(emptyForm(lesson));
+      setEditorErrors(emptyEditorErrors());
+    },
+    onError: (error: any) => {
+      if (error instanceof Error && error.message === "homework-validation") {
+        toast({
+          title: "Confira a lição de casa",
+          description: "Há campos obrigatórios pendentes antes de salvar.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const apiErrors = parseHomeworkApiErrors(error?.response?.data);
+      setEditorErrors(apiErrors);
+      toast({
+        title: "Erro ao salvar lição de casa",
+        description: "Confira os campos destacados no formulário.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -285,14 +466,21 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       setEditing(null);
       setForm(emptyForm(lesson));
     }
+    setEditorErrors(emptyEditorErrors());
     setOpen(true);
   };
 
   const updateQuestion = (index: number, patch: Partial<HomeworkQuestion>) => {
+    setEditorErrors(emptyEditorErrors());
     setForm((current) => ({
       ...current,
       questions: current.questions.map((question, questionIndex) => questionIndex === index ? { ...question, ...patch } : question),
     }));
+  };
+
+  const updateForm = (nextForm: Partial<Homework> & { questions: HomeworkQuestion[] }) => {
+    setEditorErrors(emptyEditorErrors());
+    setForm(nextForm);
   };
 
   const moveQuestion = (from: number, to: number) => {
@@ -301,11 +489,13 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setForm((current) => ({ ...current, questions: next.map((question, index) => ({ ...question, order: index })) }));
+    setEditorErrors(emptyEditorErrors());
   };
 
   const applyTemplate = (templateId: string) => {
     const template = templates.find((item: HomeworkTemplate) => item.id === templateId);
     if (!template) return;
+    setEditorErrors(emptyEditorErrors());
     setForm((current) => ({
       ...current,
       title: template.title,
@@ -357,8 +547,9 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
               <HomeworkEditor
                 form={form}
                 templates={templates}
+                errors={editorErrors}
                 onApplyTemplate={applyTemplate}
-                onChange={setForm}
+                onChange={updateForm}
                 onQuestionChange={updateQuestion}
                 onMoveQuestion={moveQuestion}
               />
@@ -397,9 +588,10 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
   );
 };
 
-const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestionChange, onMoveQuestion }: {
+const HomeworkEditor = ({ form, templates, errors, onApplyTemplate, onChange, onQuestionChange, onMoveQuestion }: {
   form: Partial<Homework> & { questions: HomeworkQuestion[] };
   templates: HomeworkTemplate[];
+  errors: HomeworkEditorErrors;
   onApplyTemplate: (templateId: string) => void;
   onChange: (form: Partial<Homework> & { questions: HomeworkQuestion[] }) => void;
   onQuestionChange: (index: number, patch: Partial<HomeworkQuestion>) => void;
@@ -409,6 +601,25 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
 
   return (
     <div className="space-y-4">
+      {hasEditorErrors(errors) ? (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-1">
+              <p>Não foi possível salvar. Corrija os campos destacados abaixo.</p>
+              {errors.general.map((message, index) => (
+                <p key={`${message}-${index}`}>{message}</p>
+              ))}
+              {Object.entries(errors.fields).flatMap(([field, messages]) => (
+                messages.map((message, index) => (
+                  <p key={`${field}-${message}-${index}`}>{message}</p>
+                ))
+              ))}
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {templates.length > 0 && (
         <div>
           <label className="block text-sm font-medium mb-1">Reutilizar lição antiga</label>
@@ -457,7 +668,9 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
           </Button>
         </div>
 
-        {form.questions.map((question, index) => (
+      {form.questions.map((question, index) => {
+        const questionErrors = errors.questions[index] || {};
+        return (
           <div
             key={question.id || index}
             draggable
@@ -480,6 +693,7 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
               </Button>
             </div>
             <Textarea placeholder={`Pergunta ${index + 1}`} value={question.prompt} onChange={(event) => onQuestionChange(index, { prompt: event.target.value })} />
+            <FieldError messages={questionErrors.prompt} />
             <QuestionAttachmentsEditor
               question={question}
               onChange={(patch) => onQuestionChange(index, patch)}
@@ -498,6 +712,7 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" onClick={() => onQuestionChange(index, { options: [...question.options, ""] })}>Adicionar opção</Button>
+                <FieldError messages={[...(questionErrors.options || []), ...(questionErrors.correct_option_index || [])]} />
               </div>
             )}
 
@@ -551,14 +766,27 @@ const HomeworkEditor = ({ form, templates, onApplyTemplate, onChange, onQuestion
                   <ReserveQuestionEditor
                     namePrefix={`reserve-${index}`}
                     reserveQuestion={question.reserve_question}
+                    errorMessages={questionErrors.reserve_question}
                     onChange={(reserveQuestion) => onQuestionChange(index, { reserve_question: reserveQuestion })}
                   />
                 ) : null}
               </div>
             ) : null}
           </div>
-        ))}
+        );
+      })}
       </div>
+    </div>
+  );
+};
+
+const FieldError = ({ messages }: { messages?: string[] }) => {
+  if (!messages?.length) return null;
+  return (
+    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      {messages.map((message, index) => (
+        <p key={`${message}-${index}`}>{message}</p>
+      ))}
     </div>
   );
 };
@@ -703,10 +931,12 @@ const AnswerPreview = ({ question, answer }: { question: HomeworkQuestion; answe
 const ReserveQuestionEditor = ({
   namePrefix,
   reserveQuestion,
+  errorMessages,
   onChange,
 }: {
   namePrefix: string;
   reserveQuestion?: ReserveQuestion | null;
+  errorMessages?: string[];
   onChange: (reserveQuestion: ReserveQuestion) => void;
 }) => {
   const value = reserveQuestion || {
@@ -721,6 +951,7 @@ const ReserveQuestionEditor = ({
   return (
     <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
       <p className="text-sm font-medium">Questão reserva</p>
+      <FieldError messages={errorMessages} />
       <select
         className="w-full rounded-lg border border-border bg-background p-2 text-sm"
         value={value.type}

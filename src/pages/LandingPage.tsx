@@ -39,7 +39,7 @@ const testimonialVideoOneSrc = "/video/depoimento-aluno-1.mp4";
 const testimonialVideoTwoSrc = "/video/depoimento-aluno-2.mp4";
 
 const navItems = [
-  { label: "Início", href: "#inicio" },
+  { label: "Início", href: "#inicio" }, 
   { label: "Cursos", href: "#cursos" },
   { label: "Metodologia", href: "#metodologia" },
   { label: "Depoimentos", href: "#depoimentos" },

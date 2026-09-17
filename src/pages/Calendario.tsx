@@ -808,6 +808,7 @@ const Calendario = () => {
               teacherId={user?.user_id}
               initialDate={extraLessonInitialDate || undefined}
               value={extraLessonDateTime}
+              allowPast
               onChange={setExtraLessonDateTime}
             />
 

@@ -162,7 +162,7 @@ def sequence_slot_is_available(teacher, lesson_date, exclude_lesson_ids=None):
     ) is None
 
 
-def get_day_time_slots(teacher_id, date_value, exclude_lesson_id=None):
+def get_day_time_slots(teacher_id, date_value, exclude_lesson_id=None, allow_past=False):
     if isinstance(date_value, str):
         target_date = datetime.date.fromisoformat(date_value)
     else:
@@ -186,7 +186,7 @@ def get_day_time_slots(teacher_id, date_value, exclude_lesson_id=None):
             reason = None
             if blocked:
                 reason = 'blocked'
-            elif cursor < timezone.now():
+            elif not allow_past and cursor < timezone.now():
                 reason = 'past'
             elif has_lesson_conflict(availability.teacher, cursor, exclude_lesson_id=exclude_lesson_id):
                 reason = 'busy'
