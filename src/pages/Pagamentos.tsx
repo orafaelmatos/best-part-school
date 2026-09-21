@@ -225,13 +225,13 @@ const Pagamentos = () => {
 
   return (
     <DashboardLayout>
-      <div className="mb-8 flex items-center justify-between gap-4">
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <PageHeader
           title="Financeiro"
           description={isTeacher ? "Recebimentos, inadimplencia e confirmacoes em um painel unico." : "Mensalidade, PIX e comprovantes em um fluxo simples."}
         />
         {isTeacher && (
-          <Button onClick={() => setIsSettingsOpen(true)}>
+          <Button className="w-full sm:w-auto" onClick={() => setIsSettingsOpen(true)}>
             <Settings2 className="mr-2 h-4 w-4" />
             Configuracoes
           </Button>
@@ -284,7 +284,7 @@ const Pagamentos = () => {
         <div className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <div className="mb-5 flex items-center justify-between">
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">Mensalidade atual</h2>
                   <p className="text-sm text-muted-foreground">Resumo da cobranca e envio de comprovante.</p>
@@ -304,12 +304,12 @@ const Pagamentos = () => {
                     <p className="mt-1 text-sm text-muted-foreground">{studentFinance?.settings?.payment_instructions || "Pague via PIX e envie o comprovante para confirmacao manual."}</p>
                   </div>
                   <div className="rounded-xl border border-border bg-card p-4">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-sm font-medium">PIX copia e cola</p>
                         <p className="mt-1 text-xs text-muted-foreground break-all">{studentFinance.pix_payload || "Configure a chave PIX com o professor."}</p>
                       </div>
-                      <Button variant="outline" size="sm" onClick={async () => {
+                      <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={async () => {
                         await navigator.clipboard.writeText(studentFinance.pix_payload || "");
                         toast({ title: "Codigo PIX copiado" });
                       }}>

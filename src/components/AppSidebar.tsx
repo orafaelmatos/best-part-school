@@ -14,7 +14,6 @@ import {
   Menu,
   MessageSquare,
   ShoppingBag,
-  Sparkles,
   Target,
   Users,
   X,
@@ -41,6 +40,12 @@ type MenuItem = {
   badgeKey?: BadgeKey;
 };
 
+type MobileNavItem = MenuItem | {
+  label: string;
+  icon: LucideIcon;
+  action: "menu";
+};
+
 type MenuSection = {
   label: string;
   items: MenuItem[];
@@ -59,6 +64,7 @@ const ADMIN_TEACHER_MENU_ITEMS: MenuItem[] = [
   { label: "Painel Geral", icon: LayoutDashboard, path: APP_PATHS.dashboard },
   { label: "Alunos", icon: Users, path: APP_PATHS.students },
   { label: "Homework", icon: ClipboardList, path: APP_PATHS.correctHomework },
+  { label: "Palavras Aprendidas", icon: BookText, path: APP_PATHS.learnedWords },
   { label: "Calendario", icon: Calendar, path: APP_PATHS.calendar },
   { label: "CRM", icon: Target, path: APP_PATHS.crm },
   { label: "Financeiro", icon: CreditCard, path: APP_PATHS.finance },
@@ -97,6 +103,22 @@ const STUDENT_FEATURED_AI_ITEMS: FeaturedMenuItem[] = [
   },
 ];
 
+const STUDENT_MOBILE_NAV_ITEMS: MobileNavItem[] = [
+  { label: "Home", icon: LayoutDashboard, path: APP_PATHS.dashboard },
+  { label: "Aulas", icon: BookOpen, path: APP_PATHS.lessons },
+  { label: "Homework", icon: ClipboardList, path: APP_PATHS.homework, badgeKey: "homework" },
+  { label: "IA", icon: MessageSquare, path: APP_PATHS.aiPractice },
+  { label: "Palavras", icon: BookText, path: APP_PATHS.learnedWords, badgeKey: "learned_words" },
+];
+
+const ADMIN_TEACHER_MOBILE_NAV_ITEMS: MobileNavItem[] = [
+  { label: "Painel", icon: LayoutDashboard, path: APP_PATHS.dashboard },
+  { label: "Alunos", icon: Users, path: APP_PATHS.students },
+  { label: "Homework", icon: ClipboardList, path: APP_PATHS.correctHomework },
+  { label: "Agenda", icon: Calendar, path: APP_PATHS.calendar },
+  { label: "Menu", icon: Menu, action: "menu" },
+];
+
 const getRoleLabel = (role?: string) => {
   if (role === "admin") return "Admin";
   if (role === "teacher") return "Professor";
@@ -124,6 +146,31 @@ const getInitials = (value?: string) => {
   }
 
   return normalizedValue.slice(0, 2).toUpperCase();
+};
+
+const getMobilePageTitle = (pathname: string, role?: string) => {
+  const routeTitles: Array<{ match: (path: string) => boolean; title: string }> = [
+    { match: (path) => path === APP_PATHS.dashboard, title: role === "student" ? "Meu Painel" : "Painel Geral" },
+    { match: (path) => path === APP_PATHS.students, title: "Alunos" },
+    { match: (path) => path === APP_PATHS.newStudent, title: "Novo aluno" },
+    { match: (path) => path.startsWith(`${APP_PATHS.students}/`), title: "Trilha do aluno" },
+    { match: (path) => path === APP_PATHS.lessons, title: "Minhas Aulas" },
+    { match: (path) => path === APP_PATHS.newLesson, title: "Nova aula" },
+    { match: (path) => path.startsWith(`${APP_PATHS.lessons}/`), title: "Anotar aula" },
+    { match: (path) => path === APP_PATHS.homework, title: "Homework" },
+    { match: (path) => path === APP_PATHS.learnedWords, title: "Palavras" },
+    { match: (path) => path === APP_PATHS.vocabularyGame, title: "Jogo" },
+    { match: (path) => path === APP_PATHS.correctHomework, title: "Correções" },
+    { match: (path) => path === APP_PATHS.crm, title: "CRM" },
+    { match: (path) => path === APP_PATHS.calendar, title: "Calendário" },
+    { match: (path) => path === APP_PATHS.marketplace, title: "Marketplace" },
+    { match: (path) => path === APP_PATHS.newCourse, title: "Novo curso" },
+    { match: (path) => path === APP_PATHS.aiPractice || path.startsWith(`${APP_PATHS.aiPractice}/`), title: "Praticar com IA" },
+    { match: (path) => path === APP_PATHS.interpreter || path.startsWith(`${APP_PATHS.interpreter}/`), title: "Intérprete IA" },
+    { match: (path) => path === APP_PATHS.finance || path === APP_PATHS.payments, title: "Financeiro" },
+  ];
+
+  return routeTitles.find((route) => route.match(pathname))?.title || "Best Part School";
 };
 
 const AppSidebar = () => {
@@ -168,6 +215,9 @@ const AppSidebar = () => {
     finance: badges?.finance,
   };
   const userDisplayName = getDisplayName(user?.name, user?.email);
+  const userInitials = getInitials(userDisplayName);
+  const mobileNavItems = user?.role === "student" ? STUDENT_MOBILE_NAV_ITEMS : ADMIN_TEACHER_MOBILE_NAV_ITEMS;
+  const mobilePageTitle = getMobilePageTitle(location.pathname, user?.role);
 
   const sidebarContent = (
     <SidebarContent
@@ -179,46 +229,56 @@ const AppSidebar = () => {
       onLogout={handleLogout}
       onNavigate={() => setMobileOpen(false)}
       userName={userDisplayName}
-      userInitials={getInitials(userDisplayName)}
+      userInitials={userInitials}
       userRoleLabel={getRoleLabel(user?.role)}
     />
   );
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(15,23,42,0.92)] px-4 py-3 backdrop-blur lg:hidden">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/12">
-              <img src="/img/bps-logo.png" alt="BPS" className="h-7 w-7 object-contain" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Best Part School</p>
-              <p className="text-xs text-slate-300">{user?.role === "student" ? "Portal do aluno" : "Painel BPS"}</p>
-            </div>
+      <div className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(15,23,42,0.92)] px-4 pb-3 pt-[calc(0.75rem_+_env(safe-area-inset-top))] backdrop-blur lg:hidden">
+        <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
+          <button
+            type="button"
+            onClick={() => (user?.role === "student" ? navigate(APP_PATHS.dashboard) : setMobileOpen(true))}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/12 transition hover:bg-white/14"
+            aria-label={user?.role === "student" ? "Ir para home" : "Abrir menu"}
+          >
+            {user?.role === "student" ? <LayoutDashboard className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+
+          <div className="min-w-0 text-center">
+            <p className="truncate text-sm font-semibold text-white">{mobilePageTitle}</p>
+            <p className="truncate text-xs text-slate-300">{user?.role === "student" ? "Portal do aluno" : "Painel BPS"}</p>
           </div>
 
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/12 transition hover:bg-white/14"
-            aria-label="Abrir menu"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-sm font-bold text-slate-900 shadow-sm ring-1 ring-white/20"
+            aria-label="Abrir perfil e menu"
           >
-            <Menu className="h-5 w-5" />
+            {userInitials}
           </button>
         </div>
       </div>
 
       {mobileOpen ? (
-        <div className="fixed inset-0 z-[60] bg-slate-950/65 backdrop-blur-sm lg:hidden">
-          <div className="absolute inset-y-0 left-0 flex w-[88vw] max-w-sm flex-col overflow-hidden rounded-r-[30px] border-r border-white/10 bg-[radial-gradient(circle_at_top,#203b71_0%,#18243c_36%,#0f172a_100%)] shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]">
+        <div
+          className="fixed inset-0 z-[60] bg-slate-950/65 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        >
+          <div
+            className="absolute inset-y-0 left-0 flex w-[88vw] max-w-sm flex-col overflow-hidden rounded-r-[30px] border-r border-white/10 bg-[radial-gradient(circle_at_top,#203b71_0%,#18243c_36%,#0f172a_100%)] shadow-[0_30px_80px_-40px_rgba(15,23,42,0.95)]"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/12 transition hover:bg-white/14"
+              className="absolute right-4 top-[calc(1rem_+_env(safe-area-inset-top))] z-10 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/12 transition hover:bg-white/14"
               aria-label="Fechar menu"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
             {sidebarContent}
           </div>
@@ -233,9 +293,82 @@ const AppSidebar = () => {
       >
         {sidebarContent}
       </aside>
+
+      <MobileBottomNavigation
+        badgesByKey={badgePropsByKey}
+        isItemActive={isItemActive}
+        items={mobileNavItems}
+        onOpenMenu={() => setMobileOpen(true)}
+      />
     </>
   );
 };
+
+const MobileBottomNavigation = ({
+  badgesByKey,
+  isItemActive,
+  items,
+  onOpenMenu,
+}: {
+  badgesByKey: Record<BadgeKey, { count: number; state: "none" | "default" | "warning" | "danger" } | undefined>;
+  isItemActive: (path: string) => boolean;
+  items: MobileNavItem[];
+  onOpenMenu: () => void;
+}) => (
+  <nav
+    className="fixed inset-x-0 bottom-0 z-40 border-t border-white/12 bg-[rgba(15,23,42,0.94)] px-2 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))] pt-2 shadow-[0_-20px_60px_-36px_rgba(15,23,42,0.85)] backdrop-blur lg:hidden"
+    aria-label="Navegação principal mobile"
+  >
+    <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+      {items.map((item) => {
+        const Icon = item.icon;
+
+        if ("action" in item) {
+          return (
+            <button
+              key={item.label}
+              type="button"
+              onClick={onOpenMenu}
+              className="group relative flex min-h-[3.35rem] min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 text-[11px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Abrir menu"
+            >
+              <Icon className="h-5 w-5" strokeWidth={2} />
+              <span className="max-w-full truncate">{item.label}</span>
+            </button>
+          );
+        }
+
+        const active =
+          item.path === APP_PATHS.aiPractice
+            ? isItemActive(APP_PATHS.aiPractice) || isItemActive(APP_PATHS.interpreter)
+            : isItemActive(item.path);
+        const badge = item.badgeKey ? badgesByKey[item.badgeKey] : undefined;
+
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={cn(
+              "group relative flex min-h-[3.35rem] min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 text-[11px] font-medium transition",
+              active ? "bg-white text-slate-950 shadow-sm" : "text-slate-300 hover:bg-white/10 hover:text-white",
+            )}
+            aria-current={active ? "page" : undefined}
+          >
+            <span className="relative">
+              <Icon className="h-5 w-5" strokeWidth={2} />
+              {badge && badge.count > 0 ? (
+                <span className="absolute -right-2.5 -top-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {badge.count > 9 ? "9+" : badge.count}
+                </span>
+              ) : null}
+            </span>
+            <span className="max-w-full truncate">{item.label}</span>
+          </NavLink>
+        );
+      })}
+    </div>
+  </nav>
+);
 
 const SidebarContent = ({
   badgesByKey,

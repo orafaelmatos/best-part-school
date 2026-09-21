@@ -54,7 +54,7 @@ const Login = () => {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#203b71_0%,#18243c_34%,#0f172a_100%)] p-4">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.16),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_30%)]" />
-      <div className="relative mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-6xl items-center justify-center">
+      <div className="relative mx-auto flex min-h-[calc(100vh_-_2rem)] w-full max-w-6xl items-center justify-center">
         <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/10 bg-white/6 shadow-[0_30px_90px_-40px_rgba(15,23,42,0.95)] backdrop-blur xl:grid-cols-[1.05fr_0.95fr]">
           <section className="relative hidden min-h-[680px] overflow-hidden border-r border-white/10 p-10 text-white xl:flex xl:flex-col xl:justify-between">
             <div className="absolute inset-0 bg-[linear-gradient(145deg,rgba(59,130,246,0.16),rgba(15,23,42,0.08)_48%,rgba(16,185,129,0.16))]" />

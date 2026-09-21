@@ -299,8 +299,8 @@ export default function CorrigirHomework() {
               />
             </div>
 
-            <div className="pt-4 flex justify-end">
-              <Button onClick={onSubmitCorrection} disabled={correctionMutation.isPending}>
+            <div className="flex justify-end pt-4">
+              <Button className="w-full sm:w-auto" onClick={onSubmitCorrection} disabled={correctionMutation.isPending}>
                 <CheckCircle2 className="mr-2 h-4 w-4" /> 
                 {correctionMutation.isPending ? "Salvando..." : "Concluir Correção"}
               </Button>

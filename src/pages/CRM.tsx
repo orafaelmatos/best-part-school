@@ -113,7 +113,7 @@ const CRM = () => {
           <h1 className="text-2xl font-bold text-foreground">CRM</h1>
           <p className="mt-1 text-sm text-muted-foreground">Pipeline de leads e oportunidades</p>
         </div>
-        <Button onClick={() => setIsFormOpen((current) => !current)} className="gap-2 rounded-lg font-medium">
+        <Button onClick={() => setIsFormOpen((current) => !current)} className="w-full gap-2 rounded-lg font-medium sm:w-auto">
           <Plus size={18} />
           Novo Lead
         </Button>
@@ -205,14 +205,14 @@ const CRM = () => {
         </form>
       )}
 
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-4 sm:mx-0 sm:px-0">
         {columns.map((column) => {
           const columnLeads = filteredLeads.filter((lead) => lead.status === column.id);
 
           return (
             <section
               key={column.id}
-              className="flex min-h-[260px] w-[280px] min-w-[280px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm"
+              className="flex min-h-[260px] w-[82vw] min-w-[82vw] max-w-[320px] flex-col rounded-xl border border-border bg-card p-4 shadow-sm sm:w-[280px] sm:min-w-[280px]"
             >
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold">{column.title}</h3>

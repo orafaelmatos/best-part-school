@@ -453,7 +453,7 @@ const Alunos = () => {
     <DashboardLayout>
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <PageHeader title="Alunos" description={`${students.length} alunos cadastrados`} />
-        <Button asChild className="rounded-lg">
+        <Button asChild className="w-full rounded-lg sm:w-auto">
           <Link to={APP_PATHS.newStudent}>+ Novo aluno ou grupo</Link>
         </Button>
       </div>
@@ -485,7 +485,7 @@ const Alunos = () => {
             <span className="inline-flex w-fit items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">
               {filteredStudents.length} exibidos
             </span>
-            <label className="relative block sm:w-[320px]">
+            <label className="relative block w-full sm:w-[320px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
@@ -503,8 +503,8 @@ const Alunos = () => {
         ) : filteredStudents.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">Nenhum aluno encontrado.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full divide-y divide-border text-sm">
+          <div className="responsive-table md:overflow-x-auto" data-mobile-cards="true">
+            <table className="w-full divide-y divide-border text-sm md:min-w-[1120px]">
               <thead className="bg-slate-50/90">
                 <tr className="text-left">
                   <th className="px-5 py-3.5 font-medium text-muted-foreground">Aluno</th>
@@ -532,8 +532,8 @@ const Alunos = () => {
                         index % 2 === 0 ? "bg-white/90" : "bg-sky-50/45",
                       ].join(" ")}
                     >
-                      <td className="px-5 py-3 align-top">
-                        <div className="flex min-w-[280px] items-center gap-3">
+                      <td className="px-5 py-3 align-top" data-card-title>
+                        <div className="flex min-w-0 items-center gap-3 md:min-w-[280px]">
                           <Avatar className="h-12 w-12 rounded-2xl shadow-sm">
                             <AvatarImage src={studentPhotoUrl || undefined} alt={`Foto de ${studentName}`} className="object-cover" />
                             <AvatarFallback className="rounded-2xl bg-primary text-lg font-bold text-primary-foreground">
@@ -550,15 +550,15 @@ const Alunos = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3 align-top">
-                        <div className="min-w-[170px]">
+                      <td className="px-5 py-3 align-top" data-label="Nivel">
+                        <div className="min-w-0 md:min-w-[170px]">
                           <span className="inline-flex items-center rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">
                             {getLevelLabel(student.level)}
                           </span>
                         </div>
                       </td>
-                      <td className="px-5 py-3 align-top">
-                        <div className="min-w-[210px] rounded-xl border border-border/70 bg-white/75 p-3 shadow-sm">
+                      <td className="px-5 py-3 align-top" data-label="Trilha">
+                        <div className="min-w-0 rounded-xl border border-border/70 bg-white/75 p-3 shadow-sm md:min-w-[210px]">
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Trilha</p>
@@ -576,8 +576,8 @@ const Alunos = () => {
                           </p>
                         </div>
                       </td>
-                      <td className="px-5 py-3 align-top">
-                        <div className="grid min-w-[320px] gap-2 sm:grid-cols-2">
+                      <td className="px-5 py-3 align-top" data-label="Habilidades">
+                        <div className="grid min-w-0 gap-2 sm:grid-cols-2 md:min-w-[320px]">
                           {skillConfigs.map((skill) => {
                             const skillValue = getSafeSkillValue(student[skill.key]);
 
@@ -598,8 +598,8 @@ const Alunos = () => {
                           })}
                         </div>
                       </td>
-                      <td className="px-5 py-3 align-top">
-                        <div className="flex min-w-[220px] flex-wrap justify-end gap-2">
+                      <td className="px-5 py-3 align-top" data-card-actions>
+                        <div className="flex min-w-0 flex-wrap gap-2 md:min-w-[220px] md:justify-end">
                           <PastLessonSummary
                             student={student}
                             compact
@@ -648,9 +648,9 @@ const Alunos = () => {
       </section>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 px-3 py-6">
-          <div className="flex max-h-[94vh] w-[min(98vw,1500px)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-            <div className="border-b border-border px-6 py-5">
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 px-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:py-6">
+          <div className="flex max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:max-h-[94vh] sm:w-[min(98vw,1500px)]">
+            <div className="border-b border-border px-4 py-4 sm:px-6 sm:py-5">
               <h2 className="text-xl font-semibold">
                 {editingStudentId ? "Editar Aluno" : "Cadastrar Novo Aluno"}
               </h2>
@@ -660,8 +660,8 @@ const Alunos = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto">
-              <div className="space-y-6 p-6">
-                <section className="rounded-xl border border-border bg-background/70 p-4">
+              <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
+                <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Dados pessoais</h3>
                   <div className="mt-4 grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
                     <FileUploadField
@@ -724,7 +724,7 @@ const Alunos = () => {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-border bg-background/70 p-4">
+                <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Dados academicos</h3>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                     <div>
@@ -757,7 +757,7 @@ const Alunos = () => {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-border bg-background/70 p-4">
+                <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Agenda recorrente</h3>
                   <div className="mt-4">
                     <RecurringSchedulePicker
@@ -768,7 +768,7 @@ const Alunos = () => {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-border bg-background/70 p-4">
+                <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Acompanhamento do aluno</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-3">
                     <div>
@@ -838,7 +838,7 @@ const Alunos = () => {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-border bg-background/70 p-4">
+                <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Financeiro e contrato</h3>
                   <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
                     <div className="space-y-4">
@@ -889,7 +889,7 @@ const Alunos = () => {
                 </section>
               </div>
 
-              <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:items-center sm:justify-end">
+              <div className="sticky bottom-0 flex flex-col gap-3 border-t border-border bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6 [&>button]:w-full sm:[&>button]:w-auto">
                 <Button type="button" variant="outline" onClick={closeModal}>Cancelar</Button>
                 <Button type="submit" disabled={saveMutation.isPending}>
                   {saveMutation.isPending ? "Salvando..." : (editingStudentId ? "Salvar Edicao" : "Cadastrar")}

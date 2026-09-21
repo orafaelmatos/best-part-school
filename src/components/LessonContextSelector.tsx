@@ -103,7 +103,7 @@ const LessonContextSelector = ({
             className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs" />
           <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs" />
         </div>

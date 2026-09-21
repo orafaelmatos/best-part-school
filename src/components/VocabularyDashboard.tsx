@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import ReviewQueue from "@/components/ReviewQueue";
 import { VocabularyCard } from "@/components/FlashcardReview";
 import VocabularyAudioButton from "@/components/VocabularyAudioButton";
+import { useAuth } from "@/contexts/AuthContext";
 
 type VocabularyStats = {
   due_today: number;
@@ -44,6 +45,11 @@ type CardForm = {
   custom_category: string;
 };
 
+type CreateVocabularyCardPayload = Omit<CardForm, "tags" | "category"> & {
+  tags: string[];
+  category: string | null;
+};
+
 const emptyForm: CardForm = {
   word: "",
   translation: "",
@@ -54,7 +60,14 @@ const emptyForm: CardForm = {
   custom_category: "",
 };
 
-const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
+const normalizeList = <T,>(data: unknown): T[] => {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === "object" && "results" in data) {
+    const results = (data as { results?: unknown }).results;
+    if (Array.isArray(results)) return results as T[];
+  }
+  return [];
+};
 
 const filters = [
   { value: "active", label: "Ativos" },
@@ -67,6 +80,7 @@ const filters = [
 
 const VocabularyDashboard = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [reviewMode, setReviewMode] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -88,21 +102,22 @@ const VocabularyDashboard = () => {
     queryKey: ["vocabulary-categories"],
     queryFn: async () => {
       const res = await api.get("/vocabulary-categories/");
-      return normalizeList(res.data) as Category[];
+      return normalizeList<Category>(res.data);
     },
   });
 
   const { data: cards = [], isLoading } = useQuery({
-    queryKey: ["vocabulary-cards"],
+    queryKey: ["vocabulary-cards", user?.user_id],
     queryFn: async () => {
-      const res = await api.get("/vocabulary-cards/?ordering=next_review_at");
-      return normalizeList(res.data) as VocabularyCard[];
+      const res = await api.get(`/vocabulary-cards/?ordering=next_review_at&student=${encodeURIComponent(user?.user_id || "")}`);
+      return normalizeList<VocabularyCard>(res.data);
     },
+    enabled: !!user?.user_id,
     refetchInterval: 60_000,
   });
 
   const createMutation = useMutation({
-    mutationFn: async (payload: any) => api.post("/vocabulary-cards/", payload),
+    mutationFn: async (payload: CreateVocabularyCardPayload) => api.post("/vocabulary-cards/", payload),
     onSuccess: () => {
       setForm(emptyForm);
       setIsCreateDialogOpen(false);

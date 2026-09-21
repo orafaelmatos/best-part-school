@@ -22,8 +22,8 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
           "relative min-h-screen transition-[margin,padding] duration-200",
           isAiWorkspace ? AI_WORKSPACE_MAIN_OFFSET_CLASS : DEFAULT_MAIN_OFFSET_CLASS,
           isAiWorkspace
-            ? "px-4 pb-4 pt-24 sm:px-5 lg:px-6 lg:py-6"
-            : "px-4 pb-8 pt-24 sm:px-5 lg:px-8 lg:py-8",
+            ? "px-4 pb-[calc(6.25rem_+_env(safe-area-inset-bottom))] pt-[calc(5.75rem_+_env(safe-area-inset-top))] sm:px-5 lg:px-6 lg:py-6"
+            : "px-4 pb-[calc(6.25rem_+_env(safe-area-inset-bottom))] pt-[calc(5.75rem_+_env(safe-area-inset-top))] sm:px-5 lg:px-8 lg:py-8",
         )}
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-64 overflow-hidden">

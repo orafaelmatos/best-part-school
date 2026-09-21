@@ -678,14 +678,14 @@ const AlunoTrilha = () => {
 
       {reschedulingLesson && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4"
           onClick={() => {
             setReschedulingLesson(null);
             setRescheduleDate("");
           }}
         >
           <div
-            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-card p-6 shadow-lg"
+            className="max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-5 flex items-start justify-between gap-4">

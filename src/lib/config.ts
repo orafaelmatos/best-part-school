@@ -12,13 +12,19 @@ declare global {
 const runtimeConfig = typeof window !== "undefined" ? window.__APP_CONFIG__ ?? {} : {};
 
 const normalizeApiUrl = (value?: string) => {
-  const fallback = "http://localhost:8000/api/";
+  const fallback =
+    typeof window !== "undefined" && window.location.hostname
+      ? `${window.location.protocol}//${window.location.hostname}:8000/api/`
+      : "http://localhost:8000/api/";
   const trimmed = (value || fallback).trim();
   return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
 };
 
 const normalizeBaseUrl = (value?: string) => {
-  const fallback = "http://localhost:8000";
+  const fallback =
+    typeof window !== "undefined" && window.location.hostname
+      ? `${window.location.protocol}//${window.location.hostname}:8000`
+      : "http://localhost:8000";
   return (value || fallback).trim().replace(/\/+$/, "");
 };
 

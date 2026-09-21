@@ -540,7 +540,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
                 <Plus className="mr-2 h-4 w-4" /> Criar Lição de Casa
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl overflow-y-auto sm:max-h-[90vh]">
               <DialogHeader>
                 <DialogTitle>{editing ? "Editar Lição de Casa" : "Criar Lição de Casa"}</DialogTitle>
               </DialogHeader>

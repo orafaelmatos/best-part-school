@@ -1,61 +1,53 @@
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  BookOpenCheck,
-  BrainCircuit,
+  BookOpen,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
-  CircleDashed,
+  Clock3,
+  FileText,
   Flag,
-  NotebookText,
-  Sparkles,
-  Target,
+  MoreVertical,
+  Play,
+  Search,
+  Video,
+  type LucideIcon,
 } from "lucide-react";
 
 import DashboardLayout from "@/components/DashboardLayout";
-import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { APP_PATHS } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import {
-  LessonHistoryHomework,
   LessonHistoryLesson,
   LessonHistorySummary,
-  countLearnedWords,
-  formatLessonDate,
   formatLessonDateShort,
   getLessonDateValue,
-  getReviewPendingCount,
+  getSummaryPreview,
   isActiveTrailLesson,
   isArchivedLesson,
   isCompletedLesson,
   isUpcomingLesson,
   sortLessonsByDateAsc,
   sortLessonsByDateDesc,
+  stripHtml,
 } from "@/lib/studentLessonHistory";
 
-type VocabularyStats = {
-  due_today: number;
-  overdue: number;
-  difficult: number;
-  study_streak: number;
-  total_learned_words: number;
-  reviewed_30_days: number;
-};
+type DesktopTab = "upcoming" | "completed" | "trail";
+type LessonRowVariant = "upcoming" | "completed" | "trail";
 
 const MinhasAulas = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const upcomingSectionRef = useRef<HTMLElement | null>(null);
-  const completedSectionRef = useRef<HTMLElement | null>(null);
-  const trailSectionRef = useRef<HTMLElement | null>(null);
+  const [desktopTab, setDesktopTab] = useState<DesktopTab>("upcoming");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const studentId = user?.user_id || "";
 
@@ -79,47 +71,13 @@ const MinhasAulas = () => {
     enabled: !!studentId,
   });
 
-  const homeworkQuery = useQuery({
-    queryKey: ["student-lesson-homework-feed", studentId],
-    queryFn: () =>
-      fetchAllPages<LessonHistoryHomework>("/homework/", {
-        student: studentId,
-        ordering: "-due_date",
-      }),
-    enabled: !!studentId,
-  });
-
-  const vocabularyStatsQuery = useQuery({
-    queryKey: ["student-vocabulary-dashboard"],
-    queryFn: async () => {
-      const response = await api.get("/vocabulary-cards/dashboard/");
-      return response.data as VocabularyStats;
-    },
-    enabled: user?.role === "student",
-  });
-
   const lessons = useMemo(() => (lessonsQuery.data || []) as LessonHistoryLesson[], [lessonsQuery.data]);
   const summaries = useMemo(() => summariesQuery.data || [], [summariesQuery.data]);
-  const homeworkItems = useMemo(() => homeworkQuery.data || [], [homeworkQuery.data]);
-  const vocabularyStats = vocabularyStatsQuery.data;
 
   const summaryByLesson = useMemo(
     () => new Map(summaries.map((summary) => [summary.lesson, summary])),
     [summaries],
   );
-
-  const homeworkByLesson = useMemo(() => {
-    const map = new Map<string, LessonHistoryHomework[]>();
-    homeworkItems.forEach((item) => {
-      if (!item.lesson) {
-        return;
-      }
-      const group = map.get(item.lesson) || [];
-      group.push(item);
-      map.set(item.lesson, group);
-    });
-    return map;
-  }, [homeworkItems]);
 
   const nonPendingLessons = useMemo(
     () => lessons.filter((lesson) => lesson.status !== "pending"),
@@ -141,11 +99,6 @@ const MinhasAulas = () => {
     [trailLessonsBase],
   );
 
-  const archivedLessons = useMemo(
-    () => sortLessonsByDateDesc(nonPendingLessons.filter((lesson) => isArchivedLesson(lesson))),
-    [nonPendingLessons],
-  );
-
   const trailLessons = useMemo(
     () =>
       [...trailLessonsBase].sort((left, right) => {
@@ -165,445 +118,245 @@ const MinhasAulas = () => {
     : 0;
 
   const nextLesson = upcomingLessons[0];
-  const latestCompletedLesson = completedLessons[0];
-  const learnedWords = vocabularyStats?.total_learned_words || countLearnedWords(trailLessonsBase);
-  const dueReviewCount =
-    (vocabularyStats?.due_today || 0) +
-    (vocabularyStats?.overdue || 0) ||
-    trailLessonsBase.reduce((total, lesson) => total + getReviewPendingCount(lesson, summaryByLesson.get(lesson.id)), 0);
-  const pendingHomeworkCount = homeworkItems.filter((item) => item.status !== "draft" && item.status !== "corrected").length;
-  const correctedHomeworkCount = homeworkItems.filter((item) => item.status === "corrected").length;
   const remainingLessonsCount = upcomingLessons.length;
-  const archivedCount = archivedLessons.length;
-  const scrollToUpcomingLessons = () => {
-    upcomingSectionRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
-  const scrollToCompletedLessons = () => {
-    completedSectionRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
-  const scrollToTrailSection = () => {
-    trailSectionRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
+  const isLoading = lessonsQuery.isLoading || summariesQuery.isLoading;
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredUpcomingLessons = useMemo(
+    () => filterLessonsForSearch(upcomingLessons, summaryByLesson, normalizedSearch),
+    [normalizedSearch, summaryByLesson, upcomingLessons],
+  );
+
+  const filteredCompletedLessons = useMemo(
+    () => filterLessonsForSearch(completedLessons, summaryByLesson, normalizedSearch),
+    [completedLessons, normalizedSearch, summaryByLesson],
+  );
+
+  const filteredTrailLessons = useMemo(
+    () => filterLessonsForSearch(trailLessons, summaryByLesson, normalizedSearch),
+    [normalizedSearch, summaryByLesson, trailLessons],
+  );
 
   if (user?.role !== "student") {
     return <Navigate to={APP_PATHS.students} replace />;
   }
 
-  const isLoading =
-    lessonsQuery.isLoading ||
-    summariesQuery.isLoading ||
-    homeworkQuery.isLoading ||
-    vocabularyStatsQuery.isLoading;
+  const clearExpandedLesson = () => setExpandedId(null);
 
   return (
     <DashboardLayout>
-      <div className="space-y-7">
-        <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(255,255,255,0.98)_52%,rgba(236,253,245,0.9))] p-5 text-slate-900 shadow-[0_26px_70px_-46px_rgba(14,116,144,0.26)] sm:p-6">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.1),transparent_24%)]" />
-          <div className="relative z-10 space-y-5">
-            <div className="max-w-4xl space-y-2 text-slate-950">
-              <h1 className="text-3xl font-bold tracking-tight sm:text-[2.2rem]">Minhas Aulas</h1>
-              <p className="max-w-3xl text-sm font-medium leading-6 text-slate-900/80 sm:text-[0.98rem]">
-                Acompanhe suas proximas aulas, o que ja foi concluido e o que ainda falta na trilha.
-              </p>
-            </div>
+      <MobileLessonsView
+        completedCount={completedCount}
+        completedLessons={completedLessons}
+        isLoading={lessonsQuery.isLoading}
+        nextLessonId={nextLesson?.id}
+        progressPercent={progressPercent}
+        remainingLessonsCount={remainingLessonsCount}
+        trailLessons={trailLessons}
+      />
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
-              <div className="space-y-4">
-                <div className="grid gap-4 lg:grid-cols-3">
-                  <HeroSnapshot
-                    eyebrow="Proxima aula"
-                    title={nextLesson ? nextLesson.title : "Nenhuma aula agendada"}
-                    description={nextLesson ? formatLessonDate(nextLesson.date) : "Quando uma nova aula for marcada, ela aparecera aqui."}
-                    icon={CalendarDays}
-                    onClick={scrollToUpcomingLessons}
-                    tone="lesson"
-                    actionLabel={nextLesson ? "Ver agenda" : undefined}
-                  />
-                  <HeroSnapshot
-                    eyebrow="Aulas feitas"
-                    title={`${completedCount} concluida${completedCount === 1 ? "" : "s"}`}
-                    description={
-                      latestCompletedLesson
-                        ? `Ultima aula: ${latestCompletedLesson.title} em ${formatLessonDate(latestCompletedLesson.date, { weekday: undefined })}`
-                        : "Suas aulas concluidas vao aparecer aqui conforme voce avanca."
-                    }
-                    icon={CheckCircle2}
-                    onClick={scrollToCompletedLessons}
-                    tone="completed"
-                  />
-                  <HeroSnapshot
-                    eyebrow="Andamento da trilha"
-                    title={`${progressPercent}% concluido`}
-                    description={
-                      trailLessonsBase.length
-                        ? `${remainingLessonsCount} aula${remainingLessonsCount === 1 ? "" : "s"} restante${remainingLessonsCount === 1 ? "" : "s"} nesta trilha`
-                        : "Sua trilha aparecera aqui assim que as aulas forem organizadas."
-                    }
-                    icon={Flag}
-                    tone="progress"
-                    onClick={scrollToTrailSection}
-                    progressValue={progressPercent}
-                  />
+      <div className="hidden md:block">
+        <div className="mx-auto max-w-[980px]">
+          <Tabs
+            value={desktopTab}
+            onValueChange={(value) => {
+              setDesktopTab(value as DesktopTab);
+              clearExpandedLesson();
+            }}
+            className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_24px_70px_-52px_rgba(15,23,42,0.38)] backdrop-blur"
+          >
+            <header className="border-b border-slate-200/80 px-6 py-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold tracking-tight text-slate-950">Minhas Aulas</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Acompanhe seus encontros e acesse os materiais.
+                  </p>
                 </div>
 
-                <div className="rounded-[18px] border border-sky-200/70 bg-white/72 px-4 py-3 text-sm text-slate-700 shadow-sm backdrop-blur-[2px]">
-                  Se precisar mudar um horario, fale com seu professor. O reagendamento e feito apenas pelo professor.
+                <div className="flex items-center gap-2">
+                  <label className="relative hidden lg:block">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={searchTerm}
+                      onChange={(event) => setSearchTerm(event.target.value)}
+                      placeholder="Buscar aula"
+                      className="h-11 w-52 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => navigate(APP_PATHS.calendar)}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+                    aria-label="Abrir agenda"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MetricCard
-                  title="Concluidas"
-                  value={completedCount}
-                  description="Aulas finalizadas no seu historico"
-                  icon={CheckCircle2}
-                  tone="sky"
-                  onClick={scrollToCompletedLessons}
-                />
-                <MetricCard
-                  title="Palavras"
-                  value={learnedWords}
-                  description="Vocabulos registrados ao longo das aulas"
-                  icon={BookOpenCheck}
-                  tone="indigo"
-                  onClick={() => navigate(APP_PATHS.learnedWords)}
-                />
-                <MetricCard
-                  title="Homework"
-                  value={pendingHomeworkCount}
-                  description={`${correctedHomeworkCount} tarefas ja corrigidas`}
-                  icon={NotebookText}
-                  tone="sand"
-                  onClick={() => navigate(APP_PATHS.homework)}
-                />
-                <MetricCard
-                  title="Revisoes"
-                  value={dueReviewCount}
-                  description={`${vocabularyStats?.study_streak || 0} dias de sequencia`}
-                  icon={BrainCircuit}
-                  tone="coral"
-                  onClick={() => navigate(APP_PATHS.learnedWords)}
-                />
+              <div className="mt-5 lg:hidden">
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Buscar aula"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  />
+                </label>
               </div>
-            </div>
-          </div>
-        </section>
 
-        <section className="rounded-[24px] border border-slate-200/80 bg-white/96 p-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.28)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">Resumo do ciclo atual</p>
-              <p className="mt-2 text-xl font-semibold text-foreground">
-                {trailLessonsBase.length ? `${completedCount} de ${trailLessonsBase.length} aulas concluidas` : "Ainda sem aulas visiveis"}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Use a trilha ao lado para entender rapidamente o que ja passou e o que vem depois.
-              </p>
-            </div>
+              <TabsList className="mt-5 h-auto min-h-0 w-full justify-start gap-7 overflow-visible rounded-none border-b border-slate-200 bg-transparent p-0">
+                <DesktopTabTrigger value="upcoming" label="Próximas" count={upcomingLessons.length} />
+                <DesktopTabTrigger value="completed" label="Concluídas" count={completedLessons.length} />
+                <DesktopTabTrigger value="trail" label="Trilha de Aprendizado" count={trailLessons.length} />
+              </TabsList>
+            </header>
 
-            <div className="min-w-[240px] rounded-[22px] bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="text-slate-600">Progresso do ciclo atual</span>
-                <span className="font-semibold text-foreground">{progressPercent}%</span>
-              </div>
-              <Progress value={progressPercent} className="h-3 bg-slate-200" />
-              <p className="mt-2 text-xs text-muted-foreground">
-                {remainingLessonsCount} proxima{remainingLessonsCount === 1 ? "" : "s"} etapa{remainingLessonsCount === 1 ? "" : "s"} pela frente
-              </p>
-            </div>
-          </div>
-        </section>
+            <TabsContent value="upcoming" className="m-0">
+              <DesktopLessonList
+                emptyDescription="Quando uma nova aula for marcada, ela aparecera aqui."
+                emptyTitle={normalizedSearch ? "Nenhuma aula encontrada" : "Nenhuma aula futura encontrada"}
+                expandedId={expandedId}
+                isLoading={isLoading}
+                lessons={filteredUpcomingLessons}
+                onToggleLesson={(lessonId) => setExpandedId((current) => (current === lessonId ? null : lessonId))}
+                summaryByLesson={summaryByLesson}
+                title="Próximas aulas"
+                variant="upcoming"
+              />
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
-          <div className="space-y-8">
-            <Accordion type="multiple" className="space-y-4">
-              <AccordionItem
-                value="upcoming"
-                ref={upcomingSectionRef}
-                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
-              >
-                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
-                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <h2 className="text-lg font-semibold text-foreground">Proximas aulas</h2>
-                      <p className="text-sm text-muted-foreground">
-                        Aqui ficam somente as aulas que ainda vao acontecer, para voce bater o olho e saber o que vem primeiro.
-                      </p>
-                    </div>
-                    <span className="inline-flex w-fit shrink-0 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">
-                      {isLoading ? "Carregando..." : `${upcomingLessons.length} aula${upcomingLessons.length === 1 ? "" : "s"}`}
-                    </span>
+              <section className="border-t border-slate-200/80 bg-slate-50/70 px-6 py-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-950">Aulas concluídas</h2>
+                    <p className="text-sm text-muted-foreground">Últimos encontros finalizados.</p>
                   </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-5 pt-0">
-                  {isLoading ? (
-                    <div className="school-surface p-6 text-sm text-muted-foreground">
-                      Carregando suas aulas...
-                    </div>
-                  ) : upcomingLessons.length === 0 ? (
-                    <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
-                      Nenhuma aula futura encontrada.
-                    </div>
-                  ) : (
-                    <div className="school-surface overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-border text-sm">
-                          <thead className="bg-slate-50/90">
-                            <tr className="text-left">
-                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Aula</th>
-                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Data</th>
-                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Nivel</th>
-                              <th className="px-4 py-3.5 font-medium text-muted-foreground">Status</th>
-                              <th className="px-4 py-3.5 text-right font-medium text-muted-foreground">Detalhes</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {upcomingLessons.map((lesson, index) => {
-                              const isExpanded = expandedId === lesson.id;
-                              return (
-                                <Fragment key={lesson.id}>
-                                  <tr
-                                    className={[
-                                      "transition",
-                                      index % 2 === 0 ? "bg-sky-50/55" : "bg-emerald-50/45",
-                                      isExpanded ? "bg-slate-50" : "hover:bg-slate-50/90",
-                                    ].join(" ")}
-                                  >
-                                    <td className="px-4 py-3 align-top">
-                                      <div className="min-w-[220px]">
-                                        <p className="font-semibold text-foreground">{lesson.title}</p>
-                                        <p className="mt-1 text-xs text-muted-foreground">
-                                          {lesson.is_extra
-                                            ? "Aula extra"
-                                            : typeof lesson.order === "number" && lesson.order > 0
-                                            ? `Aula ${lesson.order}`
-                                            : "Ordem nao definida"}
-                                        </p>
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-3 align-top text-muted-foreground">
-                                      {formatLessonDate(lesson.date, { weekday: undefined })}
-                                    </td>
-                                    <td className="px-4 py-3 align-top text-muted-foreground">
-                                      {lesson.level || "Nao informado"}
-                                    </td>
-                                    <td className="px-4 py-3 align-top">
-                                      <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
-                                        {formatStatusLabel(lesson.status)}
-                                      </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-right align-top">
-                                      <button
-                                        type="button"
-                                        onClick={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                                        className="rounded-full bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-sky-800"
-                                      >
-                                        {isExpanded ? "Ocultar" : "Ver detalhes"}
-                                      </button>
-                                    </td>
-                                  </tr>
-                                  {isExpanded ? (
-                                    <tr className="bg-background">
-                                      <td colSpan={5} className="p-4">
-                                        <LessonExperienceCard
-                                          lesson={lesson}
-                                          summary={summaryByLesson.get(lesson.id)}
-                                          homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                                          expanded
-                                          onToggle={() => setExpandedId(null)}
-                                          onRefreshLessons={() => lessonsQuery.refetch()}
-                                          onRefreshHomework={() => homeworkQuery.refetch()}
-                                          onRefreshSummaries={() => summariesQuery.refetch()}
-                                        />
-                                      </td>
-                                    </tr>
-                                  ) : null}
-                                </Fragment>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
+                  {completedLessons.length > 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDesktopTab("completed");
+                        clearExpandedLesson();
+                      }}
+                      className="text-sm font-semibold text-sky-700 transition hover:text-sky-900"
+                    >
+                      Ver todas
+                    </button>
+                  ) : null}
+                </div>
 
-              <AccordionItem
-                value="completed"
-                ref={completedSectionRef}
-                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
-              >
-                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
-                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <h2 className="text-lg font-semibold text-foreground">Aulas concluídas</h2>
-                      <p className="text-sm text-muted-foreground">
-                        Aqui ficam as aulas concluidas, com os resumos, palavras e tarefas que ajudam a revisar o que ja passou.
-                      </p>
-                    </div>
-                    <span className="inline-flex w-fit shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-                      {isLoading ? "Carregando..." : `${completedLessons.length} aula${completedLessons.length === 1 ? "" : "s"}`}
-                    </span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-5 pt-0">
-                  {completedLessons.length === 0 ? (
-                    <div className="school-surface border-dashed p-6 text-sm text-muted-foreground">
-                      Suas aulas concluidas vao aparecer aqui conforme voce finalizar a trilha.
-                    </div>
-                  ) : (
-                    <div className="relative rounded-[30px] border border-white/70 bg-white/80 p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.22)] before:absolute before:bottom-6 before:left-8 before:top-6 before:w-px before:bg-gradient-to-b before:from-sky-200 before:via-emerald-200 before:to-slate-200">
-                      <div className="space-y-6">
-                        {completedLessons.map((lesson) => (
-                          <div key={lesson.id} className="relative pl-8">
-                            <span className="absolute left-[0.2rem] top-8 h-4 w-4 rounded-full border-4 border-background bg-emerald-500" />
-                            <LessonExperienceCard
-                              lesson={lesson}
-                              summary={summaryByLesson.get(lesson.id)}
-                              homeworkItems={homeworkByLesson.get(lesson.id) || []}
-                              expanded={expandedId === lesson.id}
-                              onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
-                              onRefreshLessons={() => lessonsQuery.refetch()}
-                              onRefreshHomework={() => homeworkQuery.refetch()}
-                              onRefreshSummaries={() => summariesQuery.refetch()}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem
-                value="trail"
-                ref={trailSectionRef}
-                className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/96 px-5 shadow-[0_18px_50px_-40px_rgba(15,23,42,0.2)]"
-              >
-                <AccordionTrigger className="gap-4 py-5 text-left hover:no-underline">
-                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <h2 className="text-lg font-semibold text-foreground">Andamento da trilha</h2>
-                      <p className="text-sm text-muted-foreground">
-                        A trilha abaixo mostra a ordem das aulas e deixa claro o que ja foi concluido e o que ainda esta por vir.
-                      </p>
-                    </div>
-                    <span className="inline-flex w-fit shrink-0 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">
-                      {trailLessons.length} aula{trailLessons.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-5 pt-0">
-                  <div className="rounded-[24px] bg-white/95 p-4 ring-1 ring-orange-100">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Progresso</span>
-                      <span className="font-semibold text-foreground">{progressPercent}%</span>
-                    </div>
-                    <Progress value={progressPercent} className="mt-3 h-3 bg-orange-100" />
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                      <TrailMetric label="Feitas" value={completedCount} />
-                      <TrailMetric label="Proximas" value={remainingLessonsCount} />
-                      <TrailMetric label="Arquivadas" value={archivedCount} />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    {trailLessons.length === 0 ? (
-                      <div className="rounded-[22px] border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
-                        Sua trilha aparecera aqui quando as aulas estiverem disponiveis.
-                      </div>
-                    ) : (
-                      trailLessons.map((lesson) => (
-                        <TrailStep
+                {isLoading ? (
+                  <DesktopLoadingState />
+                ) : filteredCompletedLessons.length === 0 ? (
+                  <DesktopEmptyState
+                    description={normalizedSearch ? "Tente buscar por outro titulo, professor ou nivel." : "Suas aulas finalizadas vao aparecer aqui."}
+                    title={normalizedSearch ? "Nenhuma aula concluida encontrada" : "Ainda sem aulas concluidas"}
+                  />
+                ) : (
+                  <div className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+                    <div className="divide-y divide-slate-100">
+                      {filteredCompletedLessons.slice(0, 3).map((lesson) => (
+                        <DesktopLessonRow
                           key={lesson.id}
+                          expanded={expandedId === lesson.id}
                           lesson={lesson}
-                          isNext={lesson.id === nextLesson?.id}
+                          onToggle={() => setExpandedId((current) => (current === lesson.id ? null : lesson.id))}
+                          summary={summaryByLesson.get(lesson.id)}
+                          variant="completed"
                         />
-                      ))
-                    )}
+                      ))}
+                    </div>
                   </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
+                )}
+              </section>
+            </TabsContent>
 
-          <aside className="space-y-4">
-            <div className="school-surface p-5">
-              <div className="flex items-center gap-2 text-sky-700">
-                <Target className="h-4 w-4" />
-                <h3 className="font-semibold text-card-foreground">Leitura rapida</h3>
-              </div>
-              <div className="mt-4 space-y-3 text-sm">
-                <QuickRow label="Resumos gerados" value={summaries.length} />
-                <QuickRow label="Aulas arquivadas" value={archivedCount} />
-                <QuickRow label="Cards dificeis" value={vocabularyStats?.difficult || 0} />
-                <QuickRow label="Revisoes nos ultimos 30 dias" value={vocabularyStats?.reviewed_30_days || 0} />
-              </div>
-            </div>
+            <TabsContent value="completed" className="m-0">
+              <DesktopLessonList
+                emptyDescription={normalizedSearch ? "Tente buscar por outro titulo, professor ou nivel." : "Suas aulas concluidas vao aparecer aqui conforme voce avanca."}
+                emptyTitle={normalizedSearch ? "Nenhuma aula concluida encontrada" : "Ainda sem aulas concluidas"}
+                expandedId={expandedId}
+                isLoading={isLoading}
+                lessons={filteredCompletedLessons}
+                onToggleLesson={(lessonId) => setExpandedId((current) => (current === lessonId ? null : lessonId))}
+                summaryByLesson={summaryByLesson}
+                title="Aulas concluídas"
+                variant="completed"
+              />
+            </TabsContent>
 
-            <div className="rounded-[30px] border border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.98),rgba(255,255,255,0.98))] p-5 shadow-[0_24px_60px_-42px_rgba(5,150,105,0.28)]">
-              <div className="flex items-center gap-2 text-sky-700">
-                <Sparkles className="h-4 w-4" />
-                <h3 className="font-semibold text-card-foreground">Proximo foco</h3>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                {dueReviewCount > 0
-                  ? `Voce tem ${dueReviewCount} revisao${dueReviewCount > 1 ? "oes" : ""} para manter o conteudo ativo entre as aulas.`
-                  : "Seu ritmo de revisao esta em dia. Aproveite para consolidar os resumos e o homework mais recente."}
-              </p>
-              <div className="mt-4 space-y-2">
-                <SignalPill
-                  icon={CalendarClock}
-                  label={nextLesson ? `Proxima aula: ${formatLessonDate(nextLesson.date, { weekday: undefined })}` : "Nenhuma aula agendada"}
-                />
-                <SignalPill
-                  icon={BrainCircuit}
-                  label={`${dueReviewCount} revisao${dueReviewCount > 1 ? "oes" : ""} pendente${dueReviewCount > 1 ? "s" : ""}`}
-                />
-                <SignalPill
-                  icon={NotebookText}
-                  label={`${pendingHomeworkCount} homework pendente${pendingHomeworkCount > 1 ? "s" : ""}`}
-                />
-              </div>
-            </div>
-
-            {archivedLessons.length > 0 && (
-              <div className="rounded-[30px] border border-amber-200 bg-amber-50/80 p-5 shadow-[0_20px_60px_-42px_rgba(217,119,6,0.35)]">
-                <div className="flex items-center gap-2 text-amber-700">
-                  <CircleDashed className="h-4 w-4" />
-                  <h3 className="font-semibold text-card-foreground">Aulas arquivadas</h3>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Estas aulas ficaram fora do fluxo principal por cancelamento ou falta.
-                </p>
-                <div className="mt-4 space-y-2">
-                  {archivedLessons.slice(0, 3).map((lesson) => (
-                    <div key={lesson.id} className="rounded-2xl bg-white px-3 py-2 text-sm shadow-sm ring-1 ring-amber-100">
-                      <p className="font-medium text-foreground">{lesson.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatLessonDate(lesson.date, { weekday: undefined })} {" - "} {formatStatusLabel(lesson.status)}
+            <TabsContent value="trail" className="m-0">
+              <section className="px-6 py-5">
+                <div className="rounded-[18px] border border-slate-200 bg-slate-50/80 p-4">
+                  <div className="flex items-start justify-between gap-6">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">Andamento da trilha</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {trailLessons.length
+                          ? `${completedCount} de ${trailLessons.length} aulas concluidas`
+                          : "Sua trilha aparecera quando as aulas estiverem disponiveis."}
                       </p>
                     </div>
-                  ))}
+                    <span className="rounded-full bg-slate-950 px-3 py-1 text-sm font-semibold text-white">
+                      {progressPercent}%
+                    </span>
+                  </div>
+                  <Progress value={progressPercent} className="mt-4 h-2.5 bg-slate-200" />
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <DesktopTrailMetric label="Feitas" value={completedCount} />
+                    <DesktopTrailMetric label="Próximas" value={remainingLessonsCount} />
+                    <DesktopTrailMetric label="Total" value={trailLessons.length} />
+                  </div>
                 </div>
-              </div>
-            )}
-          </aside>
+              </section>
+
+              <DesktopLessonList
+                emptyDescription={normalizedSearch ? "Tente buscar por outro titulo, professor ou nivel." : "Sua trilha aparecera aqui quando as aulas estiverem disponiveis."}
+                emptyTitle={normalizedSearch ? "Nenhuma aula encontrada" : "Trilha ainda nao disponivel"}
+                expandedId={expandedId}
+                isLoading={isLoading}
+                lessons={filteredTrailLessons}
+                onToggleLesson={(lessonId) => setExpandedId((current) => (current === lessonId ? null : lessonId))}
+                summaryByLesson={summaryByLesson}
+                title="Sequência do curso"
+                variant="trail"
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </DashboardLayout>
   );
+};
+
+const filterLessonsForSearch = (
+  lessons: LessonHistoryLesson[],
+  summaryByLesson: Map<string, LessonHistorySummary>,
+  searchTerm: string,
+) => {
+  if (!searchTerm) {
+    return lessons;
+  }
+
+  return lessons.filter((lesson) => {
+    const summary = summaryByLesson.get(lesson.id);
+    const searchableText = [
+      lesson.title,
+      lesson.level,
+      lesson.teacher_name,
+      lesson.template_title,
+      formatStatusLabel(lesson.status),
+      getSummaryPreview(summary),
+      stripHtml(lesson.notes),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return searchableText.includes(searchTerm);
+  });
 };
 
 const formatStatusLabel = (status: string) => {
@@ -616,186 +369,471 @@ const formatStatusLabel = (status: string) => {
   return status;
 };
 
-const HeroSnapshot = ({
-  eyebrow,
-  title,
-  description,
-  icon: Icon,
-  onClick,
-  tone,
-  actionLabel,
-  progressValue,
+const getLessonOrderLabel = (lesson: LessonHistoryLesson) => {
+  if (lesson.is_extra) return "Aula extra";
+  if (typeof lesson.order === "number" && lesson.order > 0) return `Aula ${lesson.order}`;
+  return "Aula";
+};
+
+const parseLessonDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatLessonTimeRange = (value?: string | null) => {
+  const start = parseLessonDate(value);
+  if (!start || !value?.includes("T")) {
+    return "Horario a combinar";
+  }
+
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const formatter = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return `${formatter.format(start)} - ${formatter.format(end)}`;
+};
+
+const DesktopTabTrigger = ({
+  value,
+  label,
+  count,
 }: {
-  eyebrow: string;
+  value: DesktopTab;
+  label: string;
+  count: number;
+}) => (
+  <TabsTrigger
+    value={value}
+    className="relative min-h-0 rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 pt-0 text-sm font-semibold text-muted-foreground shadow-none transition data-[state=active]:border-sky-600 data-[state=active]:bg-transparent data-[state=active]:text-sky-700 data-[state=active]:shadow-none"
+  >
+    <span>{label}</span>
+    <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+      {count}
+    </span>
+  </TabsTrigger>
+);
+
+const DesktopLessonList = ({
+  emptyDescription,
+  emptyTitle,
+  expandedId,
+  isLoading,
+  lessons,
+  onToggleLesson,
+  summaryByLesson,
+  title,
+  variant,
+}: {
+  emptyDescription: string;
+  emptyTitle: string;
+  expandedId: string | null;
+  isLoading: boolean;
+  lessons: LessonHistoryLesson[];
+  onToggleLesson: (lessonId: string) => void;
+  summaryByLesson: Map<string, LessonHistorySummary>;
   title: string;
-  description: string;
-  icon: typeof CalendarDays;
-  onClick?: () => void;
-  tone: "lesson" | "completed" | "progress";
-  actionLabel?: string;
-  progressValue?: number;
+  variant: LessonRowVariant;
+}) => (
+  <section className="px-6 py-5">
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+        {isLoading ? "Carregando..." : `${lessons.length} aula${lessons.length === 1 ? "" : "s"}`}
+      </span>
+    </div>
+
+    {isLoading ? (
+      <DesktopLoadingState />
+    ) : lessons.length === 0 ? (
+      <DesktopEmptyState description={emptyDescription} title={emptyTitle} />
+    ) : (
+      <div className="overflow-hidden rounded-[18px] border border-slate-200 bg-white">
+        <div className="divide-y divide-slate-100">
+          {lessons.map((lesson) => (
+            <DesktopLessonRow
+              key={lesson.id}
+              expanded={expandedId === lesson.id}
+              lesson={lesson}
+              onToggle={() => onToggleLesson(lesson.id)}
+              summary={summaryByLesson.get(lesson.id)}
+              variant={variant}
+            />
+          ))}
+        </div>
+      </div>
+    )}
+  </section>
+);
+
+const DesktopLessonRow = ({
+  expanded,
+  lesson,
+  onToggle,
+  summary,
+  variant,
+}: {
+  expanded: boolean;
+  lesson: LessonHistoryLesson;
+  onToggle: () => void;
+  summary?: LessonHistorySummary;
+  variant: LessonRowVariant;
 }) => {
-  const toneClasses = {
-    lesson: "border-amber-200/90 bg-[linear-gradient(135deg,rgba(255,225,124,0.97),rgba(239,193,67,0.94))] text-slate-950",
-    completed: "border-emerald-200/90 bg-[linear-gradient(135deg,rgba(209,245,198,0.98),rgba(155,221,158,0.94))] text-slate-950",
-    progress: "border-orange-200/90 bg-[linear-gradient(135deg,rgba(236,128,102,0.96),rgba(220,97,79,0.94))] text-white",
-  } as const;
-
-  const iconClasses = {
-    lesson: "bg-white/70 text-amber-700",
-    completed: "bg-white/70 text-emerald-700",
-    progress: "bg-white/18 text-white ring-1 ring-white/25",
-  } as const;
-
-  const eyebrowClasses = {
-    lesson: "text-slate-900/65",
-    completed: "text-slate-900/65",
-    progress: "text-white/72",
-  } as const;
-
-  const titleClasses = {
-    lesson: "text-slate-950",
-    completed: "text-slate-950",
-    progress: "text-white",
-  } as const;
-
-  const descriptionClasses = {
-    lesson: "text-slate-900/78",
-    completed: "text-slate-900/78",
-    progress: "text-white/82",
-  } as const;
+  const completed = isCompletedLesson(lesson);
+  const upcoming = isUpcomingLesson(lesson);
+  const archived = isArchivedLesson(lesson);
+  const summaryPreview = getSummaryPreview(summary);
+  const notesPreview = stripHtml(lesson.notes);
+  const previewText =
+    summaryPreview ||
+    notesPreview ||
+    (upcoming ? "Encontro agendado para continuidade da sua trilha." : "Materiais da aula disponiveis quando registrados pelo professor.");
+  const primaryLabel = variant === "completed" ? "Ver materiais" : lesson.meeting_url && upcoming ? "Entrar" : "Ver detalhes";
+  const primaryIcon = lesson.meeting_url && upcoming ? Video : BookOpen;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full rounded-[20px] border p-4 text-left shadow-[0_18px_38px_-30px_rgba(15,23,42,0.28)]",
-        toneClasses[tone],
-        onClick ? "transition hover:-translate-y-0.5 hover:shadow-[0_24px_48px_-30px_rgba(15,23,42,0.42)]" : "cursor-default",
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", eyebrowClasses[tone])}>{eyebrow}</p>
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl", iconClasses[tone])}>
-          <Icon className="h-4 w-4" />
-        </span>
-      </div>
-      <p className={cn("mt-3 text-lg font-semibold leading-6", titleClasses[tone])}>{title}</p>
-      <p className={cn("mt-2 text-sm leading-5", descriptionClasses[tone])}>{description}</p>
-      {typeof progressValue === "number" ? (
-        <div className="mt-3 space-y-2">
-          <Progress value={progressValue} className="h-2 bg-white/30 [&>div]:bg-white" />
+    <Fragment>
+      <article
+        className={cn(
+          "grid grid-cols-[72px_minmax(0,1fr)_auto_40px] items-center gap-4 px-4 py-4 transition",
+          expanded ? "bg-sky-50/50" : "bg-white hover:bg-slate-50/80",
+        )}
+      >
+        <LessonDateBadge date={lesson.date} />
+
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-950">{lesson.title}</span>
+            {lesson.is_extra ? (
+              <LessonPill tone="sky">Extra</LessonPill>
+            ) : null}
+            {variant === "trail" ? (
+              <LessonPill tone={completed ? "emerald" : archived ? "slate" : "sky"}>
+                {formatStatusLabel(lesson.status)}
+              </LessonPill>
+            ) : null}
+          </div>
+
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+            <span className="inline-flex items-center gap-1">
+              <Clock3 className="h-3.5 w-3.5" />
+              {formatLessonTimeRange(lesson.date)}
+            </span>
+            {lesson.teacher_name ? <span>Professor: {lesson.teacher_name}</span> : null}
+            {lesson.level ? <span>Nivel {lesson.level}</span> : null}
+          </div>
+
+          <p className="mt-1.5 line-clamp-1 text-sm text-muted-foreground">{previewText}</p>
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            <LessonPill tone={completed ? "emerald" : upcoming ? "sky" : "slate"}>{getLessonOrderLabel(lesson)}</LessonPill>
+            {lesson.template_title ? <LessonPill tone="slate">{lesson.template_title}</LessonPill> : null}
+          </div>
+        </div>
+
+        {lesson.meeting_url && upcoming ? (
+          <a
+            href={lesson.meeting_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800"
+          >
+            <Video className="h-4 w-4" />
+            {primaryLabel}
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 shadow-sm transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+          >
+            {(() => {
+              const Icon = primaryIcon;
+              return <Icon className="h-4 w-4" />;
+            })()}
+            {expanded ? "Ocultar" : primaryLabel}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={onToggle}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          aria-label={expanded ? "Ocultar detalhes da aula" : "Ver detalhes da aula"}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </article>
+
+      {expanded ? (
+        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+          <DesktopLessonDetails lesson={lesson} summary={summary} />
         </div>
       ) : null}
-      {actionLabel ? (
-        <span className="mt-3 inline-flex rounded-full bg-slate-900/80 px-3 py-1.5 text-xs font-semibold text-white">
-          {actionLabel}
-        </span>
-      ) : null}
-    </button>
+    </Fragment>
   );
 };
 
-const MetricCard = ({
-  title,
-  value,
-  description,
-  icon: Icon,
+const LessonDateBadge = ({ date }: { date?: string | null }) => {
+  const parsedDate = parseLessonDate(date);
+  const month = parsedDate
+    ? parsedDate.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "").toUpperCase()
+    : "---";
+  const day = parsedDate ? parsedDate.toLocaleDateString("pt-BR", { day: "2-digit" }) : "--";
+  const weekday = parsedDate
+    ? parsedDate.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")
+    : "Sem data";
+
+  return (
+    <div className="flex h-[72px] w-[62px] flex-col items-center justify-center rounded-2xl bg-slate-50 text-center ring-1 ring-slate-200">
+      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-700">{month}</span>
+      <span className="mt-1 text-xl font-bold leading-none text-slate-950">{day}</span>
+      <span className="mt-1 text-[11px] font-semibold capitalize text-slate-500">{weekday}</span>
+    </div>
+  );
+};
+
+const LessonPill = ({
+  children,
   tone,
-  onClick,
 }: {
-  title: string;
-  value: number;
-  description: string;
-  icon: typeof CheckCircle2;
-  tone: "sky" | "indigo" | "sand" | "coral" | "mint";
-  onClick?: () => void;
+  children: string;
+  tone: "sky" | "emerald" | "slate";
 }) => {
   const toneClasses = {
-    sky: {
-      card: "border-cyan-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(239,250,255,0.94))] text-slate-950",
-      icon: "bg-cyan-100 text-cyan-700",
-      title: "text-cyan-700",
-      description: "text-slate-600",
-    },
-    indigo: {
-      card: "border-indigo-400/40 bg-[linear-gradient(180deg,rgba(77,89,184,0.98),rgba(60,70,159,0.96))] text-white",
-      icon: "bg-white/16 text-white",
-      title: "text-white/88",
-      description: "text-white/72",
-    },
-    sand: {
-      card: "border-amber-200/90 bg-[linear-gradient(180deg,rgba(255,249,232,0.98),rgba(251,236,188,0.94))] text-slate-950",
-      icon: "bg-white/70 text-amber-700",
-      title: "text-amber-800",
-      description: "text-slate-700/75",
-    },
-    coral: {
-      card: "border-rose-300/80 bg-[linear-gradient(180deg,rgba(229,95,95,0.98),rgba(211,67,67,0.95))] text-white",
-      icon: "bg-white/16 text-white",
-      title: "text-white/88",
-      description: "text-white/72",
-    },
-    mint: {
-      card: "border-emerald-200/90 bg-[linear-gradient(180deg,rgba(240,253,247,0.98),rgba(213,250,228,0.94))] text-slate-950",
-      icon: "bg-emerald-100 text-emerald-700",
-      title: "text-emerald-800",
-      description: "text-slate-700/75",
-    },
+    sky: "bg-sky-50 text-sky-700 ring-sky-100",
+    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    slate: "bg-slate-100 text-slate-600 ring-slate-200",
   } as const;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      className={cn(
-        "rounded-[18px] border p-4 text-left shadow-[0_14px_30px_-26px_rgba(15,23,42,0.28)]",
-        toneClasses[tone].card,
-        onClick ? "cursor-pointer transition hover:-translate-y-0.5 hover:shadow-[0_22px_40px_-28px_rgba(15,23,42,0.32)]" : "cursor-default",
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em]", toneClasses[tone].title)}>{title}</p>
-        <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl", toneClasses[tone].icon)}>
-          <Icon className="h-4 w-4" />
-        </span>
-      </div>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
-      <p className={cn("mt-1 text-xs leading-5", toneClasses[tone].description)}>{description}</p>
-    </button>
+    <span className={cn("inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ring-1", toneClasses[tone])}>
+      {children}
+    </span>
   );
 };
 
-const TrailMetric = ({ label, value }: { label: string; value: number }) => (
-  <div className="rounded-[18px] bg-white px-3 py-2 shadow-sm ring-1 ring-orange-100">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="mt-1 font-semibold text-foreground">{value}</p>
-  </div>
-);
+const DesktopLessonDetails = ({
+  lesson,
+  summary,
+}: {
+  lesson: LessonHistoryLesson;
+  summary?: LessonHistorySummary;
+}) => {
+  const summaryPreview = getSummaryPreview(summary);
+  const notesPreview = stripHtml(lesson.notes);
+  const detailText = summaryPreview || notesPreview;
+  const attachments = lesson.attachments || [];
+  const hasLinks = Boolean(lesson.meeting_url || lesson.recording_url || attachments.length);
 
-const QuickRow = ({ label, value }: { label: string; value: number }) => (
-  <div className="flex items-center justify-between rounded-[18px] bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
-    <span className="text-muted-foreground">{label}</span>
-    <span className="font-semibold text-foreground">{value}</span>
-  </div>
-);
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="rounded-[16px] border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-slate-950">
+          <FileText className="h-4 w-4 text-sky-700" />
+          <h3 className="text-sm font-semibold">Resumo da aula</h3>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {detailText || "O professor ainda nao adicionou resumo ou materiais para esta aula."}
+        </p>
+      </div>
 
-const SignalPill = ({
+      <div className="rounded-[16px] border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 text-slate-950">
+          <BookOpen className="h-4 w-4 text-sky-700" />
+          <h3 className="text-sm font-semibold">Materiais</h3>
+        </div>
+
+        {hasLinks ? (
+          <div className="mt-3 space-y-2">
+            {lesson.meeting_url ? (
+              <MaterialLink href={lesson.meeting_url} icon={Video} label="Link da aula" />
+            ) : null}
+            {lesson.recording_url ? (
+              <MaterialLink href={lesson.recording_url} icon={Play} label="Gravação" />
+            ) : null}
+            {attachments.map((attachment) => (
+              <MaterialLink
+                key={attachment.id}
+                href={attachment.file_url}
+                icon={FileText}
+                label={attachment.file_name || "Arquivo anexado"}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">Nenhum material anexado ainda.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const MaterialLink = ({
+  href,
   icon: Icon,
   label,
 }: {
-  icon: typeof CalendarClock;
+  href: string;
+  icon: LucideIcon;
   label: string;
 }) => (
-  <div className="flex items-center gap-2 rounded-[18px] bg-white px-3 py-2 text-sm text-muted-foreground shadow-sm ring-1 ring-emerald-100">
-    <Icon className="h-4 w-4 text-emerald-700" />
-    <span>{label}</span>
+  <a
+    href={href}
+    target="_blank"
+    rel="noreferrer"
+    className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+  >
+    <Icon className="h-4 w-4 shrink-0" />
+    <span className="min-w-0 truncate">{label}</span>
+  </a>
+);
+
+const DesktopTrailMetric = ({ label, value }: { label: string; value: number }) => (
+  <div className="rounded-[14px] border border-slate-200 bg-white px-3 py-2 text-center">
+    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="mt-1 text-base font-bold text-slate-950">{value}</p>
   </div>
 );
 
-const TrailStep = ({
+const DesktopLoadingState = () => (
+  <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-muted-foreground">
+    Carregando suas aulas...
+  </div>
+);
+
+const DesktopEmptyState = ({
+  description,
+  title,
+}: {
+  description: string;
+  title: string;
+}) => (
+  <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
+    <p className="font-semibold text-slate-950">{title}</p>
+    <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+  </div>
+);
+
+const MobileLessonsView = ({
+  completedCount,
+  completedLessons,
+  isLoading,
+  nextLessonId,
+  progressPercent,
+  remainingLessonsCount,
+  trailLessons,
+}: {
+  completedCount: number;
+  completedLessons: LessonHistoryLesson[];
+  isLoading: boolean;
+  nextLessonId?: string;
+  progressPercent: number;
+  remainingLessonsCount: number;
+  trailLessons: LessonHistoryLesson[];
+}) => (
+  <div className="space-y-4 md:hidden">
+    <section className="rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.28)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">Minhas aulas</p>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Aulas e trilha</h1>
+        </div>
+        <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
+          {progressPercent}%
+        </span>
+      </div>
+      <Progress value={progressPercent} className="mt-4 h-2.5 bg-slate-200" />
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+        <MobileLessonMetric label="Feitas" value={completedCount} />
+        <MobileLessonMetric label="Proximas" value={remainingLessonsCount} />
+      </div>
+    </section>
+
+    <section className="rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.24)]">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-950">Aulas feitas</h2>
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+          {isLoading ? "..." : completedLessons.length}
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2.5">
+        {isLoading ? (
+          <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-muted-foreground">
+            Carregando...
+          </div>
+        ) : completedLessons.length === 0 ? (
+          <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-muted-foreground">
+            Nenhuma aula concluida ainda.
+          </div>
+        ) : (
+          completedLessons.map((lesson) => <MobileLessonCard key={lesson.id} lesson={lesson} />)
+        )}
+      </div>
+    </section>
+
+    <section className="rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.24)]">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-slate-950">Trilha do curso</h2>
+        <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">
+          {trailLessons.length}
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2.5">
+        {trailLessons.length === 0 ? (
+          <div className="rounded-[20px] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-muted-foreground">
+            Trilha ainda nao disponivel.
+          </div>
+        ) : (
+          trailLessons.map((lesson) => (
+            <MobileTrailStep
+              key={lesson.id}
+              lesson={lesson}
+              isNext={lesson.id === nextLessonId}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  </div>
+);
+
+const MobileLessonMetric = ({ label, value }: { label: string; value: number }) => (
+  <div className="rounded-[16px] bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+    <p className="text-[11px] font-medium text-slate-500">{label}</p>
+    <p className="mt-1 text-base font-bold text-slate-950">{value}</p>
+  </div>
+);
+
+const MobileLessonCard = ({ lesson }: { lesson: LessonHistoryLesson }) => (
+  <article className="rounded-[20px] border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white">
+        <CheckCircle2 className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {!lesson.is_extra && typeof lesson.order === "number" && lesson.order > 0 ? (
+            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+              Aula {lesson.order}
+            </span>
+          ) : null}
+          <span className="text-xs font-medium text-emerald-800">
+            {formatLessonDateShort(lesson.date)}
+          </span>
+        </div>
+        <p className="mt-1 truncate font-semibold text-slate-950">{lesson.title}</p>
+        <p className="mt-0.5 text-xs text-slate-600">{lesson.level ? `Nivel ${lesson.level}` : "Nivel nao informado"}</p>
+      </div>
+    </div>
+  </article>
+);
+
+const MobileTrailStep = ({
   lesson,
   isNext,
 }: {
@@ -803,79 +841,59 @@ const TrailStep = ({
   isNext: boolean;
 }) => {
   const completed = isCompletedLesson(lesson);
-  const archived = isArchivedLesson(lesson);
   const upcoming = isUpcomingLesson(lesson);
 
   return (
-    <div
+    <article
       className={cn(
-        "rounded-[24px] border px-4 py-3 shadow-sm",
+        "rounded-[20px] border px-4 py-3",
         completed
-          ? "border-emerald-200 bg-emerald-50/80"
-          : archived
-            ? "border-slate-200 bg-slate-50"
-            : isNext
-              ? "border-sky-200 bg-sky-50/85"
-              : "border-slate-200 bg-white",
+          ? "border-emerald-100 bg-emerald-50/70"
+          : isNext
+            ? "border-sky-200 bg-sky-50"
+            : "border-slate-200 bg-slate-50/80",
       )}
     >
       <div className="flex items-start gap-3">
-        <div
+        <span
           className={cn(
-            "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
+            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl",
             completed
               ? "bg-emerald-500 text-white"
-              : archived
-                ? "bg-slate-200 text-slate-600"
-                : isNext
-                  ? "bg-sky-600 text-white"
-                  : "bg-slate-100 text-slate-600",
+              : isNext
+                ? "bg-sky-600 text-white"
+                : "bg-white text-slate-600 ring-1 ring-slate-200",
           )}
         >
           {completed ? (
             <CheckCircle2 className="h-4 w-4" />
-          ) : archived ? (
-            <CircleDashed className="h-4 w-4" />
           ) : upcoming ? (
             <CalendarClock className="h-4 w-4" />
           ) : (
             <Flag className="h-4 w-4" />
           )}
-        </div>
-
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {!lesson.is_extra && typeof lesson.order === "number" && lesson.order > 0 && (
-              <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground ring-1 ring-black/5">
+            {!lesson.is_extra && typeof lesson.order === "number" && lesson.order > 0 ? (
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
                 Aula {lesson.order}
               </span>
-            )}
-            {lesson.is_extra && (
-              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-800 ring-1 ring-cyan-100">
-                Aula extra
-              </span>
-            )}
-            <span className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-muted-foreground ring-1 ring-black/5">
-              {formatStatusLabel(lesson.status)}
-            </span>
-            {isNext && (
-              <span className="rounded-full bg-sky-600 px-2.5 py-1 text-[11px] font-semibold text-white">
+            ) : null}
+            {isNext ? (
+              <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white">
                 Proxima
               </span>
-            )}
+            ) : null}
           </div>
-
-          <p className="mt-2 font-semibold text-foreground">{lesson.title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {formatLessonDate(lesson.date, { weekday: undefined })}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {lesson.level ? `Nivel ${lesson.level}` : "Nivel nao informado"}
-            {lesson.date ? ` - ${formatLessonDateShort(lesson.date)}` : ""}
+          <p className="mt-1 truncate font-semibold text-slate-950">{lesson.title}</p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            {completed ? "Feita" : formatStatusLabel(lesson.status)}
+            {lesson.date ? ` · ${formatLessonDateShort(lesson.date)}` : ""}
           </p>
         </div>
       </div>
-    </div>
+    </article>
   );
 };
 

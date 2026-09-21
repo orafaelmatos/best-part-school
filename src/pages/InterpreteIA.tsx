@@ -141,14 +141,14 @@ const SetupTopicCard = ({
     type="button"
     onClick={onClick}
     className={cn(
-      "rounded-[26px] border p-4 text-left transition",
+      "rounded-[18px] border p-3 text-left transition md:rounded-[26px] md:p-4",
       selected
         ? "border-amber-300 bg-[linear-gradient(135deg,rgba(254,243,199,0.85),rgba(255,255,255,0.96))] shadow-[0_18px_48px_-34px_rgba(217,119,6,0.55)]"
         : "border-slate-200/80 bg-white/95 hover:border-slate-300 hover:bg-slate-50",
     )}
   >
     <p className="text-sm font-semibold text-foreground">{topic.label}</p>
-    <p className="mt-2 text-sm leading-6 text-muted-foreground">{topic.description}</p>
+    <p className="mt-2 hidden text-sm leading-6 text-muted-foreground md:block">{topic.description}</p>
   </button>
 );
 
@@ -723,16 +723,19 @@ const InterpreteIA = () => {
     <DashboardLayout>
       <div className="space-y-6">
         {!selectedSessionId ? (
-          <section className="overflow-hidden rounded-[34px] border border-slate-200/80 bg-[linear-gradient(145deg,rgba(255,247,237,0.78),rgba(255,255,255,0.98)_24%,rgba(239,246,255,0.75))] shadow-[0_30px_70px_-50px_rgba(15,23,42,0.5)]">
-            <div className="grid gap-8 px-6 py-7 xl:grid-cols-[minmax(0,1fr)_24rem] xl:px-8 xl:py-8">
-              <div className="space-y-6">
+          <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-[linear-gradient(145deg,rgba(255,247,237,0.78),rgba(255,255,255,0.98)_24%,rgba(239,246,255,0.75))] shadow-[0_30px_70px_-50px_rgba(15,23,42,0.5)] md:rounded-[34px]">
+            <div className="grid gap-5 px-4 py-5 md:px-6 md:py-7 xl:grid-cols-[minmax(0,1fr)_24rem] xl:px-8 xl:py-8">
+              <div className="space-y-5 md:space-y-6">
                 <div>
                   <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-amber-700 shadow-sm">
                     <Headphones className="h-4 w-4" />
                     Interprete IA
                   </div>
-                  <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">Treine escuta com audio gerado pela IA</h1>
-                  <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                  <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 md:mt-4 md:text-4xl">
+                    <span className="md:hidden">Listening com IA</span>
+                    <span className="hidden md:inline">Treine escuta com audio gerado pela IA</span>
+                  </h1>
+                  <p className="mt-3 hidden max-w-3xl text-sm leading-7 text-slate-600 md:block">
                     Escolha um topico e um nivel. A IA conduz uma jornada por etapas dentro do contexto escolhido,
                     comecando do inicio da situacao e avancando ate o final conforme voce responde e acerta.
                   </p>
@@ -741,7 +744,7 @@ const InterpreteIA = () => {
                 <div className="space-y-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Topico</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="mt-3 grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-3">
                       {TOPIC_OPTIONS.map((topic) => (
                         <SetupTopicCard
                           key={topic.id}
@@ -777,11 +780,21 @@ const InterpreteIA = () => {
                         />
                       ))}
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateSession()}
+                      disabled={isCreating || !resolvedTopicLabel}
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[20px] bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50 xl:hidden"
+                    >
+                      {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}
+                      Iniciar treino
+                    </button>
                   </div>
                 </div>
               </div>
 
-              <aside className="self-start rounded-[30px] border border-slate-200/80 bg-white/92 p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.38)]">
+              <aside className="hidden self-start rounded-[30px] border border-slate-200/80 bg-white/92 p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.38)] xl:block">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Resumo do treino</p>
                 <div className="mt-4 rounded-[24px] bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] p-4">
                   <div className="flex items-center gap-3">
@@ -835,7 +848,7 @@ const InterpreteIA = () => {
             </div>
           </section>
         ) : activeSession ? (
-          <section className="flex h-[calc(100dvh-4.5rem)] flex-col overflow-hidden rounded-[34px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)]">
+          <section className="flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] flex-col overflow-hidden rounded-[34px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] lg:h-[calc(100dvh_-_4.5rem)]">
             <header className="border-b border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
@@ -854,8 +867,8 @@ const InterpreteIA = () => {
                       </span>
                     ) : null}
                   </div>
-                  <h2 className="mt-3 text-[30px] font-semibold tracking-tight text-slate-950">{activeSession.title}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <h2 className="mt-3 text-xl font-semibold tracking-tight text-slate-950 md:text-[30px]">{activeSession.title}</h2>
+                  <p className="mt-1 hidden text-sm text-muted-foreground md:block">
                     {activeSession.message_count} mensagens · ultima interacao em {formatDateTime(activeSession.last_interaction_at)}
                   </p>
                   {renderJourneyProgress()}
@@ -868,14 +881,16 @@ const InterpreteIA = () => {
                     className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
                   >
                     <BookPlus className="h-4 w-4" />
-                    Card: adicionar nova palavra
+                    <span className="md:hidden">Card</span>
+                    <span className="hidden md:inline">Card: adicionar nova palavra</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => navigate(APP_PATHS.interpreter)}
                     className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
-                    Novo treino
+                    <span className="md:hidden">Novo</span>
+                    <span className="hidden md:inline">Novo treino</span>
                   </button>
                   <button
                     type="button"

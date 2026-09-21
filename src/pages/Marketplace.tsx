@@ -55,10 +55,10 @@ const Marketplace = () => {
 
   return (
     <DashboardLayout>
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <PageHeader title="Marketplace" description="Cursos e materiais para acelerar seu aprendizado." />
         {canCreateCourse ? (
-          <Link to={APP_PATHS.newCourse} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg flex items-center gap-2 font-medium hover:opacity-90">
+          <Link to={APP_PATHS.newCourse} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:opacity-90 sm:w-auto">
             <Plus size={18} /> Novo Curso
           </Link>
         ) : null}

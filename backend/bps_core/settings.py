@@ -58,12 +58,21 @@ def get_database_config():
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-in-production")
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+LOCAL_DEV_HOSTS = "localhost,127.0.0.1,192.168.50.64"
+LOCAL_DEV_ORIGINS = ",".join(
+    [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://192.168.50.64:8080",
+    ]
+)
+
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", LOCAL_DEV_HOSTS)
 if env_bool("DJANGO_ALLOW_ALL_HOSTS", False):
     ALLOWED_HOSTS = ["*"]
 
-CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", "http://localhost:8080")
-CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:8080")
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", LOCAL_DEV_ORIGINS)
+CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS", LOCAL_DEV_ORIGINS)
 CORS_ALLOW_ALL_ORIGINS = env_bool("DJANGO_CORS_ALLOW_ALL_ORIGINS", False)
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True

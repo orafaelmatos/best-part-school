@@ -66,8 +66,8 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
   };
 
   return (
-    <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl shadow-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4">
+      <div className="max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-2xl overflow-y-auto rounded-2xl bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold">Meus Horários de Trabalho</h2>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-lg">
@@ -99,23 +99,23 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
                   ) : (
                     <div className="space-y-2">
                        {daySlots.map(slot => (
-                         <div key={slot.index} className="flex flex-wrap items-center gap-3">
+                         <div key={slot.index} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                            <input 
                              type="time" 
                              step={1800}
                              value={slot.start.substring(0,5)} 
                              onChange={(e) => updateSlot(slot.index, 'start', e.target.value + ":00")}
-                             className="border border-border rounded-md px-3 py-1.5 text-sm"
+                             className="w-full rounded-md border border-border px-3 py-2 text-sm sm:w-auto"
                            />
-                           <span className="text-muted-foreground">até</span>
+                           <span className="text-sm text-muted-foreground">até</span>
                            <input 
                              type="time" 
                              step={1800}
                              value={slot.end.substring(0,5)} 
                              onChange={(e) => updateSlot(slot.index, 'end', e.target.value + ":00")}
-                             className="border border-border rounded-md px-3 py-1.5 text-sm"
+                             className="w-full rounded-md border border-border px-3 py-2 text-sm sm:w-auto"
                            />
-                           <button onClick={() => removeSlot(slot.index)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded-md">
+                           <button onClick={() => removeSlot(slot.index)} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 text-destructive hover:bg-destructive/10" aria-label="Remover horário">
                              <Trash size={16} />
                            </button>
                          </div>
@@ -128,11 +128,11 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
           </div>
         )}
         
-        <div className="mt-6 flex justify-end gap-3 border-t border-border pt-4">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border hover:bg-muted font-medium">
+        <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:justify-end">
+          <button onClick={onClose} className="min-h-11 rounded-lg border border-border px-4 py-2 font-medium hover:bg-muted">
             Cancelar
           </button>
-          <button onClick={() => saveMutation.mutate(slots)} disabled={saveMutation.isPending} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium">
+          <button onClick={() => saveMutation.mutate(slots)} disabled={saveMutation.isPending} className="min-h-11 rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90">
             {saveMutation.isPending ? "Salvando..." : "Salvar Horários"}
           </button>
         </div>

@@ -403,6 +403,38 @@ const ModeCard = ({
   );
 };
 
+const MobileModeButton = ({
+  mode,
+  recommended,
+  onClick,
+}: {
+  mode: PracticeMode;
+  recommended?: boolean;
+  onClick: () => void;
+}) => {
+  const meta = modeCardMeta[mode];
+  const Icon = meta.icon;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "relative flex min-h-[6.5rem] flex-col items-center justify-center gap-2 rounded-[22px] border bg-white/95 px-2 py-3 text-center shadow-[0_14px_32px_-28px_rgba(15,23,42,0.3)]",
+        recommended ? "border-amber-300 ring-2 ring-amber-200/80" : "border-slate-200",
+      )}
+    >
+      <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl ring-1", meta.iconWrap)}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="text-sm font-semibold leading-5 text-slate-950">{modeLabel[mode]}</span>
+      {recommended ? (
+        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-400" aria-label="Recomendado" />
+      ) : null}
+    </button>
+  );
+};
+
 const LessonCard = ({
   lesson,
   recommended,
@@ -416,23 +448,24 @@ const LessonCard = ({
   actionLabel: string;
   onAction: () => void;
 }) => (
-  <article className="flex h-full flex-col rounded-[26px] border border-border bg-card/95 p-5 shadow-sm">
+  <article className="flex h-full flex-col rounded-[22px] border border-border bg-card/95 p-4 shadow-sm md:rounded-[26px] md:p-5">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <p className="truncate text-lg font-semibold text-foreground">{lesson.title}</p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <p className="truncate text-base font-semibold text-foreground md:text-lg">{lesson.title}</p>
+        <div className="mt-2 hidden flex-wrap gap-2 md:flex">
           {lesson.is_recent && <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-700">Mais recente</span>}
           {lesson.is_recommended_review && <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700">Revisão recomendada</span>}
           {recommended && <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-700">Professor recomendou esta aula</span>}
           {lesson.has_pending_activities && <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-700">Atividades pendentes</span>}
         </div>
+        <p className="mt-1 text-xs text-muted-foreground md:hidden">{formatShortDate(lesson.date)}</p>
       </div>
       <div className="rounded-2xl bg-muted p-3 text-muted-foreground">
         <BookOpen className="h-5 w-5" />
       </div>
     </div>
 
-    <div className="mt-5 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+    <div className="mt-5 hidden gap-3 text-sm text-muted-foreground md:grid md:grid-cols-2">
       <div className="flex items-center gap-2">
         <CalendarDays className="h-4 w-4" />
         <span>{formatLongDate(lesson.date)}</span>
@@ -453,13 +486,14 @@ const LessonCard = ({
       </div>
     </div>
 
-    <p className="mt-5 flex-1 text-sm leading-6 text-foreground/80">{lesson.summary_short || "Sem resumo salvo para esta aula."}</p>
+    <p className="mt-5 hidden flex-1 text-sm leading-6 text-foreground/80 md:block">{lesson.summary_short || "Sem resumo salvo para esta aula."}</p>
 
-    <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-4 py-3 text-sm">
-      <div>
+    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-3 py-3 text-sm md:mt-5 md:px-4">
+      <div className="hidden md:block">
         <p className="font-medium text-foreground">{lesson.flashcard_count ?? 0} flashcards</p>
         <p className="text-xs text-muted-foreground">{lesson.level}</p>
       </div>
+      <p className="text-xs font-medium text-muted-foreground md:hidden">{lesson.level || "Sem nivel"}</p>
       <button
         type="button"
         onClick={onAction}
@@ -1229,13 +1263,13 @@ const AssistenteIA = () => {
       <div
         className={cn(
           "space-y-6",
-          isConversationPage && "h-[calc(100dvh-4.5rem)] overflow-hidden space-y-0",
+          isConversationPage && "h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
         )}
       >
         <section
           className={cn(
             "relative flex flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98)_16%,rgba(255,255,255,0.98))] shadow-sm",
-            isConversationPage ? "h-full min-h-0" : "min-h-[calc(100vh-12rem)]",
+            isConversationPage ? "h-full min-h-0" : "min-h-[calc(100vh_-_12rem)]",
           )}
         >
             {isPickerVisible ? (
@@ -1243,11 +1277,11 @@ const AssistenteIA = () => {
                 <div className="flex-1 overflow-y-auto p-4">
                   {!selectedPracticeMode && pickerMode !== "change" ? (
                     <div className="space-y-6">
-                      <section className="relative overflow-hidden rounded-[30px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.16),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-6 shadow-[0_28px_70px_-48px_rgba(15,23,42,0.34)] sm:p-7">
+                      <section className="relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.16),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-4 shadow-[0_28px_70px_-48px_rgba(15,23,42,0.34)] md:rounded-[30px] md:p-7">
                         <div className="absolute right-[-2rem] top-[-2rem] h-36 w-36 rounded-full bg-sky-300/18 blur-3xl" />
                         <div className="absolute bottom-[-2rem] left-[-1rem] h-32 w-32 rounded-full bg-emerald-300/16 blur-3xl" />
 
-                        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] xl:items-start">
+                        <div className="relative grid gap-4 md:gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] xl:items-start">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full border border-sky-200/80 bg-sky-100/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
@@ -1260,14 +1294,14 @@ const AssistenteIA = () => {
                               ) : null}
                             </div>
 
-                            <h2 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-                              Escolha como você quer praticar
+                            <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+                              Como quer praticar?
                             </h2>
-                            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-[15px]">
+                            <p className="mt-4 hidden max-w-2xl text-sm leading-7 text-slate-600 md:block sm:text-[15px]">
                               Você pode revisar uma aula, treinar pronúncia ou enviar um texto para correção. Cada modo foi desenhado para combinar com o fluxo visual do portal e te colocar em prática mais rápido.
                             </p>
 
-                            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-600">
+                            <div className="mt-5 hidden flex-wrap gap-3 text-sm text-slate-600 md:flex">
                               <div className="rounded-full border border-white/80 bg-white/75 px-4 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.25)]">
                                 Troque de modo sempre que precisar
                               </div>
@@ -1277,7 +1311,7 @@ const AssistenteIA = () => {
                             </div>
                           </div>
 
-                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                          <div className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-1">
                             <PickerStatCard
                               icon={Mic}
                               label="Speaking"
@@ -1300,7 +1334,18 @@ const AssistenteIA = () => {
                         </div>
                       </section>
 
-                      <div className="grid gap-4 xl:grid-cols-3">
+                      <div className="grid grid-cols-3 gap-2 md:hidden">
+                        {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
+                          <MobileModeButton
+                            key={mode}
+                            mode={mode}
+                            recommended={recommendation?.mode === mode}
+                            onClick={() => handleSelectMode(mode)}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="hidden gap-4 md:grid xl:grid-cols-3">
                         {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
                           <ModeCard
                             key={mode}
@@ -1340,10 +1385,10 @@ const AssistenteIA = () => {
                       </div>
                     )
                   ) : selectedPracticeMode ? (
-                    <div className="mx-auto flex h-full w-full max-w-5xl flex-col justify-center">
+                    <div className="mx-auto flex h-full w-full max-w-5xl flex-col justify-start md:justify-center">
                       <div
                         className={cn(
-                          "overflow-hidden rounded-[32px] border p-6 shadow-[0_28px_80px_-50px_rgba(15,23,42,0.4)] sm:p-7",
+                          "overflow-hidden rounded-[24px] border p-4 shadow-[0_28px_80px_-50px_rgba(15,23,42,0.4)] md:rounded-[32px] md:p-7",
                           modeCardMeta[selectedPracticeMode].surface,
                         )}
                       >
@@ -1368,17 +1413,17 @@ const AssistenteIA = () => {
                               ) : null}
                             </div>
 
-                            <p className={cn("mt-5 text-xs font-semibold uppercase tracking-[0.24em]", modeCardMeta[selectedPracticeMode].accent)}>
+                            <p className={cn("mt-4 text-xs font-semibold uppercase tracking-[0.24em] md:mt-5", modeCardMeta[selectedPracticeMode].accent)}>
                               {modeLabel[selectedPracticeMode]}
                             </p>
-                            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-[2.15rem]">
-                              {selectedPracticeMode === "speaking" ? "Tutor guiado de speaking" : "Tutor guiado de writing"}
+                            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[2.15rem]">
+                              {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
                             </h2>
-                            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-[15px]">
+                            <p className="mt-4 hidden max-w-2xl text-sm leading-7 text-slate-600 md:block sm:text-[15px]">
                               {modeDescription[selectedPracticeMode]}
                             </p>
 
-                            <div className="mt-6 rounded-[24px] border border-white/75 bg-white/68 p-5 backdrop-blur">
+                            <div className="mt-6 hidden rounded-[24px] border border-white/75 bg-white/68 p-5 backdrop-blur md:block">
                               <p className="text-sm font-semibold text-slate-900">Como funciona</p>
                               <ul className="mt-3 space-y-2.5 text-sm leading-6 text-slate-700">
                                 {modeCardMeta[selectedPracticeMode].highlights.map((item) => (
@@ -1399,12 +1444,12 @@ const AssistenteIA = () => {
                               <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
                                 {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
                               </p>
-                              <p className="mt-3 text-sm leading-6 text-slate-600">
+                              <p className="mt-3 hidden text-sm leading-6 text-slate-600 md:block">
                                 Você vai escolher cenário e nível logo no começo da conversa.
                               </p>
                             </div>
 
-                            <div className="rounded-[22px] bg-slate-900 px-4 py-4 text-white shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)]">
+                            <div className="hidden rounded-[22px] bg-slate-900 px-4 py-4 text-white shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:block">
                               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Inclui</p>
                               <div className="mt-3 space-y-2 text-sm text-white/88">
                                 <p>Correções claras e progressivas</p>
@@ -1487,8 +1532,8 @@ const AssistenteIA = () => {
                         </div>
                       ) : (
                         <>
-                          <h2 className="truncate text-[30px] font-semibold tracking-tight text-foreground">{activeSession.title}</h2>
-                          <p className="mt-1 text-sm text-muted-foreground">
+                          <h2 className="truncate text-xl font-semibold tracking-tight text-foreground md:text-[30px]">{activeSession.title}</h2>
+                          <p className="mt-1 hidden text-sm text-muted-foreground md:block">
                             {activeSession.message_count} mensagens · última interação em {formatDateTime(activeSession.last_interaction_at)}
                           </p>
                         </>
@@ -1511,7 +1556,8 @@ const AssistenteIA = () => {
                         className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
                       >
                         <BookPlus className="h-4 w-4" />
-                        Card: adicionar nova palavra
+                        <span className="md:hidden">Card</span>
+                        <span className="hidden md:inline">Card: adicionar nova palavra</span>
                       </button>
                       {!isRenaming ? (
                         <button
@@ -1559,14 +1605,14 @@ const AssistenteIA = () => {
                           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
                             {activeSession.lesson_detail?.title || modeLabel[activeSession.mode]}
                           </p>
-                          <p className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
+                          <p className="mt-4 text-xl font-semibold tracking-tight text-foreground md:text-3xl">
                             {activeSession.mode === "review"
                               ? "O que você quer revisar nesta aula?"
                               : activeSession.mode === "speaking"
                                 ? "Envie um áudio para avaliar sua pronúncia"
                                 : "Envie um texto para análise de writing"}
                           </p>
-                          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                          <p className="mt-3 hidden text-sm leading-6 text-muted-foreground md:block">
                             {activeSession.mode === "review"
                               ? "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado."
                               : activeSession.mode === "speaking"
@@ -1583,7 +1629,7 @@ const AssistenteIA = () => {
                   <div
                     data-translation-popover="true"
                     data-testid="translation-popover"
-                    className="pointer-events-none fixed z-50 w-[min(calc(100vw-1.5rem),22rem)]"
+                    className="pointer-events-none fixed z-50 w-[min(calc(100vw_-_1.5rem),22rem)]"
                     style={{
                       top: translationPopover.top,
                       left: translationPopover.left,

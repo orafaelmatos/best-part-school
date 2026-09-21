@@ -267,8 +267,8 @@ const CriarAula = () => {
             />
           </div>
           {!eventId && (
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div className="col-span-2">
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium mb-1">Aluno</label>
               <select 
                 className="w-full p-2 rounded-lg border border-border bg-background" 
@@ -298,7 +298,7 @@ const CriarAula = () => {
                 <option value="C2">C2</option>
               </select>
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium mb-2">Data e horário</label>
               <ScheduleSlotPicker
                 teacherId={user?.user_id}

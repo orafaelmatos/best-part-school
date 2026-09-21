@@ -534,8 +534,8 @@ const Calendario = () => {
       )}
 
       {selectedLessons && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={() => setSelectedLessons(null)}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-w-md w-full animate-fade-in flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4" onClick={() => setSelectedLessons(null)}>
+          <div className="flex max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-md animate-fade-in flex-col rounded-2xl bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">Aulas do Dia</h3>
@@ -589,8 +589,8 @@ const Calendario = () => {
       )}
 
       {selectedLesson && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={() => setSelectedLesson(null)}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-w-md w-full animate-fade-in flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4" onClick={() => setSelectedLesson(null)}>
+          <div className="flex max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-md animate-fade-in flex-col rounded-2xl bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">{selectedLesson.title}</h3>
@@ -708,11 +708,11 @@ const Calendario = () => {
       )}
 
       {selectedRescheduleDate && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={() => {
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4" onClick={() => {
           setSelectedRescheduleDate(null);
           setSelectedRescheduleDateTime("");
         }}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-h-[90vh] max-w-4xl w-full overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-4xl animate-fade-in overflow-y-auto rounded-2xl bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-2">
               <div>
                 <h3 className="font-semibold text-lg">Reagendar somente esta aula</h3>
@@ -733,8 +733,8 @@ const Calendario = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-6">
-              <div className="col-span-3">
+            <div className="mt-6 grid gap-2">
+              <div>
                 <ScheduleSlotPicker
                   teacherId={reschedulingLesson?.teacher}
                   excludeLessonId={reschedulingLesson?.id}
@@ -762,8 +762,8 @@ const Calendario = () => {
       )}
 
       {isExtraLessonModalOpen && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={closeExtraLessonModal}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-h-[90vh] max-w-4xl w-full overflow-y-auto animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4" onClick={closeExtraLessonModal}>
+          <div className="max-h-[calc(100dvh_-_1.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full max-w-4xl animate-fade-in overflow-y-auto rounded-2xl bg-card p-4 shadow-lg sm:max-h-[90vh] sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-4 mb-5">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">Adicionar aula extra</h3>
@@ -835,14 +835,14 @@ const Calendario = () => {
 
       {startingLesson && (
         <div
-          className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4"
           onClick={() => {
             setStartingLesson(null);
             setStartingSequenceLessonId("");
             setStartingCustomLessonTitle("");
           }}
         >
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-w-md w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md animate-fade-in rounded-2xl bg-card p-4 shadow-lg sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">Iniciar Aula</h3>
@@ -944,8 +944,8 @@ const Calendario = () => {
       )}
 
       {selectedDayOptions && user?.role === 'teacher' && (
-        <div className="fixed inset-0 bg-foreground/20 z-50 flex items-center justify-center p-4" onClick={() => setSelectedDayOptions(null)}>
-          <div className="bg-card rounded-2xl shadow-lg p-6 max-w-sm w-full animate-fade-in flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/20 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] pt-[calc(0.75rem_+_env(safe-area-inset-top))] sm:items-center sm:p-4" onClick={() => setSelectedDayOptions(null)}>
+          <div className="flex w-full max-w-sm animate-fade-in flex-col rounded-2xl bg-card p-4 shadow-lg sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-lg text-card-foreground">Ações do Dia</h3>

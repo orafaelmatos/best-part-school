@@ -3,14 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
+  BookText,
   BookOpen,
   BrainCircuit,
   Calendar,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  CreditCard,
+  Gamepad2,
   Headphones,
   MessageSquare,
+  ShoppingBag,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -149,13 +153,22 @@ const StudentDashboard = () => {
 
   return (
     <DashboardLayout>
-      <PageHeader
-        title="Meu Painel"
-        description={`Bem-vindo de volta, ${name}. Entre direto no estudo com IA e acompanhe so o essencial.`}
+      <MobileStudentHome
+        dueReviewCount={dueReviewCount}
+        learnedWords={vocabularyStats?.total_learned_words || 0}
+        pendingHomeworkCount={pendingHomeworkCount}
+        progressPercent={progressPercent}
+        upcomingCount={upcomingLessons.length}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-        <section className="relative overflow-hidden rounded-[32px] border border-sky-200/90 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(236,253,245,0.96))] p-6 text-slate-900 shadow-[0_28px_70px_-45px_rgba(14,116,144,0.35)]">
+      <div className="hidden md:block">
+        <PageHeader
+          title="Meu Painel"
+          description={`Bem-vindo de volta, ${name}. Entre direto no estudo com IA e acompanhe so o essencial.`}
+        />
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+          <section className="relative overflow-hidden rounded-[32px] border border-sky-200/90 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(236,253,245,0.96))] p-6 text-slate-900 shadow-[0_28px_70px_-45px_rgba(14,116,144,0.35)]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_34%)]" />
           <div className="relative">
             <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-800">
@@ -221,11 +234,11 @@ const StudentDashboard = () => {
             tone="sky"
             href={APP_PATHS.lessons}
           />
-        </aside>
-      </div>
+          </aside>
+        </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="school-surface p-6">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <section className="school-surface p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Resumo rapido</p>
@@ -266,9 +279,9 @@ const StudentDashboard = () => {
               Carregando informacoes do painel...
             </div>
           ) : null}
-        </section>
+          </section>
 
-        <section className="school-surface p-5">
+          <section className="school-surface p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Atalhos</p>
           <div className="mt-4 space-y-3">
             <ActionLink
@@ -292,7 +305,8 @@ const StudentDashboard = () => {
               icon={BookOpen}
             />
           </div>
-        </section>
+          </section>
+        </div>
       </div>
     </DashboardLayout>
   );
@@ -332,6 +346,109 @@ const StaffDashboard = () => {
         />
       </div>
     </DashboardLayout>
+  );
+};
+
+type MobileStudentHomeProps = {
+  dueReviewCount: number;
+  learnedWords: number;
+  pendingHomeworkCount: number;
+  progressPercent: number;
+  upcomingCount: number;
+};
+
+type MobileHomeApp = {
+  title: string;
+  to: string;
+  icon: LucideIcon;
+  tone: "sky" | "emerald" | "amber" | "rose" | "indigo" | "slate";
+  badge?: number;
+};
+
+const MobileStudentHome = ({
+  dueReviewCount,
+  learnedWords,
+  pendingHomeworkCount,
+  progressPercent,
+  upcomingCount,
+}: MobileStudentHomeProps) => {
+  const apps: MobileHomeApp[] = [
+    { title: "Aulas", to: APP_PATHS.lessons, icon: BookOpen, tone: "sky", badge: upcomingCount },
+    { title: "Homework", to: APP_PATHS.homework, icon: ClipboardList, tone: "amber", badge: pendingHomeworkCount },
+    { title: "Palavras", to: APP_PATHS.learnedWords, icon: BookText, tone: "emerald", badge: dueReviewCount },
+    { title: "Jogo", to: APP_PATHS.vocabularyGame, icon: Gamepad2, tone: "rose" },
+    { title: "IA", to: buildNewModePath(), icon: MessageSquare, tone: "indigo" },
+    { title: "Listening", to: APP_PATHS.interpreter, icon: Headphones, tone: "slate" },
+    { title: "Financeiro", to: APP_PATHS.finance, icon: CreditCard, tone: "sky" },
+    { title: "Market", to: APP_PATHS.marketplace, icon: ShoppingBag, tone: "emerald" },
+  ];
+
+  return (
+    <div className="space-y-4 md:hidden">
+      <section className="rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.28)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">Home</p>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Escolha uma area</h1>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <MobileHomeStat to={APP_PATHS.lessons} label="Trilha" value={`${progressPercent}%`} />
+          <MobileHomeStat to={APP_PATHS.learnedWords} label="Palavras" value={learnedWords} />
+          <MobileHomeStat to={APP_PATHS.homework} label="Homework" value={pendingHomeworkCount} />
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3">
+        {apps.map((app) => (
+          <MobileHomeAppTile key={app.to} app={app} />
+        ))}
+      </section>
+    </div>
+  );
+};
+
+const MobileHomeStat = ({ label, to, value }: { label: string; to: string; value: number | string }) => (
+  <Link
+    to={to}
+    className="rounded-[18px] border border-slate-200 bg-slate-50 px-3 py-2.5 text-center transition hover:bg-white"
+  >
+    <p className="text-[11px] font-medium text-slate-500">{label}</p>
+    <p className="mt-1 text-base font-bold text-slate-950">{value}</p>
+  </Link>
+);
+
+const MobileHomeAppTile = ({ app }: { app: MobileHomeApp }) => {
+  const Icon = app.icon;
+  const toneClasses = {
+    sky: "border-sky-200 bg-sky-50 text-sky-800",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    rose: "border-rose-200 bg-rose-50 text-rose-800",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-800",
+    slate: "border-slate-200 bg-white text-slate-800",
+  } as const;
+
+  return (
+    <Link
+      to={app.to}
+      className={cn(
+        "relative flex min-h-[6.25rem] flex-col justify-between rounded-[22px] border p-4 shadow-[0_14px_32px_-28px_rgba(15,23,42,0.28)] transition active:scale-[0.99]",
+        toneClasses[app.tone],
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/82 shadow-sm">
+          <Icon className="h-5 w-5" />
+        </span>
+        {app.badge && app.badge > 0 ? (
+          <span className="rounded-full bg-slate-950 px-2 py-0.5 text-[11px] font-bold text-white">
+            {app.badge > 9 ? "9+" : app.badge}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold">{app.title}</span>
+        <ArrowRight className="h-4 w-4 opacity-70" />
+      </div>
+    </Link>
   );
 };
 

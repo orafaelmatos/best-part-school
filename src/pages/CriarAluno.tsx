@@ -695,7 +695,7 @@ const CriarAluno = () => {
                           ))}
                         </select>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
                         {(["listening", "speaking", "reading", "writing"] as const).map((skill) => (
                           <div key={skill}>
                             <label className="mb-1 block text-sm font-medium capitalize">{skill}</label>
@@ -854,7 +854,7 @@ const CriarAluno = () => {
                         <h2 className="text-lg font-semibold">Financeiro</h2>
                         <p className="text-sm text-muted-foreground">Mensalidade, vencimento, observacoes e contrato.</p>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
                         <div>
                           <label className="mb-1 block text-sm font-medium">Mensalidade</label>
                           <input
@@ -949,15 +949,15 @@ const CriarAluno = () => {
             </section>
           )}
 
-          <div className="flex items-center justify-between border-t border-border p-6">
-            <Button type="button" variant="outline" onClick={stepIndex === 0 ? () => navigate(APP_PATHS.students) : previousStep}>
+          <div className="flex flex-col gap-3 border-t border-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={stepIndex === 0 ? () => navigate(APP_PATHS.students) : previousStep}>
               {stepIndex === 0 ? "Cancelar" : "Voltar"}
             </Button>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               {stepIndex < STEPS.length - 1 ? (
-                <Button type="button" onClick={nextStep}>Continuar</Button>
+                <Button type="button" className="w-full sm:w-auto" onClick={nextStep}>Continuar</Button>
               ) : (
-                <Button type="submit" disabled={createMutation.isPending}>
+                <Button type="submit" className="w-full sm:w-auto" disabled={createMutation.isPending}>
                   {createMutation.isPending
                     ? (isGroupMode ? "Cadastrando grupo..." : "Cadastrando...")
                     : (isGroupMode ? `Cadastrar ${visibleStudents.length} alunos` : "Cadastrar aluno")}

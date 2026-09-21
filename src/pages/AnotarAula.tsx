@@ -930,7 +930,7 @@ const AnotarAula = () => {
                     </select>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-semibold mb-1">Data</label>
                     <input 
@@ -1181,7 +1181,7 @@ const AnotarAula = () => {
         </div>
       </div>
       <Dialog open={lessonPickerMode !== null} onOpenChange={(open) => !open && setLessonPickerMode(null)}>
-        <DialogContent className="max-h-[82vh] overflow-hidden p-0 sm:max-w-2xl">
+        <DialogContent className="overflow-hidden p-0 sm:max-h-[82vh] sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-6 py-5">
             <DialogTitle>{pickerTitle}</DialogTitle>
             <DialogDescription>{pickerDescription}</DialogDescription>
