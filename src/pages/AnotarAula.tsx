@@ -65,6 +65,7 @@ import {
   type LessonNoteImageValue,
 } from "@/lib/lessonNoteImages";
 import { APP_PATHS } from "@/lib/routes";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 import { sortLessonsBySequence } from "@/lib/lessonSequence";
 import type { LessonHistoryLesson } from "@/lib/studentLessonHistory";
 import {
@@ -82,6 +83,7 @@ type ManualSaveAction = {
 };
 
 const PLANNABLE_STATUSES = ["pending", "scheduled", "rescheduled", "in_progress"];
+const PLANNING_MODE_STATUSES = ["pending", "scheduled", "rescheduled"];
 
 const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
@@ -226,6 +228,8 @@ const AnotarAula = () => {
     },
   });
 
+  const planningRequested = searchParams.get("planning") === "true";
+  const cameFromCalendarPlanning = searchParams.get("from_calendar") === "1";
   const lockedCalendarFlow = searchParams.get("from") === "calendar" || lesson?.status === "in_progress" || lesson?.status === "completed";
   const expectedStudentId = searchParams.get("student") || "";
   const mainLessonId = searchParams.get("main_lesson") || id || "";
@@ -276,7 +280,16 @@ const AnotarAula = () => {
     ? lesson
     : studentLessons.find((studentLesson) => String(studentLesson.id) === String(mainLessonId));
   const isViewingMainLesson = !mainLessonId || mainLessonId === id;
-  const openedLessonLabel = isViewingMainLesson
+  const isPlanningMode = Boolean(
+    planningRequested &&
+    lesson &&
+    PLANNING_MODE_STATUSES.includes(lesson.status) &&
+    !lockedCalendarFlow,
+  );
+  const lessonMetadataLocked = lockedCalendarFlow || isPlanningMode;
+  const openedLessonLabel = isPlanningMode
+    ? "Planejamento da aula"
+    : isViewingMainLesson
     ? "Aula principal"
     : lesson && isFuturePlannableLesson(lesson)
       ? "Planejamento futuro"
@@ -312,8 +325,7 @@ const AnotarAula = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const response = await api.get("/accounts/users/");
-        const usersData = Array.isArray(response.data) ? response.data : (response.data.results || []);
+        const usersData = await fetchAllPages<any>("/accounts/users/");
         setStudents(usersData.filter((u: any) => u.role === "student"));
       } catch (err) {
         console.error("Failed to fetch students", err);
@@ -378,11 +390,11 @@ const AnotarAula = () => {
       notes: notesOverride ?? notes,
       meeting_url: meetingUrl,
     };
-    if (!lockedCalendarFlow && date && time) {
+    if (!lessonMetadataLocked && date && time) {
       payload.date = new Date(`${date}T${time}`).toISOString();
     }
     return payload;
-  }, [date, lockedCalendarFlow, meetingUrl, notes, time, title]);
+  }, [date, lessonMetadataLocked, meetingUrl, notes, time, title]);
 
   const invalidateAnnotationQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["lessons"] });
@@ -677,10 +689,10 @@ const AnotarAula = () => {
         meeting_url: meetingUrl,
         status,
       };
-      if (!lockedCalendarFlow && !isStudentContextLocked) {
+      if (!lessonMetadataLocked && !isStudentContextLocked) {
         payload.student = studentId;
       }
-      if (!lockedCalendarFlow) {
+      if (!lessonMetadataLocked) {
         payload.date = datetime;
       }
       
@@ -726,6 +738,29 @@ const AnotarAula = () => {
       return;
     }
     updateMutation.mutate({ status, stayOnPage });
+  };
+
+  const handleSavePlanning = async () => {
+    const saved = await saveDraftNow({ showErrorToast: true });
+    if (saved) {
+      toast({
+        title: "Planejamento salvo",
+        description: "As anotações ficarão disponíveis quando a aula começar.",
+      });
+    }
+  };
+
+  const returnToCalendarAfterPlanning = async () => {
+    if (isLessonNavigationBusy) {
+      return;
+    }
+    setIsSwitchingLesson(true);
+    const saved = await saveDraftNow({ showErrorToast: true });
+    if (!saved) {
+      setIsSwitchingLesson(false);
+      return;
+    }
+    navigate(APP_PATHS.calendar);
   };
 
   const buildAnnotationPath = (lessonId: string, keepMainLesson = true) => {
@@ -789,6 +824,13 @@ const AnotarAula = () => {
     handleSave("canceled");
   };
 
+  const pageTitle = isPlanningMode ? "Planejar Aula" : "Anotar Aula";
+  const pageDescription = isPlanningMode
+    ? "Prepare anotações e materiais antes da aula. Tudo fica salvo para quando a aula começar."
+    : lockedCalendarFlow
+      ? "Faça anotações, crie atividades e finalize a aula iniciada pelo calendário."
+      : "Edite os dados da aula, faça anotações e crie atividades.";
+
   if (isLoading) return <DashboardLayout><p>Carregando...</p></DashboardLayout>;
   if (!lesson) return <DashboardLayout><p>Aula não encontrada.</p></DashboardLayout>;
   if (studentContextMismatch) {
@@ -820,8 +862,8 @@ const AnotarAula = () => {
     <DashboardLayout>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader 
-          title="Anotar Aula" 
-          description={lockedCalendarFlow ? "Faça anotações, crie atividades e finalize a aula iniciada pelo calendário." : "Edite os dados da aula, faça anotações e crie atividades."}
+          title={pageTitle}
+          description={pageDescription}
         />
       </div>
 
@@ -887,10 +929,10 @@ const AnotarAula = () => {
                 className="w-full p-2 border border-border rounded-lg bg-background text-sm"
                 value={title} 
                 onChange={(e) => setTitle(e.target.value)} 
-                readOnly={lockedCalendarFlow}
+                readOnly={lessonMetadataLocked}
               />
             </div>
-            {lockedCalendarFlow ? (
+            {lessonMetadataLocked ? (
               <div className="md:col-span-2 rounded-lg border border-border bg-muted p-3 text-sm">
                 <p className="font-medium">{lesson.student_name}</p>
                 <p className="text-muted-foreground">
@@ -1154,30 +1196,54 @@ const AnotarAula = () => {
           />
         </div>
 
-        <div className="flex gap-4 justify-end mt-8 border-t border-border pt-6">
-          <Button 
-            variant="outline" 
-            onClick={() => handleSave(draftStatus, true)}
-            disabled={updateMutation.isPending}
-          >
-            <Save className="mr-2 h-4 w-4" /> Salvar como Rascunho
-          </Button>
-          {canCancelAnnotation && (
-            <Button
-              variant="destructive"
-              onClick={handleCancelAnnotation}
-              disabled={updateMutation.isPending}
-            >
-              <XCircle className="mr-2 h-4 w-4" /> Cancelar anotação
-            </Button>
+        <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:justify-end">
+          {isPlanningMode ? (
+            <>
+              {cameFromCalendarPlanning && (
+                <Button
+                  variant="outline"
+                  onClick={returnToCalendarAfterPlanning}
+                  disabled={isLessonNavigationBusy || autosaveStatus === "saving"}
+                >
+                  {isLessonNavigationBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowLeft className="mr-2 h-4 w-4" />}
+                  Voltar ao calendário
+                </Button>
+              )}
+              <Button
+                onClick={handleSavePlanning}
+                disabled={autosaveStatus === "saving" || updateMutation.isPending}
+              >
+                {autosaveStatus === "saving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {autosaveStatus === "saving" ? "Salvando..." : "Salvar planejamento"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button 
+                variant="outline" 
+                onClick={() => handleSave(draftStatus, true)}
+                disabled={updateMutation.isPending}
+              >
+                <Save className="mr-2 h-4 w-4" /> Salvar como Rascunho
+              </Button>
+              {canCancelAnnotation && (
+                <Button
+                  variant="destructive"
+                  onClick={handleCancelAnnotation}
+                  disabled={updateMutation.isPending}
+                >
+                  <XCircle className="mr-2 h-4 w-4" /> Cancelar anotação
+                </Button>
+              )}
+              <Button 
+                onClick={() => handleSave("completed")}
+                className="bg-green-600 hover:bg-green-700 text-white"
+                disabled={updateMutation.isPending}
+              >
+                <CheckCircle className="mr-2 h-4 w-4" /> Marcar como Concluída
+              </Button>
+            </>
           )}
-          <Button 
-            onClick={() => handleSave("completed")}
-            className="bg-green-600 hover:bg-green-700 text-white"
-            disabled={updateMutation.isPending}
-          >
-            <CheckCircle className="mr-2 h-4 w-4" /> Marcar como Concluída
-          </Button>
         </div>
       </div>
       <Dialog open={lessonPickerMode !== null} onOpenChange={(open) => !open && setLessonPickerMode(null)}>

@@ -1295,11 +1295,15 @@ class AIStudyOpenAIService:
         return title
 
     @staticmethod
-    def generate_tts(text):
+    def generate_tts(text, voice='nova', instructions=None):
         response = client.audio.speech.create(
             model='gpt-4o-mini-tts',
-            voice='alloy',
+            voice=voice,
             input=text,
+            instructions=instructions or (
+                'Speak in clear, natural English with warm teacher-like pacing. '
+                'Keep pronunciation crisp and avoid a robotic or exaggerated tone.'
+            ),
             response_format='mp3',
         )
         media_path = os.path.join(settings.MEDIA_ROOT, 'ai_study', 'tts')
@@ -1689,7 +1693,7 @@ class LessonSummaryWorkflowService:
             ).first()
             if existing:
                 continue
-            VocabularyCard.objects.create(
+            vocabulary_card = VocabularyCard.objects.create(
                 student=lesson.student,
                 lesson=lesson,
                 source_type='lesson',
@@ -1701,6 +1705,8 @@ class LessonSummaryWorkflowService:
                 difficulty_level='new',
                 next_review_at=timezone.now(),
             )
+            from lessons.vocabulary import ensure_vocabulary_card_audio
+            ensure_vocabulary_card_audio(vocabulary_card)
         return summary
 
 

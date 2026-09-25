@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { APP_PATHS } from "@/lib/routes";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 
 export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
   const navigate = useNavigate();
@@ -13,8 +14,7 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
   const { data: students = [] } = useQuery({
     queryKey: ["students"],
     queryFn: async () => {
-      const res = await api.get("/accounts/users/");
-      const usersData = Array.isArray(res.data) ? res.data : (res.data.results || []);
+      const usersData = await fetchAllPages<any>("/accounts/users/");
       return usersData.filter((u: any) => u.role === "student");
     }
   });

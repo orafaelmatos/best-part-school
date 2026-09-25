@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class UserListView(generics.ListAPIView):
-    queryset = User.objects.all()
+    queryset = User.objects.all().order_by('name', 'email')
     serializer_class = UserSerializer
     permission_classes = (permissions.IsAuthenticated,)
 

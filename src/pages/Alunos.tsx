@@ -16,6 +16,7 @@ import { BookOpenCheck, CalendarClock, Edit2, Eye, EyeOff, Search, Trash2 } from
 import PastLessonSummary from "@/components/PastLessonSummary";
 import { APP_PATHS } from "@/lib/routes";
 import { absoluteMediaUrl } from "@/lib/config";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 
 const skillConfigs = [
   { key: "listening", label: "Listening" },
@@ -189,8 +190,7 @@ const Alunos = () => {
   const { data: students = [], isLoading } = useQuery({
     queryKey: ["students"],
     queryFn: async () => {
-      const res = await api.get("/accounts/users/");
-      const usersData = Array.isArray(res.data) ? res.data : (res.data.results || []);
+      const usersData = await fetchAllPages<any>("/accounts/users/");
       return usersData.filter((u: any) => u.role === "student");
     },
   });
@@ -228,8 +228,8 @@ const Alunos = () => {
     mutationFn: async (data: StudentFormData) => {
       if (editingStudentId) {
         const payload = new FormData();
-        payload.append("name", data.name);
-        payload.append("email", data.email);
+        payload.append("name", data.name.trim());
+        payload.append("email", data.email.trim());
         payload.append("level", data.level);
         payload.append("listening", String(data.listening));
         payload.append("speaking", String(data.speaking));
@@ -265,8 +265,8 @@ const Alunos = () => {
         return null;
       } else {
         const payload: any = {
-          name: data.name,
-          email: data.email,
+          name: data.name.trim(),
+          email: data.email.trim(),
           password: data.password,
           role: "student",
           level: data.level,

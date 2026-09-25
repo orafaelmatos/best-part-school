@@ -580,6 +580,7 @@ const GameArena = ({
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <VocabularyAudioButton
+              cardId={currentStage.card.id}
               audioUrl={currentStage.card.audio_url}
               audioFileUrl={currentStage.card.audio_file_url}
               text={currentStage.card.word}

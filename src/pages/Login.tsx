@@ -29,7 +29,7 @@ const Login = () => {
     setIsLoading(true);
     try {
       const response = await api.post("/accounts/login/", {
-        email,
+        email: email.trim(),
         password,
       });
       const { access } = response.data;

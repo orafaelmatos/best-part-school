@@ -326,8 +326,8 @@ const CriarAluno = () => {
   const buildStudentPayload = (student: StudentDraft) => {
     const formData = student.formData;
     const payload = new FormData();
-    payload.append("name", formData.name);
-    payload.append("email", formData.email);
+    payload.append("name", formData.name.trim());
+    payload.append("email", formData.email.trim());
     payload.append("password", formData.password);
     payload.append("role", "student");
     payload.append("level", formData.level);

@@ -285,6 +285,7 @@ const VocabularyDashboard = () => {
               </div>
               <div className="mt-4 flex gap-2">
                 <VocabularyAudioButton
+                  cardId={card.id}
                   audioUrl={card.audio_url}
                   audioFileUrl={card.audio_file_url}
                   text={card.word}

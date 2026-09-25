@@ -214,7 +214,7 @@ describe("AssistenteIA routing flow", () => {
 
     renderAssistente(APP_PATHS.aiPractice);
 
-    expect(await screen.findByText("Escolha como você quer praticar")).toBeInTheDocument();
+    expect(await screen.findByText("Como quer praticar?")).toBeInTheDocument();
     expect(screen.queryByText("Escolha uma conversa ou crie uma nova")).not.toBeInTheDocument();
   });
 
@@ -231,11 +231,11 @@ describe("AssistenteIA routing flow", () => {
 
     renderAssistente(buildNewModePath());
 
-    expect(await screen.findByText("Escolha como você quer praticar")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: /Revisar Aula/i }));
+    expect(await screen.findByText("Como quer praticar?")).toBeInTheDocument();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Revisar Aula/i }))[0]);
 
     expect(await screen.findByText("Reviewing yesterday and last week.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Praticar esta aula" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Praticar esta aula" })[0]).toBeInTheDocument();
     expect(screen.getByTestId("location-display")).toHaveTextContent(buildNewModePath("review"));
   });
 
@@ -364,8 +364,8 @@ describe("AssistenteIA routing flow", () => {
 
     renderAssistente(buildNewModePath());
 
-    fireEvent.click(await screen.findByRole("button", { name: /Revisar Aula/i }));
-    fireEvent.click(await screen.findByRole("button", { name: "Praticar esta aula" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Revisar Aula/i }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Praticar esta aula" }))[0]);
 
     await waitFor(() => {
       expect(screen.getByTestId("location-display")).toHaveTextContent(buildSessionPath("session-new"));

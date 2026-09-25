@@ -166,14 +166,19 @@ afterEach(() => {
 
 describe("InterpreteIA", () => {
   it("creates a listening session with the selected topic and level", async () => {
-    mockedGet.mockResolvedValue({ data: [] });
+    mockedGet.mockImplementation(async (url) => {
+      if (url === "/ai-study/sessions/session-listening/") {
+        return { data: listeningDetail };
+      }
+      return { data: [] };
+    });
     mockedPost.mockResolvedValue({ data: listeningDetail });
 
     renderInterpreter(APP_PATHS.interpreter);
 
     expect(await screen.findByText("Treine escuta com audio gerado pela IA")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "A2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Iniciar treino" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Iniciar treino" })[0]);
 
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledWith("/ai-study/sessions/", {
@@ -183,7 +188,9 @@ describe("InterpreteIA", () => {
         level: "A2",
       });
     });
-    expect(await screen.findByTestId("location-display")).toHaveTextContent(buildInterpreterSessionPath("session-listening"));
+    await waitFor(() => {
+      expect(screen.getByTestId("location-display")).toHaveTextContent(buildInterpreterSessionPath("session-listening"));
+    });
   });
 
   it("renders a saved listening challenge with answer controls", async () => {

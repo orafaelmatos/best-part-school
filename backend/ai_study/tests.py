@@ -510,8 +510,9 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(snapshot['flashcards'][0]['word'], 'drizzle')
         self.assertEqual(snapshot['flashcards'][0]['translation'], 'chuvisco')
 
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/default-profile.mp3')
     @patch('ai_study.services.AIStudyOpenAIService.generate_lesson_summary')
-    def test_teacher_summary_does_not_duplicate_notes_but_ai_context_is_preserved(self, generate_summary_mock):
+    def test_teacher_summary_does_not_duplicate_notes_but_ai_context_is_preserved(self, generate_summary_mock, _generate_tts_mock):
         NewWord.objects.create(
             lesson=self.lesson,
             word='default profile',

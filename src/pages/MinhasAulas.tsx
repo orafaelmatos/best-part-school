@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import DashboardLayout from "@/components/DashboardLayout";
+import RichTextContent from "@/components/RichTextContent";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
@@ -622,9 +623,7 @@ const DesktopLessonDetails = ({
   lesson: LessonHistoryLesson;
   summary?: LessonHistorySummary;
 }) => {
-  const summaryPreview = getSummaryPreview(summary);
-  const notesPreview = stripHtml(lesson.notes);
-  const detailText = summaryPreview || notesPreview;
+  const richDetail = summary?.summary || lesson.notes || "";
   const attachments = lesson.attachments || [];
   const hasLinks = Boolean(lesson.meeting_url || lesson.recording_url || attachments.length);
 
@@ -635,9 +634,11 @@ const DesktopLessonDetails = ({
           <FileText className="h-4 w-4 text-sky-700" />
           <h3 className="text-sm font-semibold">Resumo da aula</h3>
         </div>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          {detailText || "O professor ainda nao adicionou resumo ou materiais para esta aula."}
-        </p>
+        <RichTextContent
+          value={richDetail}
+          fallback="O professor ainda nao adicionou resumo ou materiais para esta aula."
+          className="mt-2 text-sm leading-6 text-muted-foreground"
+        />
       </div>
 
       <div className="rounded-[16px] border border-slate-200 bg-white p-4">

@@ -24,6 +24,7 @@ from .scheduling import (
 )
 from .vocabulary import (
     delete_new_word_cards,
+    ensure_vocabulary_card_audio,
     ensure_default_categories,
     notification_badges,
     review_queue,
@@ -149,17 +150,24 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         elif user.role == 'teacher':
             teacher = teacher or user
             source_type = source_type or 'teacher'
-        serializer.save(student=student, teacher=teacher, source_type=source_type or 'student', next_review_at=timezone.now())
+        card = serializer.save(student=student, teacher=teacher, source_type=source_type or 'student', next_review_at=timezone.now())
+        ensure_vocabulary_card_audio(card)
 
     def perform_update(self, serializer):
         card = self.get_object()
         user = self.request.user
+        previous_word = card.word
         if user.role == 'student' and card.source_type != 'student':
             allowed = {'favorite', 'archived'}
             changed = set(serializer.validated_data.keys())
             if changed - allowed:
                 raise exceptions.PermissionDenied('Cards criados pelo professor só podem ser favoritados ou arquivados pelo aluno.')
-        serializer.save()
+        updated_card = serializer.save()
+        next_word = serializer.validated_data.get('word', previous_word)
+        if str(previous_word or '').strip() != str(next_word or '').strip() and not updated_card.audio:
+            ensure_vocabulary_card_audio(updated_card, force=True)
+        else:
+            ensure_vocabulary_card_audio(updated_card)
 
     @action(detail=True, methods=['post'])
     def review(self, request, pk=None):
@@ -194,7 +202,28 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
             audio_url=source.audio_url,
             next_review_at=timezone.now(),
         )
+        ensure_vocabulary_card_audio(card)
         return Response(self.get_serializer(card).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def audio(self, request, pk=None):
+        card = self.get_object()
+        force = request.data.get('force') in [True, 'true', 'True', '1', 1]
+        try:
+            audio_url = ensure_vocabulary_card_audio(card, force=force, raise_errors=True)
+        except Exception:
+            return Response(
+                {'error': 'Não foi possível gerar o áudio agora.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        card.refresh_from_db()
+        if not audio_url and not card.audio_url and not card.audio:
+            return Response(
+                {'error': 'Não foi possível gerar o áudio agora.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(self.get_serializer(card).data)
 
     @action(detail=False, methods=['get'])
     def queue(self, request):
@@ -235,6 +264,7 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
                 },
             )
             if was_created:
+                ensure_vocabulary_card_audio(card)
                 created.append(card)
         return Response(self.get_serializer(created, many=True).data, status=status.HTTP_201_CREATED)
 

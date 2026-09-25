@@ -63,6 +63,24 @@ class StudentRegistrationScheduleTests(TestCase):
         self.assertTrue(all(l.status == 'pending' for l in student_lessons))
         self.assertTrue(all(l.date is None for l in student_lessons))
 
+    def test_student_email_is_trimmed_and_login_accepts_trimmed_email_input(self):
+        response = self.client.post('/api/accounts/register/', {
+            'email': '  student_trimmed@test.com  ',
+            'name': 'Trimmed Email',
+            'password': '123',
+            'role': 'student',
+            'level': 'A1/A2',
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(email='student_trimmed@test.com').exists())
+
+        login_response = self.client.post('/api/accounts/login/', {
+            'email': ' student_trimmed@test.com ',
+            'password': '123',
+        })
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', login_response.data)
+
     def test_student_creation_with_schedule(self):
         """Novo aluno com agendamento deve gerar aulas escalonadas por semana com data e status 'scheduled'"""
         # Quinta-feira (js Day 4 = Thurdsay) -> schedule_day: 4, schedule_time: '20:00'

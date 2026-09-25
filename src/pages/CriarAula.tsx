@@ -9,6 +9,7 @@ import CreatableSelect from "react-select/creatable";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
 import { APP_PATHS } from "@/lib/routes";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 
 const CriarAula = () => {
   const navigate = useNavigate();
@@ -36,8 +37,7 @@ const CriarAula = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const response = await api.get("/accounts/users/");
-        const usersData = Array.isArray(response.data) ? response.data : (response.data.results || []);
+        const usersData = await fetchAllPages<any>("/accounts/users/");
         const studentList = usersData.filter((u: any) => u.role === "student");
         setStudents(studentList);
         if (studentList.length > 0) {

@@ -454,21 +454,21 @@ const InterpreteIA = () => {
     const progressLabel = isCompleted ? "Jornada concluida" : `Etapa ${Math.min(currentIndex + 1, steps.length)} de ${steps.length}`;
 
     return (
-      <div className="mt-4 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,252,244,0.95),rgba(255,255,255,0.98))] p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.32)]">
+      <div className="mt-3 rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,252,244,0.95),rgba(255,255,255,0.98))] p-3 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.32)] md:mt-4 md:rounded-[24px] md:p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Jornada guiada</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">{progressLabel}</p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-base font-semibold text-slate-950 md:mt-2 md:text-lg">{progressLabel}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 md:text-sm md:leading-6">
               {activeSession?.guided_state?.progress_summary || currentStep?.label || "A IA esta conduzindo a proxima etapa."}
             </p>
           </div>
-          <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-xs text-slate-700 shadow-sm md:px-4 md:py-3 md:text-sm">
             <span className="font-semibold text-slate-950">{completedCount}</span> de <span className="font-semibold text-slate-950">{steps.length}</span> etapas concluidas
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        <div className="hide-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 md:mt-4 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-5">
           {steps.map((step, index) => {
             const done = completedStepIds.has(step.id) || (isCompleted && index <= currentIndex);
             const active = !done && !isCompleted && index === currentIndex;
@@ -476,7 +476,7 @@ const InterpreteIA = () => {
               <div
                 key={step.id}
                 className={cn(
-                  "rounded-[20px] border px-3 py-3 text-sm transition",
+                  "w-32 shrink-0 rounded-[18px] border px-3 py-2 text-xs transition md:w-auto md:rounded-[20px] md:py-3 md:text-sm",
                   done
                     ? "border-emerald-200 bg-emerald-50/85 text-emerald-950"
                     : active
@@ -484,8 +484,8 @@ const InterpreteIA = () => {
                       : "border-slate-200 bg-white text-slate-600",
                 )}
               >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] opacity-70">Etapa {index + 1}</p>
-                <p className="mt-2 font-medium">{step.label}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70 md:text-[11px] md:tracking-[0.18em]">Etapa {index + 1}</p>
+                <p className="mt-1 truncate font-medium md:mt-2" title={step.label}>{step.label}</p>
               </div>
             );
           })}
@@ -848,10 +848,10 @@ const InterpreteIA = () => {
             </div>
           </section>
         ) : activeSession ? (
-          <section className="flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] flex-col overflow-hidden rounded-[34px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] lg:h-[calc(100dvh_-_4.5rem)]">
-            <header className="border-b border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur">
+          <section className="flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] md:rounded-[34px] lg:h-[calc(100dvh_-_4.5rem)]">
+            <header className="shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur md:px-5 md:py-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div>
+                <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
                       {modeLabel[activeSession.mode]}
@@ -904,7 +904,7 @@ const InterpreteIA = () => {
               </div>
             </header>
 
-            <div ref={messageListRef} className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+            <div ref={messageListRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
               <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
                 {activeSession.messages.map((message) => {
                   if (getExercise(message)) {

@@ -1,4 +1,5 @@
 import datetime
+import logging
 from dataclasses import dataclass
 
 from django.db.models import Count, Q
@@ -6,12 +7,19 @@ from django.utils import timezone
 
 from .models import Homework, VocabularyCard, VocabularyCategory, VocabularyReviewLog
 
+logger = logging.getLogger(__name__)
+
 
 QUALITY_BY_RATING = {
     'very_hard': 1,
     'hard': 3,
     'easy': 5,
 }
+
+VOCABULARY_TTS_INSTRUCTIONS = (
+    'Pronounce this English vocabulary item naturally and clearly, like a friendly native-speaking teacher. '
+    'If it is a single word or short phrase, say only that word or phrase. Avoid a robotic tone.'
+)
 
 
 @dataclass
@@ -39,6 +47,38 @@ def default_vocabulary_category():
     return category
 
 
+def ensure_vocabulary_card_audio(card, force=False, raise_errors=False):
+    if not card:
+        return ''
+
+    if card.audio and not force:
+        return card.audio.url
+
+    if card.audio_url and not force:
+        return card.audio_url
+
+    text = (card.word or '').strip()
+    if not text:
+        return card.audio_url or ''
+
+    try:
+        from ai_study.services import AIStudyOpenAIService
+        audio_url = AIStudyOpenAIService.generate_tts(
+            text,
+            instructions=VOCABULARY_TTS_INSTRUCTIONS,
+        )
+    except Exception as exc:
+        logger.warning('Could not generate vocabulary audio for card %s: %s', getattr(card, 'id', ''), exc)
+        if raise_errors:
+            raise
+        return card.audio_url or ''
+
+    if audio_url:
+        card.audio_url = audio_url
+        card.save(update_fields=['audio_url', 'updated_at'])
+    return audio_url or ''
+
+
 def sync_new_word_card(new_word, teacher=None):
     lesson = getattr(new_word, 'lesson', None)
     if not lesson or not lesson.student_id:
@@ -64,9 +104,11 @@ def sync_new_word_card(new_word, teacher=None):
         },
     )
     if created:
+        ensure_vocabulary_card_audio(card)
         return card
 
     updates = []
+    word_changed = False
     field_updates = {
         'teacher': resolved_teacher,
         'lesson': lesson,
@@ -78,11 +120,17 @@ def sync_new_word_card(new_word, teacher=None):
     }
     for field, value in field_updates.items():
         if getattr(card, field) != value:
+            if field == 'word':
+                word_changed = True
             setattr(card, field, value)
             updates.append(field)
 
     if updates:
         card.save(update_fields=[*updates, 'updated_at'])
+    if word_changed and not card.audio:
+        ensure_vocabulary_card_audio(card, force=True)
+    else:
+        ensure_vocabulary_card_audio(card)
     return card
 
 

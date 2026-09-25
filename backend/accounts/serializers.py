@@ -46,6 +46,10 @@ def validate_contract_upload(value):
     return value
 
 
+def normalize_email_value(value):
+    return User.objects.normalize_email(str(value).strip())
+
+
 def coerce_schedules_payload(data):
     mutable_data = data.copy()
     for date_field in ['contract_start_date', 'contract_end_date']:
@@ -103,6 +107,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_contract_file(self, value):
         return validate_contract_upload(value)
+
+    def validate_email(self, value):
+        return normalize_email_value(value)
 
     def get_recurring_schedules(self, obj):
         from lessons.serializers import StudentRecurringScheduleSerializer
@@ -321,6 +328,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             })
         return attrs
 
+    def validate_email(self, value):
+        return normalize_email_value(value)
+
     @transaction.atomic
     def create(self, validated_data):
         photo = validated_data.pop('photo', None)
@@ -397,6 +407,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         return validate_photo_file(value)
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        username = attrs.get(self.username_field)
+        if isinstance(username, str):
+            attrs[self.username_field] = normalize_email_value(username)
+        return super().validate(attrs)
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)

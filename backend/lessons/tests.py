@@ -1123,6 +1123,18 @@ class VocabularySpacedRepetitionTests(TestCase):
         self.assertEqual(stats['overdue'], 1)
         self.assertEqual(stats['difficult'], 1)
 
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/take-off.mp3')
+    def test_can_generate_natural_audio_for_vocabulary_card(self, generate_tts_mock):
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(f'/api/vocabulary-cards/{self.card.id}/audio/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.card.refresh_from_db()
+        self.assertEqual(self.card.audio_url, '/media/ai_study/tts/take-off.mp3')
+        self.assertEqual(response.data['audio_url'], '/media/ai_study/tts/take-off.mp3')
+        generate_tts_mock.assert_called_once()
+
 
 class LessonWordSyncTests(TestCase):
     def setUp(self):
@@ -1138,7 +1150,8 @@ class LessonWordSyncTests(TestCase):
             date=timezone.now(),
         )
 
-    def test_creating_new_word_also_creates_student_vocabulary_card(self):
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/turn-down.mp3')
+    def test_creating_new_word_also_creates_student_vocabulary_card(self, generate_tts_mock):
         self.client.force_authenticate(user=self.teacher)
         response = self.client.post('/api/new-words/', {
             'word': 'turn down',
@@ -1154,8 +1167,11 @@ class LessonWordSyncTests(TestCase):
         self.assertEqual(card.lesson, self.lesson)
         self.assertEqual(card.word, 'turn down')
         self.assertEqual(card.translation, 'recusar; abaixar o volume')
+        self.assertEqual(card.audio_url, '/media/ai_study/tts/turn-down.mp3')
+        generate_tts_mock.assert_called_once()
 
-    def test_updating_new_word_keeps_student_card_in_sync(self):
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/look-up.mp3')
+    def test_updating_new_word_keeps_student_card_in_sync(self, generate_tts_mock):
         new_word = NewWord.objects.create(
             word='look up',
             meaning='procurar',
@@ -1182,6 +1198,8 @@ class LessonWordSyncTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         card.refresh_from_db()
         self.assertEqual(card.translation, 'consultar; procurar informacao')
+        self.assertEqual(card.audio_url, '/media/ai_study/tts/look-up.mp3')
+        generate_tts_mock.assert_called_once()
 
     def test_deleting_new_word_removes_auto_created_student_card(self):
         new_word = NewWord.objects.create(

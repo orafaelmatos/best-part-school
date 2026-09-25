@@ -124,6 +124,7 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
             <p className="text-xs uppercase text-muted-foreground">Frente</p>
             <h2 className="mt-4 max-w-full break-words text-4xl font-bold sm:text-5xl">{activeCard.word}</h2>
             <VocabularyAudioButton
+              cardId={activeCard.id}
               audioUrl={activeCard.audio_url}
               audioFileUrl={activeCard.audio_file_url}
               text={activeCard.word}
@@ -143,6 +144,7 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
                 {activeCard.example_sentence && <p className="rounded-lg bg-muted p-3 text-sm italic">{activeCard.example_sentence}</p>}
                 <div className="flex justify-center">
                   <VocabularyAudioButton
+                    cardId={activeCard.id}
                     audioUrl={activeCard.audio_url}
                     audioFileUrl={activeCard.audio_file_url}
                     text={activeCard.word}

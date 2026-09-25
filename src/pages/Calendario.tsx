@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
-import { ChevronLeft, ChevronRight, X, Clock, Calendar, Ban, AlertCircle, Settings, Lock, Unlock, PlayCircle, CalendarPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Clock, Calendar, Ban, AlertCircle, Settings, Lock, Unlock, PlayCircle, CalendarPlus, NotebookPen } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { isToday } from "date-fns";
@@ -15,8 +15,14 @@ import CreatableSelect from "react-select/creatable";
 import PastLessonSummary from "@/components/PastLessonSummary";
 import { formatSequenceOptionLabel, sortLessonsBySequence } from "@/lib/lessonSequence";
 import { APP_PATHS } from "@/lib/routes";
+import { stripHtml } from "@/lib/studentLessonHistory";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const PLANNABLE_CALENDAR_STATUSES = ["scheduled", "rescheduled"];
+
+const hasLessonPlan = (lesson: { notes?: string | null }) =>
+  stripHtml(lesson.notes || "").trim().length > 0;
 
 // Map 0-6 JS weekday -> 0-6 Python weekday (Monday=0)
 const jsToPyDay = (jsDay: number) => {
@@ -63,8 +69,7 @@ const Calendario = () => {
     queryKey: ["students-for-extra-lesson"],
     enabled: user?.role === "teacher",
     queryFn: async () => {
-      const res = await api.get("/accounts/users/");
-      const usersData = Array.isArray(res.data) ? res.data : (res.data.results || []);
+      const usersData = await fetchAllPages<any>("/accounts/users/");
       return usersData.filter((item: any) => item.role === "student");
     },
   });
@@ -311,6 +316,12 @@ const Calendario = () => {
     });
   };
 
+  const openLessonPlanning = (lesson: { id: string }) => {
+    setSelectedLesson(null);
+    setSelectedLessons(null);
+    navigate(`${APP_PATHS.annotateLesson(lesson.id)}?planning=true&from_calendar=1`);
+  };
+
   const completedCount = lessons.filter((l: any) => l.status === "completed").length;
   const upcomingCount = lessons.filter((l: any) => l.status === "scheduled" || l.status === "rescheduled" || l.status === "in_progress").length;
   const upcomingLessons = lessons
@@ -432,6 +443,9 @@ const Calendario = () => {
                 <span className="truncate max-w-[80px] sm:max-w-full">
                   {user?.role === 'teacher' ? l.student_name : l.teacher_name}
                 </span>
+                {hasLessonPlan(l) && (
+                  <NotebookPen size={10} className="ml-auto shrink-0 opacity-80" aria-label="Aula planejada" />
+                )}
               </div>
             ))}
             {dayLessons.length > 3 && (
@@ -572,6 +586,11 @@ const Calendario = () => {
                       {l.is_extra && (
                         <p className="text-xs font-medium text-cyan-700 mt-1">Aula extra</p>
                       )}
+                      {hasLessonPlan(l) && (
+                        <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                          <NotebookPen size={12} /> Planejada
+                        </p>
+                      )}
                       {user?.role === 'teacher' && l.student_name && (
                         <p className="text-xs opacity-80 mt-1">Aluno: {l.student_name}</p>
                       )}
@@ -623,13 +642,18 @@ const Calendario = () => {
 
             <div className="flex items-center gap-2 mb-4">
               <StatusBadge status={selectedLesson.status} />
+              {hasLessonPlan(selectedLesson) && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                  <NotebookPen size={12} /> Planejada
+                </span>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto pr-2">
               <div className="space-y-4">
-                {selectedLesson.notes && (
+                {hasLessonPlan(selectedLesson) && (
                   <div className="bg-muted p-3 rounded-lg text-sm mb-4">
-                    {selectedLesson.notes}
+                    {stripHtml(selectedLesson.notes || "")}
                   </div>
                 )}
 
@@ -650,6 +674,15 @@ const Calendario = () => {
                       currentLesson={selectedLesson}
                       buttonClassName="col-span-1 sm:col-span-2 w-full justify-center"
                     />
+
+                    {PLANNABLE_CALENDAR_STATUSES.includes(selectedLesson.status) && (
+                      <button
+                        onClick={() => openLessonPlanning(selectedLesson)}
+                        className="col-span-1 sm:col-span-2 flex items-center justify-center gap-2 w-full py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-sm font-medium transition"
+                      >
+                        <NotebookPen size={16} /> {hasLessonPlan(selectedLesson) ? 'Abrir planejamento' : 'Planejar aula'}
+                      </button>
+                    )}
 
                     <button
                       onClick={() => {
