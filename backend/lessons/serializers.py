@@ -23,15 +23,21 @@ from .scheduling import lesson_end_time, lesson_start_times_overlap
 
 class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
 
     class Meta:
         model = StudentRecurringSchedule
-        fields = ['id', 'student', 'student_name', 'teacher', 'teacher_name', 'day_of_week', 'start_time', 'active']
+        fields = [
+            'id', 'student', 'student_name', 'group', 'group_name',
+            'teacher', 'teacher_name', 'day_of_week', 'start_time', 'active',
+        ]
 
     def validate(self, attrs):
         validated = super().validate(attrs)
         teacher = validated.get('teacher', getattr(self.instance, 'teacher', None))
+        student = validated.get('student', getattr(self.instance, 'student', None))
+        group = validated.get('group', getattr(self.instance, 'group', None))
         day_of_week = validated.get('day_of_week', getattr(self.instance, 'day_of_week', None))
         start_time = validated.get('start_time', getattr(self.instance, 'start_time', None))
         active = validated.get('active', getattr(self.instance, 'active', True))
@@ -63,6 +69,10 @@ class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
         )
         if self.instance:
             conflicting_schedules = conflicting_schedules.exclude(pk=self.instance.pk)
+        if group:
+            conflicting_schedules = conflicting_schedules.exclude(group=group)
+        elif student:
+            conflicting_schedules = conflicting_schedules.exclude(student=student)
 
         for schedule in conflicting_schedules:
             if lesson_start_times_overlap(schedule.start_time, start_time):
@@ -237,16 +247,43 @@ class AttachmentSerializer(serializers.ModelSerializer):
 class LessonSerializer(serializers.ModelSerializer):
     new_words = NewWordSerializer(many=True, read_only=True)
     attachments = AttachmentSerializer(many=True, read_only=True)
-    student_name = serializers.CharField(source='student.name', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    group_student_names = serializers.SerializerMethodField()
+    group_student_ids = serializers.SerializerMethodField()
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     template_title = serializers.CharField(source='template.title', read_only=True)
+
+    def get_student_name(self, obj):
+        if obj.student_id:
+            return getattr(obj.student, 'name', '') or getattr(obj.student, 'email', '')
+        if obj.group_id:
+            return obj.group.name
+        return ''
+
+    def get_group_student_names(self, obj):
+        if not obj.group_id:
+            return []
+        return [
+            student.name or student.email
+            for student in obj.group.students.filter(role='student').order_by('name', 'email')
+        ]
+
+    def get_group_student_ids(self, obj):
+        if not obj.group_id:
+            return []
+        return [
+            str(student.id)
+            for student in obj.group.students.filter(role='student').order_by('name', 'email')
+        ]
     
     class Meta:
         model = Lesson
         fields = [
             'id', 'title', 'level', 'date', 'status', 'notes', 
             'meeting_url', 'recording_url', 'new_words', 'attachments', 
-            'teacher', 'student', 'student_name', 'teacher_name', 'is_template',
+            'teacher', 'student', 'student_name', 'group', 'group_name',
+            'group_student_names', 'group_student_ids', 'teacher_name', 'is_template',
             'is_extra', 'template', 'template_title', 'order', 'schedule_exception', 'original_date'
         ]
 
@@ -416,6 +453,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
     questions = HomeworkQuestionSerializer(many=True)
     answers = HomeworkAnswerSerializer(many=True, read_only=True)
     student_name = serializers.CharField(source='student.name', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     lesson_title = serializers.CharField(source='lesson.title', read_only=True)
 
@@ -424,7 +462,7 @@ class HomeworkSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'classification', 'status', 'due_date',
             'auto_correction_enabled', 'teacher_feedback', 'student_report', 'report_generated_at',
-            'teacher', 'teacher_name', 'student', 'student_name',
+            'teacher', 'teacher_name', 'student', 'student_name', 'group', 'group_name',
             'lesson', 'lesson_title', 'template', 'questions', 'answers',
             'created_at', 'updated_at'
         ]

@@ -68,6 +68,9 @@ type Homework = {
   } | null;
   teacher?: string;
   student?: string;
+  student_name?: string;
+  group?: string;
+  group_name?: string;
   lesson?: string;
   questions: HomeworkQuestion[];
   answers?: HomeworkAnswer[];
@@ -273,6 +276,7 @@ const emptyForm = (lesson: any): Partial<Homework> & { questions: HomeworkQuesti
   due_date: "",
   teacher: lesson.teacher,
   student: lesson.student,
+  group: lesson.group,
   lesson: lesson.id,
   questions: [emptyQuestion(0)],
 });
@@ -300,6 +304,7 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
   payload.append("due_date", form.due_date ? new Date(form.due_date).toISOString() : "");
   if (form.teacher) payload.append("teacher", form.teacher);
   if (form.student) payload.append("student", form.student);
+  if (form.group) payload.append("group", form.group);
   if (form.lesson) payload.append("lesson", form.lesson);
 
   const questions = form.questions.map((question, index) => {
@@ -576,6 +581,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
               homework={homework}
               isTeacher={isTeacher}
               isStudent={isStudent}
+              showStudentName={isTeacher && Boolean(lesson.group)}
               onEdit={() => openEditor(homework)}
               onDuplicate={() => duplicateMutation.mutate(homework.id)}
               onSaveTemplate={() => saveTemplateMutation.mutate(homework.id)}
@@ -791,10 +797,11 @@ const FieldError = ({ messages }: { messages?: string[] }) => {
   );
 };
 
-const HomeworkCard = ({ homework, isTeacher, isStudent, onEdit, onDuplicate, onSaveTemplate, onRefresh }: {
+const HomeworkCard = ({ homework, isTeacher, isStudent, showStudentName, onEdit, onDuplicate, onSaveTemplate, onRefresh }: {
   homework: Homework;
   isTeacher: boolean;
   isStudent: boolean;
+  showStudentName?: boolean;
   onEdit: () => void;
   onDuplicate: () => void;
   onSaveTemplate: () => void;
@@ -852,6 +859,9 @@ const HomeworkCard = ({ homework, isTeacher, isStudent, onEdit, onDuplicate, onS
             {homework.classification && <span className="px-2 py-1 rounded-md bg-muted text-muted-foreground text-xs">{homework.classification}</span>}
           </div>
           <p className="text-sm text-muted-foreground mt-1">Prazo: {dueDate}</p>
+          {showStudentName && homework.student_name && (
+            <p className="text-sm text-muted-foreground mt-1">Aluno: {homework.student_name}</p>
+          )}
           {homework.description && <p className="text-sm mt-2 whitespace-pre-wrap">{homework.description}</p>}
         </div>
         {isTeacher && (

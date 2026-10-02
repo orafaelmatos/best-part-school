@@ -35,7 +35,6 @@ import {
   BookPlus,
   BookOpen,
   CalendarDays,
-  CheckCircle2,
   Clock3,
   GraduationCap,
   Loader2,
@@ -226,9 +225,9 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
 });
 
 const modeDescription: Record<PracticeMode, string> = {
-  review: "Converse usando a aula como contexto principal e revise gramática, vocabulário e exercícios do conteúdo estudado.",
-  speaking: "Entre em uma aula guiada: escolha cenário, nível e pratique com desafios, correções e próximos passos claros.",
-  writing: "Entre em uma aula guiada: escolha cenário, nível e escreva com correções, exercícios e condução pedagógica contínua.",
+  review: "Revise o que você já estudou.",
+  speaking: "Pratique sua fala em inglês.",
+  writing: "Pratique sua escrita em inglês.",
 };
 
 const composerPlaceholderByMode: Record<PracticeMode, string> = {
@@ -247,7 +246,6 @@ const modeCardMeta: Record<
     iconWrap: string;
     badge: string;
     ctaLabel: string;
-    highlights: string[];
   }
 > = {
   review: {
@@ -259,11 +257,6 @@ const modeCardMeta: Record<
     iconWrap: "bg-sky-500/12 text-sky-700 ring-sky-300/55",
     badge: "Ideal para revisar conteúdo estudado",
     ctaLabel: "Selecionar revisão",
-    highlights: [
-      "Escolha uma aula já feita para manter o contexto correto.",
-      "Revise vocabulário, gramática e exercícios do conteúdo.",
-      "Retome pontos em que você teve mais dificuldade.",
-    ],
   },
   speaking: {
     icon: Mic,
@@ -274,11 +267,6 @@ const modeCardMeta: Record<
     iconWrap: "bg-amber-500/12 text-amber-700 ring-amber-300/55",
     badge: "Mais indicado para pronúncia e fluidez",
     ctaLabel: "Selecionar speaking",
-    highlights: [
-      "Receba desafios por cenário e nível antes de começar.",
-      "Treine respostas com correções e próximos passos claros.",
-      "Use áudio quando a atividade pedir prática de pronúncia.",
-    ],
   },
   writing: {
     icon: Pencil,
@@ -289,49 +277,8 @@ const modeCardMeta: Record<
     iconWrap: "bg-emerald-500/12 text-emerald-700 ring-emerald-300/55",
     badge: "Ótimo para escrita com feedback pedagógico",
     ctaLabel: "Selecionar writing",
-    highlights: [
-      "Escolha cenário e nível para receber uma proposta guiada.",
-      "Escreva em inglês e receba correções objetivas.",
-      "Continue com exercícios curtos, vocabulário e muito mais.",
-    ],
   },
 };
-
-const formatScoreLabel = (value?: number | null) => {
-  if (typeof value !== "number" || Number.isNaN(value)) return "Sem histórico";
-  return `${Math.round(value)}/100`;
-};
-
-const formatRecentAttemptsLabel = (count: number, singular: string, plural: string) => {
-  if (count <= 0) return "Nenhuma ainda";
-  if (count === 1) return `1 ${singular}`;
-  return `${count} ${plural}`;
-};
-
-const PickerStatCard = ({
-  icon: Icon,
-  label,
-  value,
-  helper,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  helper: string;
-}) => (
-  <div className="rounded-[24px] border border-white/70 bg-white/72 p-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.28)] backdrop-blur">
-    <div className="flex items-center gap-3">
-      <span className="flex h-10 w-10 items-center justify-center rounded-[16px] bg-slate-900 text-white shadow-[0_16px_34px_-22px_rgba(15,23,42,0.6)]">
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</p>
-        <p className="mt-1 text-base font-semibold text-slate-900">{value}</p>
-      </div>
-    </div>
-    <p className="mt-3 text-sm leading-6 text-slate-600">{helper}</p>
-  </div>
-);
 
 const ModeCard = ({
   mode,
@@ -380,19 +327,7 @@ const ModeCard = ({
           ) : null}
         </div>
 
-        <p className="relative mt-4 text-sm leading-6 text-slate-600">{modeDescription[mode]}</p>
-
-        <div className="relative mt-4 rounded-[22px] border border-white/70 bg-white/58 p-4 backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">O que você encontra</p>
-          <ul className="mt-3 space-y-2.5 text-sm leading-6 text-slate-700">
-            {meta.highlights.map((item) => (
-              <li key={item} className="flex items-start gap-2">
-                <CheckCircle2 className={cn("mt-0.5 h-4 w-4 shrink-0", meta.accent)} />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <p className="relative mt-4 flex-1 text-base leading-7 text-slate-700">{modeDescription[mode]}</p>
 
         <div className="relative mt-5 flex items-center justify-between gap-3 rounded-[20px] bg-slate-900 px-4 py-3 text-sm text-white shadow-[0_20px_40px_-28px_rgba(15,23,42,0.55)] transition group-hover:translate-y-0.5">
           <span className="font-semibold">{meta.ctaLabel}</span>
@@ -569,6 +504,8 @@ const GuidedSessionOverview = ({ state, mode }: { state: GuidedState; mode: Prac
   const learnedWords = state.learned_words || [];
   const recurringErrors = state.recurring_errors || [];
   const summaryItems = state.summary_items || [];
+
+  return null;
 };
 
 const MessageBubble = ({
@@ -826,9 +763,6 @@ const AssistenteIA = () => {
       return compareByPriority(a, b);
     });
   }, [deferredLessonSearch, lessonsQuery.data, recommendation?.lesson]);
-
-  const recentSpeakingHistory = progressQuery.data?.speaking_history || [];
-  const recentWritingHistory = progressQuery.data?.writing_history || [];
 
   const hasSavedSessions = (sessionsQuery.data?.length ?? 0) > 0;
   const isPickerVisible = pickerMode !== null || !selectedSessionId;
@@ -1281,7 +1215,7 @@ const AssistenteIA = () => {
                         <div className="absolute right-[-2rem] top-[-2rem] h-36 w-36 rounded-full bg-sky-300/18 blur-3xl" />
                         <div className="absolute bottom-[-2rem] left-[-1rem] h-32 w-32 rounded-full bg-emerald-300/16 blur-3xl" />
 
-                        <div className="relative grid gap-4 md:gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)] xl:items-start">
+                        <div className="relative">
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full border border-sky-200/80 bg-sky-100/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
@@ -1309,27 +1243,6 @@ const AssistenteIA = () => {
                                 Continue de onde parou nas conversas salvas
                               </div>
                             </div>
-                          </div>
-
-                          <div className="hidden gap-3 md:grid md:grid-cols-2 xl:grid-cols-1">
-                            <PickerStatCard
-                              icon={Mic}
-                              label="Speaking"
-                              value={formatScoreLabel(recentSpeakingHistory[0]?.overall_score)}
-                              helper={formatRecentAttemptsLabel(recentSpeakingHistory.length, "treino recente", "treinos recentes")}
-                            />
-                            <PickerStatCard
-                              icon={Pencil}
-                              label="Writing"
-                              value={formatScoreLabel(recentWritingHistory[0]?.writing_score)}
-                              helper={formatRecentAttemptsLabel(recentWritingHistory.length, "envio recente", "envios recentes")}
-                            />
-                            <PickerStatCard
-                              icon={Sparkles}
-                              label="Conversas"
-                              value={`${sessionsQuery.data?.length ?? 0} salvas`}
-                              helper={hasSavedSessions ? "Você já tem histórico para retomar quando quiser." : "Sua primeira conversa pode começar por qualquer um dos modos abaixo."}
-                            />
                           </div>
                         </div>
                       </section>
@@ -1419,23 +1332,9 @@ const AssistenteIA = () => {
                             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[2.15rem]">
                               {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
                             </h2>
-                            <p className="mt-4 hidden max-w-2xl text-sm leading-7 text-slate-600 md:block sm:text-[15px]">
+                            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700">
                               {modeDescription[selectedPracticeMode]}
                             </p>
-
-                            <div className="mt-6 hidden rounded-[24px] border border-white/75 bg-white/68 p-5 backdrop-blur md:block">
-                              <p className="text-sm font-semibold text-slate-900">Como funciona</p>
-                              <ul className="mt-3 space-y-2.5 text-sm leading-6 text-slate-700">
-                                {modeCardMeta[selectedPracticeMode].highlights.map((item) => (
-                                  <li key={item} className="flex items-start gap-2">
-                                    <CheckCircle2
-                                      className={cn("mt-0.5 h-4 w-4 shrink-0", modeCardMeta[selectedPracticeMode].accent)}
-                                    />
-                                    <span>{item}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
                           </div>
 
                           <div className="flex flex-col gap-4 rounded-[28px] border border-white/80 bg-white/74 p-5 shadow-[0_22px_52px_-40px_rgba(15,23,42,0.28)] backdrop-blur">
@@ -1444,18 +1343,6 @@ const AssistenteIA = () => {
                               <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
                                 {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
                               </p>
-                              <p className="mt-3 hidden text-sm leading-6 text-slate-600 md:block">
-                                Você vai escolher cenário e nível logo no começo da conversa.
-                              </p>
-                            </div>
-
-                            <div className="hidden rounded-[22px] bg-slate-900 px-4 py-4 text-white shadow-[0_22px_46px_-30px_rgba(15,23,42,0.55)] md:block">
-                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">Inclui</p>
-                              <div className="mt-3 space-y-2 text-sm text-white/88">
-                                <p>Correções claras e progressivas</p>
-                                <p>Atividades guiadas com contexto</p>
-                                <p>Explicações curtas e aplicáveis</p>
-                              </div>
                             </div>
 
                             <button

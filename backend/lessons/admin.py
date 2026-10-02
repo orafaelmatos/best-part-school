@@ -11,9 +11,9 @@ class AttachmentInline(admin.TabularInline):
 
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
-    list_display = ('title', 'date', 'level', 'teacher', 'student', 'status')
-    list_filter = ('status', 'level', 'teacher', 'student')
-    search_fields = ('title', 'teacher__email', 'student__email')
+    list_display = ('title', 'date', 'level', 'teacher', 'student', 'group', 'status')
+    list_filter = ('status', 'level', 'teacher', 'student', 'group')
+    search_fields = ('title', 'teacher__email', 'student__email', 'group__name')
     inlines = [NewWordInline, AttachmentInline]
 
 @admin.register(NewWord)
@@ -35,8 +35,8 @@ class HomeworkAnswerInline(admin.TabularInline):
 
 @admin.register(Homework)
 class HomeworkAdmin(admin.ModelAdmin):
-    list_display = ('title', 'lesson', 'teacher', 'student', 'status', 'due_date')
-    list_filter = ('status', 'classification', 'teacher', 'student')
+    list_display = ('title', 'lesson', 'teacher', 'student', 'group', 'status', 'due_date')
+    list_filter = ('status', 'classification', 'teacher', 'student', 'group')
     search_fields = ('title', 'description', 'lesson__title')
     inlines = [HomeworkQuestionInline, HomeworkAnswerInline]
 

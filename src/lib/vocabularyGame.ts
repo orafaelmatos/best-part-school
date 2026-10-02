@@ -50,6 +50,7 @@ export type VocabularyGameRun = {
 
 export const MAX_GAME_STAGES = 9;
 export const GAME_HEARTS = 4;
+const DISTRACTOR_COUNT = 3;
 
 const WORLD_DEFINITIONS: Array<Omit<VocabularyGameWorld, "stageCount">> = [
   {
@@ -174,6 +175,359 @@ export const selectCardsForGame = (cards: VocabularyCard[], mode: VocabularyGame
 
 const buildMask = (word: string) => word.replace(/[A-Za-z0-9]/g, "_");
 
+const comparableText = (value: string | undefined) => normalizeWord(value || "").replace(/[^a-z0-9\s]/g, " ");
+
+const tokenizeComparableText = (value: string | undefined) =>
+  comparableText(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+
+const levenshteinDistance = (left: string, right: string) => {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = new Array(right.length + 1).fill(0);
+
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const substitutionCost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + substitutionCost,
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) {
+      previous[j] = current[j];
+    }
+  }
+
+  return previous[right.length];
+};
+
+const stringSimilarity = (leftValue: string | undefined, rightValue: string | undefined) => {
+  const left = comparableText(leftValue).replace(/\s+/g, "");
+  const right = comparableText(rightValue).replace(/\s+/g, "");
+  const longestLength = Math.max(left.length, right.length);
+  if (!longestLength) return 0;
+  return 1 - levenshteinDistance(left, right) / longestLength;
+};
+
+const optionKey = (value: string) => comparableText(value).replace(/\s+/g, "");
+
+const COMMON_CONFUSABLE_WORDS = [
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "ate",
+  "back",
+  "bad",
+  "be",
+  "beat",
+  "been",
+  "being",
+  "best",
+  "bet",
+  "big",
+  "bite",
+  "bring",
+  "brought",
+  "buy",
+  "came",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "doing",
+  "done",
+  "drink",
+  "drank",
+  "drive",
+  "drove",
+  "each",
+  "east",
+  "easy",
+  "easily",
+  "eager",
+  "eat",
+  "eaten",
+  "eater",
+  "eating",
+  "eats",
+  "feel",
+  "fell",
+  "felt",
+  "find",
+  "found",
+  "get",
+  "gets",
+  "getting",
+  "give",
+  "gave",
+  "go",
+  "goes",
+  "going",
+  "gone",
+  "good",
+  "got",
+  "great",
+  "had",
+  "has",
+  "have",
+  "having",
+  "he",
+  "hear",
+  "heard",
+  "heart",
+  "heat",
+  "help",
+  "her",
+  "here",
+  "him",
+  "his",
+  "hit",
+  "home",
+  "is",
+  "it",
+  "its",
+  "know",
+  "knew",
+  "learn",
+  "leave",
+  "left",
+  "let",
+  "like",
+  "listen",
+  "look",
+  "look at",
+  "look for",
+  "look up",
+  "made",
+  "make",
+  "makes",
+  "making",
+  "many",
+  "map",
+  "me",
+  "meal",
+  "mean",
+  "meat",
+  "meet",
+  "met",
+  "miss",
+  "more",
+  "most",
+  "near",
+  "neat",
+  "need",
+  "new",
+  "nice",
+  "night",
+  "no",
+  "not",
+  "now",
+  "of",
+  "off",
+  "on",
+  "one",
+  "outgoing",
+  "play",
+  "played",
+  "playing",
+  "read",
+  "right",
+  "road",
+  "run",
+  "ran",
+  "said",
+  "say",
+  "says",
+  "see",
+  "saw",
+  "seat",
+  "she",
+  "should",
+  "speak",
+  "spoke",
+  "take",
+  "takes",
+  "taking",
+  "talk",
+  "teach",
+  "team",
+  "tear",
+  "tea",
+  "tell",
+  "test",
+  "that",
+  "the",
+  "their",
+  "there",
+  "they",
+  "this",
+  "to",
+  "took",
+  "tour",
+  "trip",
+  "very",
+  "want",
+  "was",
+  "watch",
+  "we",
+  "went",
+  "were",
+  "what",
+  "when",
+  "where",
+  "will",
+  "with",
+  "word",
+  "work",
+  "would",
+  "write",
+  "wrote",
+  "you",
+];
+
+const DIRECT_CONFUSIONS: Record<string, string[]> = {
+  eat: ["ate", "eats", "eating", "eaten", "meat", "heat"],
+  ate: ["eat", "eats", "eating", "eaten", "eight", "hate"],
+  eaten: ["eat", "ate", "eating", "eats"],
+  make: ["made", "makes", "making", "maker"],
+  made: ["make", "makes", "making", "maid"],
+  go: ["goes", "going", "gone", "went"],
+  went: ["go", "goes", "going", "gone"],
+  do: ["does", "doing", "did", "done"],
+  did: ["do", "does", "doing", "done"],
+  have: ["has", "had", "having", "haves"],
+  be: ["am", "is", "are", "being"],
+  am: ["is", "are", "be", "was"],
+  is: ["am", "are", "be", "was"],
+  are: ["am", "is", "be", "were"],
+  take: ["takes", "taking", "took", "taken"],
+  took: ["take", "takes", "taking", "taken"],
+  speak: ["speaks", "speaking", "spoke", "spoken"],
+  write: ["writes", "writing", "wrote", "written"],
+  read: ["reads", "reading", "reader"],
+  easygoing: ["outgoing", "easy", "easily", "eager"],
+  airport: ["airplane", "airline", "airfare", "airfield"],
+};
+
+const PREPOSITION_SWAPS: Record<string, string[]> = {
+  at: ["in", "on", "to"],
+  by: ["with", "for", "from"],
+  for: ["to", "from", "with"],
+  from: ["for", "to", "with"],
+  in: ["on", "at", "to"],
+  into: ["onto", "inside", "in"],
+  of: ["off", "for", "from"],
+  on: ["in", "at", "to"],
+  to: ["for", "from", "at"],
+  up: ["out", "off", "down"],
+  with: ["for", "by", "from"],
+};
+
+const regularInflections = (word: string) => {
+  if (!word || /\s/.test(word)) return [];
+  if (word.length <= 2) {
+    return [`${word}s`, `${word}ed`, `${word}ing`];
+  }
+  if (word.endsWith("y") && !/[aeiou]y$/.test(word)) {
+    return [`${word.slice(0, -1)}ies`, `${word.slice(0, -1)}ied`, `${word}ing`];
+  }
+  if (word.endsWith("e")) {
+    return [`${word}s`, `${word}d`, `${word.slice(0, -1)}ing`, `${word}r`];
+  }
+  return [`${word}s`, `${word}ed`, `${word}ing`, `${word}er`];
+};
+
+const phraseConfusions = (word: string) => {
+  const tokens = tokenizeComparableText(word);
+  if (tokens.length < 2) return [];
+
+  const variants: string[] = [];
+  tokens.forEach((token, tokenIndex) => {
+    PREPOSITION_SWAPS[token]?.forEach((swap) => {
+      const nextTokens = [...tokens];
+      nextTokens[tokenIndex] = swap;
+      variants.push(nextTokens.join(" "));
+    });
+  });
+
+  const lastToken = tokens[tokens.length - 1];
+  regularInflections(lastToken).forEach((variant) => {
+    variants.push([...tokens.slice(0, -1), variant].join(" "));
+  });
+
+  return variants;
+};
+
+const closeLexiconConfusions = (word: string) =>
+  COMMON_CONFUSABLE_WORDS
+    .filter((candidate) => optionKey(candidate) !== optionKey(word))
+    .map((candidate) => ({
+      candidate,
+      score: stringSimilarity(candidate, word),
+    }))
+    .filter(({ score }) => score >= 0.45)
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.candidate.localeCompare(right.candidate);
+    })
+    .map(({ candidate }) => candidate);
+
+const spellingConfusions = (word: string) => {
+  const normalized = comparableText(word).replace(/\s+/g, "");
+  if (normalized.length < 3 || normalized.length > 12) return [];
+
+  const variants: string[] = [];
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    variants.push(
+      `${normalized.slice(0, index)}${normalized[index + 1]}${normalized[index]}${normalized.slice(index + 2)}`,
+    );
+  }
+
+  if (normalized.length <= 5) {
+    ["b", "h", "m", "s", "t"].forEach((letter) => variants.push(`${letter}${normalized}`));
+    ["e", "s", "t"].forEach((letter) => variants.push(`${normalized}${letter}`));
+  }
+
+  return variants;
+};
+
+const buildGeneratedDistractors = (card: VocabularyCard, amount: number) => {
+  const correctText = card.word.trim();
+  const correctKey = optionKey(correctText);
+  const normalized = comparableText(correctText).replace(/\s+/g, "");
+  const seen = new Set([correctKey]);
+  const candidates: string[] = [];
+
+  const addCandidates = (values: string[]) => {
+    values.forEach((value) => {
+      const candidate = value.trim().replace(/\s+/g, " ");
+      const key = optionKey(candidate);
+      const looksLikeOption = candidate.length <= 28 && /^[A-Za-z][A-Za-z\s'-]*$/.test(candidate);
+      if (!candidate || !looksLikeOption || seen.has(key)) return;
+      seen.add(key);
+      candidates.push(candidate);
+    });
+  };
+
+  addCandidates(DIRECT_CONFUSIONS[normalized] || []);
+  addCandidates(phraseConfusions(correctText));
+  addCandidates(closeLexiconConfusions(correctText));
+  addCandidates(regularInflections(normalized));
+  addCandidates(spellingConfusions(correctText));
+
+  return candidates.slice(0, amount);
+};
+
 export const maskWordInSentence = (sentence: string | undefined, word: string) => {
   const normalizedSentence = sentence?.trim();
   const normalizedWord = word.trim();
@@ -206,62 +560,86 @@ const describeHint = (card: VocabularyCard, type: VocabularyGameChallengeType) =
   return pieces.join(" ");
 };
 
-const describePrompt = (card: VocabularyCard, type: VocabularyGameChallengeType) => {
+const pickPromptVariant = (items: string[], phaseIndex: number) => items[phaseIndex % items.length];
+
+const describePrompt = (card: VocabularyCard, type: VocabularyGameChallengeType, phaseIndex: number) => {
   const maskedSentence = maskWordInSentence(card.example_sentence, card.word);
 
   if (type === "sentence" && maskedSentence) {
     return {
-      prompt: maskedSentence,
-      supportText: "Complete a lacuna com a palavra correta para seguir em frente.",
+      prompt: pickPromptVariant(
+        [
+          `A frase perdeu uma peça: ${maskedSentence}`,
+          `Decifre a fala do personagem: ${maskedSentence}`,
+          `Complete o pergaminho antes que ele apague: ${maskedSentence}`,
+        ],
+        phaseIndex,
+      ),
+      supportText: pickPromptVariant(
+        [
+          "Escolha a forma que encaixa no contexto. As falsas foram feitas para parecer certas.",
+          "Compare tempo verbal e sentido da frase antes de tocar na carta.",
+          "Uma terminação muda tudo: confira se a palavra combina com a lacuna.",
+        ],
+        phaseIndex,
+      ),
     };
   }
 
   if (type === "boss") {
     return {
-      prompt: maskedSentence || `Escolha a palavra que combina com "${card.translation}".`,
+      prompt: maskedSentence
+        ? pickPromptVariant(
+            [
+              `Boss de contexto: ${maskedSentence}`,
+              `O guardiao embaralhou a frase: ${maskedSentence}`,
+              `Ultimo portal: qual carta completa "${maskedSentence}"?`,
+            ],
+            phaseIndex,
+          )
+        : pickPromptVariant(
+            [
+              `O guardiao escondeu "${card.translation}" entre cartas quase iguais. Qual e a correta?`,
+              `Desafio final: encontre a palavra exata para "${card.translation}".`,
+              `A chave do portal traduz "${card.translation}". Nao caia nas formas parecidas.`,
+            ],
+            phaseIndex,
+          ),
       supportText: maskedSentence
         ? `Modo chefe: a palavra tambem precisa bater com a traducao "${card.translation}".`
-        : "Modo chefe: sem ajuda da traducao completa, confie na memoria.",
+        : "Modo chefe: as alternativas confundem pela forma, pelo som ou pela terminacao.",
     };
   }
 
   return {
-    prompt: `Qual palavra corresponde a "${card.translation}"?`,
-    supportText: "Escolha a melhor opcao para manter a jornada viva.",
+    prompt: pickPromptVariant(
+      [
+        `A pista do mapa e "${card.translation}". Qual carta abre a passagem?`,
+        `Missao relampago: escolha a palavra em ingles para "${card.translation}".`,
+        `O personagem quer dizer "${card.translation}". Qual palavra ele deve usar?`,
+        `A traducao apareceu no cristal: "${card.translation}". Encontre a forma certa.`,
+      ],
+      phaseIndex,
+    ),
+    supportText: pickPromptVariant(
+      [
+        "Cuidado: as cartas falsas imitam a palavra certa de proposito.",
+        "Olhe letra por letra e pense na forma correta, nao so no som parecido.",
+        "Algumas opcoes parecem corretas, mas mudam tempo verbal, classe ou sentido.",
+        "A melhor resposta e a palavra exata do card, sem cair nas variacoes.",
+      ],
+      phaseIndex,
+    ),
   };
 };
 
-const pickDistractors = (currentCard: VocabularyCard, cards: VocabularyCard[], amount: number) => {
-  const currentWord = normalizeWord(currentCard.word);
-  const currentCategory = getVocabularyCategory(currentCard);
-
-  return uniqueCards(cards)
-    .filter((candidate) => normalizeWord(candidate.word) !== currentWord)
-    .sort((left, right) => {
-      const leftScore =
-        (getVocabularyCategory(left) === currentCategory ? 30 : 0) +
-        (left.difficulty_level === currentCard.difficulty_level ? 18 : 0) +
-        Math.max(0, 12 - Math.abs(left.word.length - currentCard.word.length)) +
-        Math.max(0, 10 - Math.abs(left.translation.length - currentCard.translation.length));
-      const rightScore =
-        (getVocabularyCategory(right) === currentCategory ? 30 : 0) +
-        (right.difficulty_level === currentCard.difficulty_level ? 18 : 0) +
-        Math.max(0, 12 - Math.abs(right.word.length - currentCard.word.length)) +
-        Math.max(0, 10 - Math.abs(right.translation.length - currentCard.translation.length));
-
-      if (rightScore !== leftScore) return rightScore - leftScore;
-      return left.word.localeCompare(right.word);
-    })
-    .slice(0, amount);
-};
-
-const buildOptions = (card: VocabularyCard, allCards: VocabularyCard[], phaseIndex: number) => {
-  const distractors = pickDistractors(card, allCards, 2);
+const buildOptions = (card: VocabularyCard, phaseIndex: number) => {
+  const distractors = buildGeneratedDistractors(card, DISTRACTOR_COUNT);
   const optionCount = distractors.length + 1;
   const correctSlot = optionCount > 0 ? phaseIndex % optionCount : 0;
   const baseOptions = distractors.map((item, index) => ({
     id: `${card.id}-wrong-${index}`,
-    text: item.word,
+    text: item,
     isCorrect: false,
   }));
 
@@ -307,7 +685,7 @@ export const buildVocabularyGameRun = (cards: VocabularyCard[], mode: Vocabulary
     const worldDefinition = WORLD_DEFINITIONS[Math.min(Math.floor(index / 3), WORLD_DEFINITIONS.length - 1)];
     const phaseInWorld = (index % 3) + 1;
     const type = getChallengeType(index, card);
-    const { prompt, supportText } = describePrompt(card, type);
+    const { prompt, supportText } = describePrompt(card, type, index);
 
     return {
       id: `${card.id}-${index}`,
@@ -322,7 +700,7 @@ export const buildVocabularyGameRun = (cards: VocabularyCard[], mode: Vocabulary
       prompt,
       supportText,
       hint: describeHint(card, type),
-      options: buildOptions(card, cards, index),
+      options: buildOptions(card, index),
       successRating: type === "translation" ? "hard" : "easy",
       failRating: "very_hard",
     } satisfies VocabularyGameStage;

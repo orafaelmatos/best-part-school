@@ -88,7 +88,7 @@ const PLANNING_MODE_STATUSES = ["pending", "scheduled", "rescheduled"];
 const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
 type QuillBlockEmbedConstructor = {
-  new (...args: unknown[]): unknown;
+  new (...args: unknown[]): object;
   create: (value?: unknown) => HTMLElement;
 };
 
@@ -878,7 +878,7 @@ const AnotarAula = () => {
                 <span className="text-xs font-medium text-muted-foreground">{currentStudentName}</span>
               </div>
               <div className="min-w-0">
-                <h2 className="truncate text-lg font-semibold text-card-foreground">{lesson.title}</h2>
+                <h2 className="truncate text-lg font-semibold text-card-foreground">{title || lesson.title}</h2>
                 <p className="text-sm text-muted-foreground">{formatLessonDate(lesson.date)}</p>
                 <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${autosaveClassName}`}>
                   {(autosaveStatus === "pending" || autosaveStatus === "saving") && (
@@ -929,7 +929,6 @@ const AnotarAula = () => {
                 className="w-full p-2 border border-border rounded-lg bg-background text-sm"
                 value={title} 
                 onChange={(e) => setTitle(e.target.value)} 
-                readOnly={lessonMetadataLocked}
               />
             </div>
             {lessonMetadataLocked ? (

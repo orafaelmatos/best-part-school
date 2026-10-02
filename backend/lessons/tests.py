@@ -7,7 +7,7 @@ from django.utils import timezone
 import datetime
 from unittest.mock import patch
 import json
-from accounts.models import User
+from accounts.models import StudentGroup, User
 from .models import Homework, HomeworkAnswer, HomeworkQuestion, Lesson, NewWord, StudentRecurringSchedule, TeacherAvailability, VocabularyCard
 from .scheduling import create_student_schedule_and_lessons, effective_planned_lesson_count, next_occurrence
 from .vocabulary import schedule_card, vocabulary_stats
@@ -92,6 +92,106 @@ class LessonVisibilityTests(TestCase):
         self.student1_lesson.refresh_from_db()
         self.assertEqual(self.student1_lesson.student, self.student1)
         self.assertNotEqual(self.student1_lesson.notes, '<p>Plano no aluno errado.</p>')
+
+
+class GroupLessonBehaviorTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.teacher = User.objects.create_user(email='group-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student1 = User.objects.create_user(email='group-student1@test.com', password='123', role='student', name='Student 1', level='B1')
+        self.student2 = User.objects.create_user(email='group-student2@test.com', password='123', role='student', name='Student 2', level='B1')
+        self.group = StudentGroup.objects.create(name='Group A', teacher=self.teacher)
+        self.group.students.add(self.student1, self.student2)
+        self.lesson = Lesson.objects.create(
+            title='Group conversation',
+            level='B1',
+            group=self.group,
+            teacher=self.teacher,
+            status='scheduled',
+            date=timezone.now() + datetime.timedelta(days=1),
+        )
+
+    def test_group_lesson_is_visible_to_group_students(self):
+        self.client.force_authenticate(user=self.student2)
+        response = self.client.get('/api/lessons/', {'all': 'true', 'is_template': 'false'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        lesson_ids = {item['id'] for item in response.data}
+        self.assertIn(str(self.lesson.id), lesson_ids)
+        group_lesson = next(item for item in response.data if item['id'] == str(self.lesson.id))
+        self.assertEqual(group_lesson['student_name'], 'Group A')
+        self.assertEqual(set(group_lesson['group_student_ids']), {str(self.student1.id), str(self.student2.id)})
+
+    @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/group-word.mp3')
+    def test_group_lesson_new_word_creates_cards_for_all_students(self, generate_tts_mock):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/new-words/', {
+            'word': 'keep up',
+            'meaning': 'acompanhar; manter o ritmo',
+            'level': 'B1',
+            'lesson_id': str(self.lesson.id),
+        })
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_word = NewWord.objects.get(id=response.data['id'])
+        cards = VocabularyCard.objects.filter(source_new_word=new_word, source_type='lesson').order_by('student__email')
+        self.assertEqual(cards.count(), 2)
+        self.assertEqual({card.student_id for card in cards}, {self.student1.id, self.student2.id})
+        self.assertTrue(all(card.lesson_id == self.lesson.id for card in cards))
+        self.assertEqual(generate_tts_mock.call_count, 2)
+
+    def test_group_homework_create_generates_student_copies(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post('/api/homework/', {
+            'title': 'Group homework',
+            'description': 'Answer individually.',
+            'classification': 'writing',
+            'status': 'pending',
+            'teacher': str(self.teacher.id),
+            'lesson': str(self.lesson.id),
+            'questions': [
+                {
+                    'type': 'open_text',
+                    'prompt': 'Write one sentence.',
+                    'options': [],
+                    'correct_option_index': None,
+                    'order': 0,
+                },
+            ],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data), 2)
+        homework_items = Homework.objects.filter(group=self.group, lesson=self.lesson).order_by('student__email')
+        self.assertEqual(homework_items.count(), 2)
+        self.assertEqual({item.student_id for item in homework_items}, {self.student1.id, self.student2.id})
+        self.assertTrue(all(item.questions.count() == 1 for item in homework_items))
+
+        student_one_homework = homework_items.get(student=self.student1)
+        student_two_homework = homework_items.get(student=self.student2)
+        question = student_one_homework.questions.get()
+        self.client.force_authenticate(user=self.student1)
+        submit_response = self.client.post(
+            f'/api/homework/{student_one_homework.id}/submit_answers/',
+            {
+                'answers': [
+                    {
+                        'question': str(question.id),
+                        'answer_text': 'My individual answer.',
+                        'selected_option_index': None,
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(submit_response.status_code, status.HTTP_200_OK)
+        student_one_homework.refresh_from_db()
+        student_two_homework.refresh_from_db()
+        self.assertIn(student_one_homework.status, ['sent', 'in_progress', 'corrected'])
+        self.assertEqual(student_two_homework.status, 'pending')
+        self.assertTrue(HomeworkAnswer.objects.filter(homework=student_one_homework, student=self.student1).exists())
+        self.assertFalse(HomeworkAnswer.objects.filter(homework=student_two_homework, student=self.student1).exists())
 
 
 class LessonSchedulingValidationTests(TestCase):

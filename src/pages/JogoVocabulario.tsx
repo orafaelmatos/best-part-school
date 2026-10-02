@@ -600,7 +600,7 @@ const GameArena = ({
             </div>
           ) : null}
 
-          <div className="mt-7 grid gap-4 md:grid-cols-3">
+          <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {currentStage.options.map((option) => (
               <AnswerButton
                 key={option.id}

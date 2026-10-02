@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User
+from .models import User, StudentGroup
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
@@ -15,10 +15,17 @@ class CustomUserAdmin(UserAdmin):
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
     )
+
+
+@admin.register(StudentGroup)
+class StudentGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'teacher', 'created_at')
+    list_filter = ('teacher',)
+    search_fields = ('name', 'teacher__email', 'students__email', 'students__name')
+    filter_horizontal = ('students',)
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
             'fields': ('email', 'name', 'password', 'role', 'level'),
         }),
     )
-

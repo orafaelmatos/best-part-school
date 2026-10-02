@@ -6,6 +6,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from .models import Homework, VocabularyCard, VocabularyCategory, VocabularyReviewLog
+from .scheduling import lesson_students
 
 logger = logging.getLogger(__name__)
 
@@ -81,65 +82,71 @@ def ensure_vocabulary_card_audio(card, force=False, raise_errors=False):
 
 def sync_new_word_card(new_word, teacher=None):
     lesson = getattr(new_word, 'lesson', None)
-    if not lesson or not lesson.student_id:
-        return None
+    students = lesson_students(lesson) if lesson else []
+    if not lesson or not students:
+        return []
 
     category = default_vocabulary_category()
     resolved_teacher = lesson.teacher or teacher
     tags = [tag for tag in ['Anotação da aula', lesson.title] if tag]
+    synced_cards = []
 
-    card, created = VocabularyCard.objects.get_or_create(
-        student=lesson.student,
-        source_new_word=new_word,
-        source_type='lesson',
-        defaults={
+    for student in students:
+        card, created = VocabularyCard.objects.get_or_create(
+            student=student,
+            source_new_word=new_word,
+            source_type='lesson',
+            defaults={
+                'teacher': resolved_teacher,
+                'lesson': lesson,
+                'word': new_word.word,
+                'translation': new_word.meaning,
+                'category': category,
+                'tags': tags,
+                'difficulty_level': 'new',
+                'next_review_at': timezone.now(),
+            },
+        )
+        if created:
+            ensure_vocabulary_card_audio(card)
+            synced_cards.append(card)
+            continue
+
+        updates = []
+        word_changed = False
+        field_updates = {
             'teacher': resolved_teacher,
             'lesson': lesson,
             'word': new_word.word,
             'translation': new_word.meaning,
             'category': category,
             'tags': tags,
-            'difficulty_level': 'new',
-            'next_review_at': timezone.now(),
-        },
-    )
-    if created:
-        ensure_vocabulary_card_audio(card)
-        return card
+            'source_type': 'lesson',
+        }
+        for field, value in field_updates.items():
+            if getattr(card, field) != value:
+                if field == 'word':
+                    word_changed = True
+                setattr(card, field, value)
+                updates.append(field)
 
-    updates = []
-    word_changed = False
-    field_updates = {
-        'teacher': resolved_teacher,
-        'lesson': lesson,
-        'word': new_word.word,
-        'translation': new_word.meaning,
-        'category': category,
-        'tags': tags,
-        'source_type': 'lesson',
-    }
-    for field, value in field_updates.items():
-        if getattr(card, field) != value:
-            if field == 'word':
-                word_changed = True
-            setattr(card, field, value)
-            updates.append(field)
-
-    if updates:
-        card.save(update_fields=[*updates, 'updated_at'])
-    if word_changed and not card.audio:
-        ensure_vocabulary_card_audio(card, force=True)
-    else:
-        ensure_vocabulary_card_audio(card)
-    return card
+        if updates:
+            card.save(update_fields=[*updates, 'updated_at'])
+        if word_changed and not card.audio:
+            ensure_vocabulary_card_audio(card, force=True)
+        else:
+            ensure_vocabulary_card_audio(card)
+        synced_cards.append(card)
+    return synced_cards
 
 
 def delete_new_word_cards(new_word):
     lesson = getattr(new_word, 'lesson', None)
-    if not lesson or not lesson.student_id:
+    students = lesson_students(lesson) if lesson else []
+    if not lesson or not students:
         return
     VocabularyCard.objects.filter(
-        student=lesson.student,
+        student__in=students,
         lesson=lesson,
         source_new_word=new_word,
         source_type='lesson',

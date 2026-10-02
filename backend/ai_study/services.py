@@ -282,7 +282,7 @@ def lesson_flashcard_references(lesson, limit=20):
 class AIStudyContextService:
     @staticmethod
     def accessible_lessons(user, student=None):
-        qs = Lesson.objects.filter(is_template=False).select_related('teacher', 'student', 'summary').prefetch_related(
+        qs = Lesson.objects.filter(is_template=False).select_related('teacher', 'student', 'group', 'summary').prefetch_related(
             'new_words',
             'attachments',
             'vocabulary_cards',
@@ -293,11 +293,11 @@ class AIStudyContextService:
             'homework_items__answers__question',
         )
         if user.role == 'admin':
-            return qs.filter(student=student) if student else qs
+            return qs.filter(Q(student=student) | Q(group__students=student)).distinct() if student else qs
         if user.role == 'teacher':
             qs = qs.filter(teacher=user)
-            return qs.filter(student=student) if student else qs
-        return qs.filter(student=user)
+            return qs.filter(Q(student=student) | Q(group__students=student)).distinct() if student else qs
+        return qs.filter(Q(student=user) | Q(group__students=user)).distinct()
 
     @staticmethod
     def filter_lessons(user, params):
@@ -421,7 +421,10 @@ class AIStudyContextService:
 
     @staticmethod
     def build_auto_context(session):
-        lessons = Lesson.objects.filter(student=session.student, is_template=False).select_related('summary').order_by('-date').prefetch_related(
+        lessons = Lesson.objects.filter(
+            Q(student=session.student) | Q(group__students=session.student),
+            is_template=False,
+        ).distinct().select_related('summary').order_by('-date').prefetch_related(
             'new_words',
             'attachments',
             'vocabulary_cards',

@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BookText,
   BookOpen,
-  BrainCircuit,
   Calendar,
   CalendarDays,
   CheckCircle2,
@@ -15,7 +14,6 @@ import {
   Headphones,
   MessageSquare,
   ShoppingBag,
-  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -166,76 +164,6 @@ const StudentDashboard = () => {
           title="Meu Painel"
           description={`Bem-vindo de volta, ${name}. Entre direto no estudo com IA e acompanhe so o essencial.`}
         />
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-          <section className="relative overflow-hidden rounded-[32px] border border-sky-200/90 bg-[linear-gradient(135deg,rgba(240,249,255,0.96),rgba(236,253,245,0.96))] p-6 text-slate-900 shadow-[0_28px_70px_-45px_rgba(14,116,144,0.35)]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.16),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_34%)]" />
-          <div className="relative">
-            <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-800">
-              <Sparkles className="h-3.5 w-3.5" />
-              Estudo com IA
-            </div>
-
-            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
-              Seu proximo estudo esta a um clique
-            </h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">
-              {nextLesson
-                ? `Use a IA para revisar antes de ${formatLessonDate(nextLesson.date)} ou treinar listening com situacoes reais.`
-                : "Abra uma pratica guiada para revisar, conversar em ingles ou treinar listening com contexto real."}
-            </p>
-
-            <div className="mt-6 grid gap-3 lg:grid-cols-2">
-              <StudyShortcutCard
-                to={buildNewModePath()}
-                title="Praticar com IA"
-                description="Abra uma conversa guiada para revisar aula, speaking ou writing sem perder tempo."
-                icon={MessageSquare}
-                tone="sky"
-              />
-              <StudyShortcutCard
-                to={APP_PATHS.interpreter}
-                title="Interprete IA"
-                description="Treine listening e resposta em ingles com audios, desafios e repeticao guiada."
-                icon={Headphones}
-                tone="emerald"
-              />
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <QuickLink to={APP_PATHS.lessons} label="Ver minhas aulas" secondary />
-              <QuickLink to={APP_PATHS.homework} label="Abrir homework" secondary />
-            </div>
-          </div>
-        </section>
-
-        <aside className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-          <ImportantCard
-            icon={ClipboardList}
-            title="Homework"
-            value={pendingHomeworkCount}
-            description={pendingHomeworkCount === 1 ? "atividade pendente" : "atividades pendentes"}
-            tone="amber"
-            href={APP_PATHS.homework}
-          />
-          <ImportantCard
-            icon={BrainCircuit}
-            title="Revisoes"
-            value={dueReviewCount}
-            description={dueReviewCount === 1 ? "revisao para fazer" : "revisoes para fazer"}
-            tone="emerald"
-            href={APP_PATHS.learnedWords}
-          />
-          <ImportantCard
-            icon={Calendar}
-            title="Aulas restantes"
-            value={upcomingLessons.length}
-            description={upcomingLessons.length === 1 ? "aula agendada" : "aulas agendadas"}
-            tone="sky"
-            href={APP_PATHS.lessons}
-          />
-          </aside>
-        </div>
 
         <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <section className="school-surface p-6">
@@ -448,138 +376,6 @@ const MobileHomeAppTile = ({ app }: { app: MobileHomeApp }) => {
         <span className="text-sm font-semibold">{app.title}</span>
         <ArrowRight className="h-4 w-4 opacity-70" />
       </div>
-    </Link>
-  );
-};
-
-const QuickLink = ({
-  to,
-  label,
-  secondary,
-}: {
-  to: string;
-  label: string;
-  secondary?: boolean;
-}) => (
-  <Link
-    to={to}
-    className={cn(
-      "inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold transition",
-      secondary
-        ? "bg-white/80 text-slate-700 ring-1 ring-sky-200 hover:bg-white"
-        : "bg-sky-700 text-white shadow-sm hover:bg-sky-800",
-    )}
-  >
-    {label}
-  </Link>
-);
-
-const StudyShortcutCard = ({
-  description,
-  icon: Icon,
-  title,
-  to,
-  tone,
-}: {
-  description: string;
-  icon: LucideIcon;
-  title: string;
-  to: string;
-  tone: "emerald" | "sky";
-}) => {
-  const toneClasses = {
-    sky: {
-      card: "border-sky-200 bg-white/78 hover:bg-white",
-      icon: "bg-sky-100 text-sky-700 ring-sky-200/80",
-    },
-    emerald: {
-      card: "border-emerald-200 bg-white/78 hover:bg-white",
-      icon: "bg-emerald-100 text-emerald-700 ring-emerald-200/80",
-    },
-  } as const;
-
-  return (
-    <Link
-      to={to}
-      className={cn(
-        "group rounded-[26px] border p-4 shadow-[0_20px_38px_-30px_rgba(15,23,42,0.2)] transition hover:-translate-y-0.5",
-        toneClasses[tone].card,
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-base font-semibold text-slate-950">{title}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-700">{description}</p>
-        </div>
-        <span
-          className={cn(
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] ring-1",
-            toneClasses[tone].icon,
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-      </div>
-
-      <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-        Comecar agora
-        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-      </div>
-    </Link>
-  );
-};
-
-const ImportantCard = ({
-  icon: Icon,
-  title,
-  value,
-  description,
-  href,
-  tone,
-}: {
-  icon: typeof ClipboardList;
-  title: string;
-  value: number;
-  description: string;
-  href: string;
-  tone: "amber" | "emerald" | "sky";
-}) => {
-  const toneClasses = {
-    amber: {
-      card: "border-amber-300 bg-amber-50/90 hover:bg-amber-50",
-      icon: "bg-white text-amber-700 ring-amber-100",
-    },
-    emerald: {
-      card: "border-emerald-300 bg-emerald-50/90 hover:bg-emerald-50",
-      icon: "bg-white text-emerald-700 ring-emerald-100",
-    },
-    sky: {
-      card: "border-sky-300 bg-sky-50/90 hover:bg-sky-50",
-      icon: "bg-white text-sky-700 ring-sky-100",
-    },
-  } as const;
-
-  return (
-    <Link
-      to={href}
-      className={cn(
-        "rounded-[26px] border p-5 shadow-[0_18px_36px_-28px_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5",
-        toneClasses[tone].card,
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-slate-700">{title}</span>
-        <div
-          className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-2xl ring-1",
-            toneClasses[tone].icon,
-          )}
-        >
-          <Icon className="h-[18px] w-[18px]" />
-        </div>
-      </div>
-      <p className="mt-3 text-3xl font-bold text-foreground">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
     </Link>
   );
 };

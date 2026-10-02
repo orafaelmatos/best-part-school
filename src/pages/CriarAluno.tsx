@@ -48,6 +48,7 @@ const trackingTextFields = [
 type RegistrationMode = "student" | "group";
 type ScheduleSlot = { day: string; time: string };
 type SkillKey = "listening" | "speaking" | "reading" | "writing";
+type GroupScheduleData = Pick<StudentFormData, "schedules" | "useManualFirstLessonDate" | "firstLessonDate">;
 
 type StudentFormData = {
   name: string;
@@ -117,6 +118,12 @@ const createEmptyFormData = (): StudentFormData => ({
   firstLessonDate: "",
 });
 
+const createEmptyGroupScheduleData = (): GroupScheduleData => ({
+  schedules: [],
+  useManualFirstLessonDate: false,
+  firstLessonDate: "",
+});
+
 let draftIdSequence = 0;
 
 const createStudentDraft = (): StudentDraft => ({
@@ -135,7 +142,7 @@ const getPendingLessons = (formData: StudentFormData) =>
 const getStudentTitle = (student: StudentDraft, index: number) =>
   student.formData.name.trim() || `Aluno ${index + 1}`;
 
-const formatFirstLesson = (formData: StudentFormData) => {
+const formatFirstLesson = (formData: Pick<StudentFormData, "useManualFirstLessonDate" | "firstLessonDate">) => {
   if (!formData.useManualFirstLessonDate || !formData.firstLessonDate) return "Automatica";
   return new Date(formData.firstLessonDate).toLocaleString("pt-BR");
 };
@@ -159,6 +166,7 @@ const getApiErrorMessage = (err: any) => {
     "monthly_fee",
     "completed_lessons_count",
     "contract_end_date",
+    "group_id",
     "photo",
     "email",
     "error",
@@ -171,8 +179,9 @@ const getApiErrorMessage = (err: any) => {
   return formatApiErrorValue(data) || "Verifique os dados e tente novamente.";
 };
 
-const buildReviewItems = (student: StudentDraft, financeSettings: any) => {
+const buildReviewItems = (student: StudentDraft, financeSettings: any, scheduleData?: GroupScheduleData) => {
   const formData = student.formData;
+  const lessonSchedule = scheduleData || formData;
   const pendingLessons = getPendingLessons(formData);
 
   return [
@@ -188,8 +197,8 @@ const buildReviewItems = (student: StudentDraft, financeSettings: any) => {
     { label: "Objetivo", value: stripRichText(formData.learningGoal) || "Nao informado" },
     { label: "Mensalidade", value: `R$ ${formData.monthlyFee || financeSettings?.default_monthly_fee || "0,00"}` },
     { label: "Vencimento", value: `Dia ${formData.dueDay || financeSettings?.default_due_day || 10}` },
-    { label: "Horarios", value: formData.schedules.length ? `${formData.schedules.length} horarios selecionados` : "Sem agenda recorrente" },
-    { label: "Primeira aula", value: formatFirstLesson(formData) },
+    { label: "Horarios", value: lessonSchedule.schedules.length ? `${lessonSchedule.schedules.length} horarios selecionados` : "Sem agenda recorrente" },
+    { label: "Primeira aula", value: formatFirstLesson(lessonSchedule) },
   ];
 };
 
@@ -200,6 +209,7 @@ const CriarAluno = () => {
   const [registrationMode, setRegistrationMode] = useState<RegistrationMode>("student");
   const [stepIndex, setStepIndex] = useState(0);
   const [students, setStudents] = useState<StudentDraft[]>(() => [createStudentDraft()]);
+  const [groupSchedule, setGroupSchedule] = useState<GroupScheduleData>(() => createEmptyGroupScheduleData());
 
   const { data: financeSettings } = useQuery({
     queryKey: ["finance-settings"],
@@ -323,8 +333,14 @@ const CriarAluno = () => {
     });
   };
 
-  const buildStudentPayload = (student: StudentDraft) => {
+  const buildGroupName = () => {
+    const names = visibleStudents.map((student, index) => getStudentTitle(student, index)).filter(Boolean);
+    return names.length ? `Grupo - ${names.join(", ")}` : "Novo grupo";
+  };
+
+  const buildStudentPayload = (student: StudentDraft, groupId?: string) => {
     const formData = student.formData;
+    const scheduleData = isGroupMode ? groupSchedule : formData;
     const payload = new FormData();
     payload.append("name", formData.name.trim());
     payload.append("email", formData.email.trim());
@@ -345,17 +361,18 @@ const CriarAluno = () => {
     payload.append("strengths", formData.strengths);
     payload.append("weaknesses", formData.weaknesses);
     payload.append("teacher_id", user?.user_id || "");
+    if (groupId) payload.append("group_id", groupId);
     payload.append("monthly_fee", formData.monthlyFee || String(financeSettings?.default_monthly_fee || 0));
     payload.append("due_day", formData.dueDay || String(financeSettings?.default_due_day || 10));
     payload.append("finance_notes", formData.financeNotes);
-    payload.append("schedules", JSON.stringify(formData.schedules
+    payload.append("schedules", JSON.stringify(scheduleData.schedules
       .filter((schedule) => schedule.day && schedule.time)
       .map((schedule) => ({
         day_of_week: parseInt(schedule.day),
         time: schedule.time,
       }))));
-    if (formData.useManualFirstLessonDate && formData.firstLessonDate) {
-      payload.append("first_lesson_date", formData.firstLessonDate);
+    if (scheduleData.useManualFirstLessonDate && scheduleData.firstLessonDate) {
+      payload.append("first_lesson_date", scheduleData.firstLessonDate);
     }
     if (student.contractFile) {
       payload.append("contract_file", student.contractFile);
@@ -372,11 +389,23 @@ const CriarAluno = () => {
     mutationFn: async () => {
       const createdStudents: string[] = [];
       const responses = [];
+      let groupId: string | undefined;
+
+      if (isGroupMode) {
+        const groupResponse = await api.post("/accounts/student-groups/", {
+          name: buildGroupName(),
+          teacher: user?.user_id,
+        });
+        groupId = groupResponse.data?.id;
+        if (!groupId) {
+          throw new Error("Não foi possível criar o grupo.");
+        }
+      }
 
       for (let index = 0; index < visibleStudents.length; index += 1) {
         const student = visibleStudents[index];
         try {
-          const res = await api.post("/accounts/register/", buildStudentPayload(student), {
+          const res = await api.post("/accounts/register/", buildStudentPayload(student, groupId), {
             headers: { "Content-Type": "multipart/form-data" },
           });
           createdStudents.push(getStudentTitle(student, index));
@@ -394,7 +423,7 @@ const CriarAluno = () => {
     onSuccess: (createdStudents) => {
       toast({
         title: isGroupMode ? "Grupo cadastrado com sucesso!" : "Aluno cadastrado com sucesso!",
-        description: isGroupMode ? `${createdStudents.length} alunos foram cadastrados separadamente.` : undefined,
+        description: isGroupMode ? `${createdStudents.length} alunos foram cadastrados na mesma agenda do grupo.` : undefined,
       });
       navigate(APP_PATHS.students);
     },
@@ -431,17 +460,29 @@ const CriarAluno = () => {
       return false;
     }
 
-    const missingFirstLessonIndex = visibleStudents.findIndex((student) =>
-      student.formData.useManualFirstLessonDate && !student.formData.firstLessonDate
-    );
-    if (missingFirstLessonIndex >= 0) {
+    if (isGroupMode && groupSchedule.useManualFirstLessonDate && !groupSchedule.firstLessonDate) {
       setStepIndex(1);
       toast({
         title: "Primeira aula sem data",
-        description: `Informe a data da primeira aula do ${getStudentTitle(visibleStudents[missingFirstLessonIndex], missingFirstLessonIndex)}.`,
+        description: "Informe a data da primeira aula do grupo.",
         variant: "destructive",
       });
       return false;
+    }
+
+    if (!isGroupMode) {
+      const missingFirstLessonIndex = visibleStudents.findIndex((student) =>
+        student.formData.useManualFirstLessonDate && !student.formData.firstLessonDate
+      );
+      if (missingFirstLessonIndex >= 0) {
+        setStepIndex(1);
+        toast({
+          title: "Primeira aula sem data",
+          description: `Informe a data da primeira aula do ${getStudentTitle(visibleStudents[missingFirstLessonIndex], missingFirstLessonIndex)}.`,
+          variant: "destructive",
+        });
+        return false;
+      }
     }
 
     const invalidLessonCountIndex = visibleStudents.findIndex((student) =>
@@ -586,7 +627,7 @@ const CriarAluno = () => {
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-foreground">{visibleStudents.length} alunos neste grupo</p>
-              <p className="mt-1 text-sm text-muted-foreground">Cada aluno sera cadastrado com perfil, trilha, financeiro e agenda proprios.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Cada aluno tera perfil e financeiro proprios, mas a agenda e a aula serao compartilhadas pelo grupo.</p>
             </div>
             <Button type="button" variant="outline" onClick={addStudentToGroup}>
               <Plus className="mr-2 h-4 w-4" />
@@ -677,7 +718,7 @@ const CriarAluno = () => {
               {visibleStudents.map((student, index) => (
                 <div key={student.id} className={cn(isGroupMode && "rounded-xl border border-border bg-background/70 p-4")}>
                   {renderStudentHeader(student, index)}
-                  <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+                  <div className={cn("grid gap-6", isGroupMode ? "lg:grid-cols-1" : "lg:grid-cols-[0.8fr_1.2fr]")}>
                     <div className="space-y-4">
                       <div>
                         <h2 className="text-lg font-semibold">Dados academicos</h2>
@@ -711,51 +752,100 @@ const CriarAluno = () => {
                         ))}
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <div>
-                        <h3 className="text-sm font-semibold">Agenda recorrente</h3>
-                        <p className="text-sm text-muted-foreground">Selecione os horarios fixos. A sequencia de aulas sera gerada automaticamente.</p>
-                      </div>
-                      <RecurringSchedulePicker
-                        teacherId={user?.user_id}
-                        value={student.formData.schedules}
-                        onChange={(schedules) => updateStudentForm(student.id, { schedules })}
-                      />
-                      <div className="rounded-2xl border border-border bg-muted/30 p-4">
-                        <label className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            className="mt-1 h-4 w-4 rounded border-border"
-                            checked={student.formData.useManualFirstLessonDate}
-                            onChange={(e) => updateStudentForm(student.id, {
-                              useManualFirstLessonDate: e.target.checked,
-                              firstLessonDate: e.target.checked ? student.formData.firstLessonDate : "",
-                            })}
-                          />
-                          <span>
-                            <span className="block text-sm font-semibold">Primeira aula em data especifica</span>
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              Use quando a primeira aula ja aconteceu hoje ou precisa comecar em uma data diferente.
-                            </span>
-                          </span>
-                        </label>
-                        {student.formData.useManualFirstLessonDate && (
-                          <div className="mt-4">
-                            <label className="mb-1 block text-sm font-medium">Data e horario da primeira aula</label>
+                    {!isGroupMode && (
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-sm font-semibold">Agenda recorrente</h3>
+                          <p className="text-sm text-muted-foreground">Selecione os horarios fixos. A sequencia de aulas sera gerada automaticamente.</p>
+                        </div>
+                        <RecurringSchedulePicker
+                          teacherId={user?.user_id}
+                          value={student.formData.schedules}
+                          onChange={(schedules) => updateStudentForm(student.id, { schedules })}
+                        />
+                        <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                          <label className="flex items-start gap-3">
                             <input
-                              type="datetime-local"
-                              required
-                              className="w-full rounded-lg border border-border bg-background p-3 text-sm"
-                              value={student.formData.firstLessonDate}
-                              onChange={(e) => updateStudentForm(student.id, { firstLessonDate: e.target.value })}
+                              type="checkbox"
+                              className="mt-1 h-4 w-4 rounded border-border"
+                              checked={student.formData.useManualFirstLessonDate}
+                              onChange={(e) => updateStudentForm(student.id, {
+                                useManualFirstLessonDate: e.target.checked,
+                                firstLessonDate: e.target.checked ? student.formData.firstLessonDate : "",
+                              })}
                             />
-                          </div>
-                        )}
+                            <span>
+                              <span className="block text-sm font-semibold">Primeira aula em data especifica</span>
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                Use quando a primeira aula ja aconteceu hoje ou precisa comecar em uma data diferente.
+                              </span>
+                            </span>
+                          </label>
+                          {student.formData.useManualFirstLessonDate && (
+                            <div className="mt-4">
+                              <label className="mb-1 block text-sm font-medium">Data e horario da primeira aula</label>
+                              <input
+                                type="datetime-local"
+                                required
+                                className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                                value={student.formData.firstLessonDate}
+                                onChange={(e) => updateStudentForm(student.id, { firstLessonDate: e.target.value })}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               ))}
+              {isGroupMode && (
+                <div className="rounded-xl border border-border bg-background/70 p-4">
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-sm font-semibold">Agenda recorrente do grupo</h3>
+                      <p className="text-sm text-muted-foreground">Selecione os horarios fixos da turma. A sequencia de aulas sera uma so para todos os alunos.</p>
+                    </div>
+                    <RecurringSchedulePicker
+                      teacherId={user?.user_id}
+                      value={groupSchedule.schedules}
+                      onChange={(schedules) => setGroupSchedule((current) => ({ ...current, schedules }))}
+                    />
+                    <div className="rounded-2xl border border-border bg-muted/30 p-4">
+                      <label className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 rounded border-border"
+                          checked={groupSchedule.useManualFirstLessonDate}
+                          onChange={(e) => setGroupSchedule((current) => ({
+                            ...current,
+                            useManualFirstLessonDate: e.target.checked,
+                            firstLessonDate: e.target.checked ? current.firstLessonDate : "",
+                          }))}
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold">Primeira aula em data especifica</span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Use quando a primeira aula do grupo ja aconteceu hoje ou precisa comecar em uma data diferente.
+                          </span>
+                        </span>
+                      </label>
+                      {groupSchedule.useManualFirstLessonDate && (
+                        <div className="mt-4">
+                          <label className="mb-1 block text-sm font-medium">Data e horario da primeira aula</label>
+                          <input
+                            type="datetime-local"
+                            required
+                            className="w-full rounded-lg border border-border bg-background p-3 text-sm"
+                            value={groupSchedule.firstLessonDate}
+                            onChange={(e) => setGroupSchedule((current) => ({ ...current, firstLessonDate: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
@@ -914,7 +1004,7 @@ const CriarAluno = () => {
                   <div key={student.id} className="rounded-xl border border-border bg-background/70 p-4">
                     {renderStudentHeader(student, index)}
                     <div className="space-y-3">
-                      {buildReviewItems(student, financeSettings).map((item) => (
+                      {buildReviewItems(student, financeSettings, isGroupMode ? groupSchedule : undefined).map((item) => (
                         <div key={item.label} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
                           <span className="text-sm text-muted-foreground">{item.label}</span>
                           <span className="text-right text-sm font-medium text-foreground">{item.value}</span>
@@ -941,7 +1031,8 @@ const CriarAluno = () => {
                   <h3 className="text-sm font-semibold">O que acontece ao salvar</h3>
                   <div className="mt-4 space-y-3 text-sm text-muted-foreground">
                     <p>Cada aluno do grupo sera criado como um cadastro separado.</p>
-                    <p>O financeiro, contrato, agenda e trilha serao gerados individualmente para cada aluno.</p>
+                    <p>O financeiro e contrato continuam individuais; a agenda e a trilha de aulas serao compartilhadas pelo grupo.</p>
+                    <p>Palavras aprendidas e licoes de casa criadas na aula do grupo serao entregues separadamente para cada aluno.</p>
                     <p>Se algum cadastro falhar, a mensagem indicara qual aluno precisa de ajuste.</p>
                   </div>
                 </div>
@@ -960,7 +1051,7 @@ const CriarAluno = () => {
                 <Button type="submit" className="w-full sm:w-auto" disabled={createMutation.isPending}>
                   {createMutation.isPending
                     ? (isGroupMode ? "Cadastrando grupo..." : "Cadastrando...")
-                    : (isGroupMode ? `Cadastrar ${visibleStudents.length} alunos` : "Cadastrar aluno")}
+                    : (isGroupMode ? "Cadastrar grupo" : "Cadastrar aluno")}
                 </Button>
               )}
             </div>

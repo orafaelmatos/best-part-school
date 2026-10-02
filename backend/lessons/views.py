@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Max, Q
 from django.db import transaction
-from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
+from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkQuestion, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
@@ -15,6 +15,7 @@ import datetime
 import json
 from .scheduling import (
     insert_custom_lesson_into_student_sequence,
+    lesson_students,
     parse_lesson_datetime,
     reorder_student_lessons as reorder_student_lessons_service,
     get_day_time_slots,
@@ -241,7 +242,9 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         lesson = Lesson.objects.filter(id=lesson_id).prefetch_related('new_words').first()
         if not lesson:
             return Response({'error': 'Aula não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
-        student = lesson.student or request.user
+        students = lesson_students(lesson)
+        if not students and getattr(request.user, 'role', None) == 'student':
+            students = [request.user]
         category, _ = VocabularyCategory.objects.get_or_create(
             owner=None,
             slug='vocabulary',
@@ -249,23 +252,24 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         )
         created = []
         for word in lesson.new_words.all():
-            card, was_created = VocabularyCard.objects.get_or_create(
-                student=student,
-                source_new_word=word,
-                defaults={
-                    'teacher': lesson.teacher,
-                    'lesson': lesson,
-                    'source_type': 'lesson',
-                    'word': word.word,
-                    'translation': word.meaning,
-                    'category': category,
-                    'tags': [lesson.title],
-                    'next_review_at': timezone.now(),
-                },
-            )
-            if was_created:
-                ensure_vocabulary_card_audio(card)
-                created.append(card)
+            for student in students:
+                card, was_created = VocabularyCard.objects.get_or_create(
+                    student=student,
+                    source_new_word=word,
+                    defaults={
+                        'teacher': lesson.teacher,
+                        'lesson': lesson,
+                        'source_type': 'lesson',
+                        'word': word.word,
+                        'translation': word.meaning,
+                        'category': category,
+                        'tags': [lesson.title],
+                        'next_review_at': timezone.now(),
+                    },
+                )
+                if was_created:
+                    ensure_vocabulary_card_audio(card)
+                    created.append(card)
         return Response(self.get_serializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
 class HomeworkViewSet(viewsets.ModelViewSet):
@@ -273,7 +277,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['teacher', 'student', 'lesson', 'status', 'classification']
+    filterset_fields = ['teacher', 'student', 'group', 'lesson', 'status', 'classification']
     ordering_fields = ['due_date', 'created_at', 'updated_at']
     ordering = ['-created_at']
 
@@ -290,6 +294,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             'auto_correction_enabled': request.data.get('auto_correction_enabled', True),
             'teacher': request.data.get('teacher') or None,
             'student': request.data.get('student') or None,
+            'group': request.data.get('group') or None,
             'lesson': request.data.get('lesson') or None,
             'template': request.data.get('template') or None,
         }
@@ -319,7 +324,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Homework.objects.select_related('teacher', 'student', 'lesson', 'template').prefetch_related('questions', 'answers')
+        qs = Homework.objects.select_related('teacher', 'student', 'group', 'lesson', 'template').prefetch_related('questions', 'answers')
         if user.role == 'admin':
             return qs
         if user.role == 'teacher':
@@ -329,8 +334,71 @@ class HomeworkViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save()
 
+    def _clone_homework_for_student(self, source, student):
+        clone = Homework.objects.create(
+            title=source.title,
+            description=source.description,
+            classification=source.classification,
+            status=source.status,
+            due_date=source.due_date,
+            auto_correction_enabled=source.auto_correction_enabled,
+            teacher_feedback=source.teacher_feedback,
+            student_report={},
+            teacher=source.teacher,
+            student=student,
+            group=source.group,
+            lesson=source.lesson,
+            template=source.template,
+        )
+        for question in source.questions.all():
+            HomeworkQuestion.objects.create(
+                homework=clone,
+                type=question.type,
+                prompt=question.prompt,
+                image=question.image.name if question.image else None,
+                audio=question.audio.name if question.audio else None,
+                audio_transcript=question.audio_transcript,
+                options=question.options,
+                correct_option_index=question.correct_option_index,
+                reference_answer=question.reference_answer,
+                correction_instructions=question.correction_instructions,
+                explanation=question.explanation,
+                second_chance_mode=question.second_chance_mode,
+                reserve_type=question.reserve_type,
+                reserve_prompt=question.reserve_prompt,
+                reserve_options=question.reserve_options,
+                reserve_correct_option_index=question.reserve_correct_option_index,
+                reserve_reference_answer=question.reserve_reference_answer,
+                reserve_explanation=question.reserve_explanation,
+                order=question.order,
+            )
+        return clone
+
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=self._prepare_request_data(request))
+        prepared_data = self._prepare_request_data(request)
+        lesson = None
+        if prepared_data.get('lesson'):
+            lesson = Lesson.objects.select_related('group').prefetch_related('group__students').filter(id=prepared_data.get('lesson')).first()
+
+        if lesson and lesson.group_id and not prepared_data.get('student'):
+            students = lesson_students(lesson)
+            if not students:
+                return Response({'error': 'O grupo não possui alunos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            payload = dict(prepared_data)
+            payload['group'] = str(lesson.group_id)
+            payload['student'] = str(students[0].id)
+            serializer = self.get_serializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            with transaction.atomic():
+                first_homework = serializer.save()
+                homework_items = [first_homework]
+                for student in students[1:]:
+                    homework_items.append(self._clone_homework_for_student(first_homework, student))
+            data = self.get_serializer(homework_items, many=True).data
+            return Response(data, status=status.HTTP_201_CREATED)
+
+        serializer = self.get_serializer(data=prepared_data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
@@ -360,6 +428,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             'auto_correction_enabled': source.auto_correction_enabled,
             'teacher': source.teacher_id,
             'student': source.student_id,
+            'group': source.group_id,
             'lesson': source.lesson_id,
             'template': source.template_id,
             'questions': [
@@ -593,7 +662,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['teacher', 'student', 'status', 'level', 'is_template', 'is_extra']
+    filterset_fields = ['teacher', 'status', 'level', 'is_template', 'is_extra']
     ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
 
@@ -698,7 +767,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     def start_lesson(self, request, pk=None):
         lesson = self.get_object()
         self._ensure_teacher_lesson_access(lesson)
-        if lesson.is_template or not lesson.student or not lesson.teacher or not lesson.date:
+        if lesson.is_template or not (lesson.student_id or lesson.group_id) or not lesson.teacher or not lesson.date:
             return Response({'error': 'Só é possível iniciar uma aula a partir de um evento agendado.'}, status=status.HTTP_400_BAD_REQUEST)
         if lesson.status not in ['scheduled', 'rescheduled', 'in_progress']:
             return Response({'error': 'Esta aula não está disponível para início.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -707,6 +776,12 @@ class LessonViewSet(viewsets.ModelViewSet):
         selected_lesson_id = request.data.get('selected_lesson')
         if custom_lesson_title and selected_lesson_id:
             return Response({'error': 'Escolha uma aula da trilha ou crie uma nova, mas não envie os dois ao mesmo tempo.'}, status=status.HTTP_400_BAD_REQUEST)
+        if lesson.group_id:
+            if custom_lesson_title or selected_lesson_id:
+                return Response({'error': 'Aulas de grupo usam a trilha compartilhada do grupo.'}, status=status.HTTP_400_BAD_REQUEST)
+            lesson.status = 'in_progress'
+            lesson.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(lesson).data)
         if lesson.is_extra:
             if custom_lesson_title or selected_lesson_id:
                 return Response({'error': 'Aula extra não troca nem insere aulas na trilha.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -771,15 +846,15 @@ class LessonViewSet(viewsets.ModelViewSet):
 
         lesson.status = 'completed'
         lesson.save(update_fields=['status', 'updated_at'])
-        if lesson.student_id:
+        for student in lesson_students(lesson):
             completed_count = Lesson.objects.filter(
-                student=lesson.student,
+                Q(student=student) | Q(group__students=student),
                 is_template=False,
                 status='completed',
-            ).count()
-            if completed_count > int(getattr(lesson.student, 'completed_lessons_count', 0) or 0):
-                lesson.student.completed_lessons_count = completed_count
-                lesson.student.save(update_fields=['completed_lessons_count'])
+            ).distinct().count()
+            if completed_count > int(getattr(student, 'completed_lessons_count', 0) or 0):
+                student.completed_lessons_count = completed_count
+                student.save(update_fields=['completed_lessons_count'])
         return Response(self.get_serializer(lesson).data)
 
     @action(detail=True, methods=['post'], url_path='generate-summary')
@@ -824,7 +899,7 @@ class LessonViewSet(viewsets.ModelViewSet):
         lesson = self.get_object()
         new_date_str = request.data.get('date')
 
-        if lesson.is_template or not lesson.teacher or not lesson.student:
+        if lesson.is_template or not lesson.teacher or not (lesson.student_id or lesson.group_id):
             return Response({'error': 'Só é possível reagendar uma aula agendada.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if user.role == 'student':
@@ -981,21 +1056,25 @@ class LessonViewSet(viewsets.ModelViewSet):
                 return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         response = super().partial_update(request, *args, **kwargs)
         if response.status_code < 400 and status_value == 'completed':
-            updated_lesson = Lesson.objects.select_related('student').filter(pk=lesson.pk).first()
-            if updated_lesson and updated_lesson.student_id:
+            updated_lesson = Lesson.objects.select_related('student', 'group').prefetch_related('group__students').filter(pk=lesson.pk).first()
+            for student in lesson_students(updated_lesson) if updated_lesson else []:
                 completed_count = Lesson.objects.filter(
-                    student=updated_lesson.student,
+                    Q(student=student) | Q(group__students=student),
                     is_template=False,
                     status='completed',
-                ).count()
-                if completed_count > int(getattr(updated_lesson.student, 'completed_lessons_count', 0) or 0):
-                    updated_lesson.student.completed_lessons_count = completed_count
-                    updated_lesson.student.save(update_fields=['completed_lessons_count'])
+                ).distinct().count()
+                if completed_count > int(getattr(student, 'completed_lessons_count', 0) or 0):
+                    student.completed_lessons_count = completed_count
+                    student.save(update_fields=['completed_lessons_count'])
         return response
 
     def get_queryset(self):
         user = self.request.user
-        qs = Lesson.objects.all().select_related('teacher', 'student', 'template', 'summary').prefetch_related('new_words', 'attachments')
+        qs = Lesson.objects.all().select_related('teacher', 'student', 'group', 'template', 'summary').prefetch_related(
+            'new_words',
+            'attachments',
+            'group__students',
+        )
         
         # Filtering logic
         past = self.request.query_params.get('past', None)
@@ -1007,12 +1086,16 @@ class LessonViewSet(viewsets.ModelViewSet):
         elif upcoming == 'true':
             qs = qs.filter(date__gte=now)
 
+        student_filter = self.request.query_params.get('student')
+        if student_filter:
+            qs = qs.filter(Q(student_id=student_filter) | Q(group__students__id=student_filter)).distinct()
+
         if getattr(user, 'is_authenticated', False):
             if user.role == 'admin':
                 return qs
             if user.role == 'teacher':
                 return qs.filter(Q(teacher=user) | Q(is_template=True))
-            return qs.filter(student=user)
+            return qs.filter(Q(student=user) | Q(group__students=user)).distinct()
         return qs
 
     def perform_create(self, serializer):
@@ -1059,13 +1142,15 @@ class TeacherAvailabilityAPIView(APIView):
                 'id': str(schedule.id),
                 'day_of_week': schedule.day_of_week,
                 'start_time': schedule.start_time.strftime('%H:%M'),
-                'student': str(schedule.student_id),
-                'student_name': getattr(schedule.student, 'name', ''),
+                'student': str(schedule.student_id) if schedule.student_id else None,
+                'student_name': getattr(schedule.group, 'name', '') if schedule.group_id else getattr(schedule.student, 'name', ''),
+                'group': str(schedule.group_id) if schedule.group_id else None,
+                'group_name': getattr(schedule.group, 'name', '') if schedule.group_id else '',
             }
             for schedule in StudentRecurringSchedule.objects.filter(
                 teacher_id=teacher_id,
                 active=True,
-            ).select_related('student')
+            ).select_related('student', 'group')
         ]
 
         date_param = request.query_params.get('date')
@@ -1269,7 +1354,7 @@ class CalendarAPIView(APIView):
             if user.role == 'teacher':
                 qs = qs.filter(teacher=user)
             elif user.role == 'student':
-                qs = qs.filter(student=user)
+                qs = qs.filter(Q(student=user) | Q(group__students=user)).distinct()
             
         data = defaultdict(list)
         for lesson in qs:

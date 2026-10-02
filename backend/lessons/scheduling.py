@@ -244,7 +244,11 @@ def completed_extra_lesson_count(student, teacher=None):
 
 
 def actual_completed_lesson_count(student, teacher=None, include_extra=True):
-    qs = Lesson.objects.filter(student=student, is_template=False, status='completed')
+    qs = Lesson.objects.filter(
+        Q(student=student) | Q(group__students=student),
+        is_template=False,
+        status='completed',
+    ).distinct()
     if not include_extra:
         qs = qs.exclude(is_extra=True)
     if teacher is not None:
@@ -262,7 +266,10 @@ def effective_planned_lesson_count(student, teacher=None):
     extra_count = active_extra_lesson_count(student, teacher=teacher)
     manual_sequence_count = max(manual_count - extra_count, 0) if extra_count else manual_count
 
-    qs = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True)
+    qs = Lesson.objects.filter(
+        Q(student=student) | Q(group__students=student),
+        is_template=False,
+    ).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True).distinct()
     if teacher is not None:
         qs = qs.filter(teacher=teacher)
     existing_count = qs.count()
@@ -278,7 +285,7 @@ def pending_lesson_count(student, teacher=None):
     return max(effective_planned_lesson_count(student, teacher=teacher) - effective_completed_lesson_count(student, teacher=teacher), 0)
 
 
-def validate_recurring_schedule_entries(student, teacher, entries):
+def validate_recurring_schedule_entries(student, teacher, entries, group=None):
     seen_entries = []
     for entry in entries:
         day_of_week = entry['day_of_week']
@@ -308,7 +315,11 @@ def validate_recurring_schedule_entries(student, teacher, entries):
             teacher=teacher,
             day_of_week=day_of_week,
             active=True,
-        ).exclude(student=student)
+        )
+        if student is not None:
+            conflicting_schedules = conflicting_schedules.exclude(student=student)
+        if group is not None:
+            conflicting_schedules = conflicting_schedules.exclude(group=group)
 
         for schedule in conflicting_schedules:
             if lesson_start_times_overlap(schedule.start_time, start_time):
@@ -407,10 +418,21 @@ def persist_default_planned_count(student, planned_count):
 
 
 def sync_planned_count_from_existing_lessons(student):
-    lesson_count = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True).count()
+    lesson_count = Lesson.objects.filter(
+        Q(student=student) | Q(group__students=student),
+        is_template=False,
+    ).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True).distinct().count()
     if lesson_count > int(getattr(student, 'planned_lessons_count', 0) or 0):
         student.planned_lessons_count = lesson_count
         student.save(update_fields=['planned_lessons_count'])
+
+
+def lesson_students(lesson):
+    if getattr(lesson, 'student_id', None):
+        return [lesson.student]
+    if getattr(lesson, 'group_id', None):
+        return list(lesson.group.students.filter(role='student').order_by('name', 'email'))
+    return []
 
 
 def sequence_order_key(lesson):
@@ -985,6 +1007,107 @@ def create_student_schedule_and_lessons(student, teacher=None, schedule_entries=
                 date=lesson_date,
                 status=lesson_status,
                 student=student,
+                teacher=teacher,
+                is_template=False,
+                template=spec['template'],
+                order=order,
+            ))
+
+    Lesson.objects.bulk_create(lessons_to_create)
+    return lessons_to_create
+
+
+@transaction.atomic
+def create_group_schedule_and_lessons(group, plan_student, teacher=None, schedule_entries=None, first_lesson_date=None):
+    if not group:
+        raise ValueError('Grupo obrigatório para agendamento.')
+    if not plan_student:
+        raise ValueError('Aluno obrigatório para montar a trilha do grupo.')
+
+    existing_lessons = list(
+        Lesson.objects.filter(group=group, is_template=False).exclude(is_extra=True).order_by('order', 'date')
+    )
+    if existing_lessons:
+        return existing_lessons
+
+    teacher = teacher or group.teacher
+    entries = build_schedule_entries(schedule_entries)
+    validate_recurring_schedule_entries(plan_student, teacher, entries, group=group)
+
+    for entry in entries:
+        StudentRecurringSchedule.objects.update_or_create(
+            group=group,
+            teacher=teacher,
+            day_of_week=entry['day_of_week'],
+            start_time=entry['start_time'],
+            defaults={
+                'student': plan_student,
+                'active': True,
+            },
+        )
+
+    templates = get_student_lesson_templates(plan_student)
+    planned_count = planned_count_for_student(plan_student, templates=templates, teacher=teacher)
+    persist_default_planned_count(plan_student, planned_count)
+    completed_count = min(int(getattr(plan_student, 'completed_lessons_count', 0) or 0), planned_count)
+
+    lessons_to_create = []
+    if entries:
+        scheduled_dates = build_initial_schedule_dates(
+            plan_student,
+            teacher,
+            entries,
+            planned_count - completed_count,
+            first_lesson_date=first_lesson_date,
+        )
+        scheduled_date_index = 0
+
+        for index in range(planned_count):
+            order = index + 1
+            spec = lesson_spec_for_order(plan_student, templates, order)
+            is_completed_on_entry = index < completed_count
+            lesson_date = None
+            lesson_status = 'completed' if is_completed_on_entry else 'scheduled'
+
+            if not is_completed_on_entry:
+                lesson_date = scheduled_dates[scheduled_date_index]
+                scheduled_date_index += 1
+
+            lessons_to_create.append(Lesson(
+                title=spec['title'],
+                level=spec['level'],
+                date=lesson_date,
+                status=lesson_status,
+                student=None,
+                group=group,
+                teacher=teacher,
+                is_template=False,
+                template=spec['template'],
+                order=order,
+            ))
+    else:
+        first_lesson_datetime = parse_lesson_datetime(first_lesson_date) if first_lesson_date else None
+        if first_lesson_datetime:
+            validate_lesson_schedule(teacher, first_lesson_datetime, allow_past=True)
+        first_lesson_assigned = False
+
+        for index in range(planned_count):
+            order = index + 1
+            spec = lesson_spec_for_order(plan_student, templates, order)
+            is_completed_on_entry = index < completed_count
+            lesson_date = None
+            lesson_status = 'completed' if is_completed_on_entry else 'pending'
+            if first_lesson_datetime and not is_completed_on_entry and not first_lesson_assigned:
+                lesson_date = first_lesson_datetime
+                lesson_status = 'scheduled'
+                first_lesson_assigned = True
+            lessons_to_create.append(Lesson(
+                title=spec['title'],
+                level=spec['level'],
+                date=lesson_date,
+                status=lesson_status,
+                student=None,
+                group=group,
                 teacher=teacher,
                 is_template=False,
                 template=spec['template'],

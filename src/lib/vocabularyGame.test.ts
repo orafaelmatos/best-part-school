@@ -103,10 +103,52 @@ describe("buildVocabularyGameRun", () => {
     expect(run.totalStages).toBe(5);
     expect(run.stages[0].card.word).toBe("airport");
     expect(run.stages[1].type).toBe("sentence");
+    expect(run.stages[0].options).toHaveLength(4);
     expect(run.stages[0].options.some((option) => option.isCorrect && option.text === "airport")).toBe(true);
+    expect(run.stages[0].prompt).not.toContain("Qual palavra corresponde");
     expect(run.worlds).toEqual([
       expect.objectContaining({ label: "Campo de Treino", stageCount: 3 }),
       expect.objectContaining({ label: "Floresta de Contexto", stageCount: 2 }),
     ]);
+  });
+
+  it("creates confusing alternatives from the studied word instead of other study cards", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-24T12:00:00.000Z"));
+
+    const run = buildVocabularyGameRun(
+      [
+        makeCard({
+          id: "eat",
+          word: "eat",
+          translation: "comer",
+          confidence_level: 10,
+          failure_count: 4,
+          next_review_at: "2026-08-23T09:00:00.000Z",
+        }),
+        makeCard({
+          id: "city-map",
+          word: "Excuse me, where can I find a town map?",
+          translation: "frase de direcao",
+          confidence_level: 80,
+          difficulty_level: "stable",
+          next_review_at: "2026-08-24T09:00:00.000Z",
+        }),
+        makeCard({
+          id: "tour",
+          word: "I am on a tour in the city.",
+          translation: "frase de viagem",
+          confidence_level: 80,
+          difficulty_level: "stable",
+          next_review_at: "2026-08-24T09:00:00.000Z",
+        }),
+      ],
+      "review",
+    );
+
+    const optionTexts = run.stages[0].options.map((option) => option.text);
+    expect(optionTexts).toEqual(["eat", "ate", "eats", "eating"]);
+    expect(optionTexts.join(" ")).not.toContain("Excuse me");
+    expect(run.stages[0].prompt).toContain("comer");
   });
 });

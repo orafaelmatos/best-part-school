@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db import transaction
 import json
+from .models import StudentGroup
 
 User = get_user_model()
 MAX_PHOTO_SIZE = 8 * 1024 * 1024
@@ -291,6 +292,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     schedule_time = serializers.TimeField(required=False, write_only=True, allow_null=True)
     schedules = serializers.ListField(child=serializers.DictField(), required=False, write_only=True)
     teacher_id = serializers.UUIDField(required=False, write_only=True, allow_null=True)
+    group_id = serializers.UUIDField(required=False, write_only=True, allow_null=True)
     first_lesson_date = serializers.DateTimeField(required=False, write_only=True, allow_null=True)
     monthly_fee = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, write_only=True)
     due_day = serializers.IntegerField(required=False, write_only=True)
@@ -304,7 +306,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'id', 'name', 'email', 'role', 'password', 'level', 'photo', 'listening', 'speaking',
             'reading', 'writing',
             *STUDENT_TRACKING_FIELDS,
-            'schedule_day', 'schedule_time', 'schedules', 'teacher_id',
+            'schedule_day', 'schedule_time', 'schedules', 'teacher_id', 'group_id',
             'first_lesson_date', 'monthly_fee', 'due_day', 'finance_notes', 'contract_file', 'contract_name'
         ]
         extra_kwargs = {
@@ -338,6 +340,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         schedule_time = validated_data.pop('schedule_time', None)
         schedules = validated_data.pop('schedules', None)
         teacher_id = validated_data.pop('teacher_id', None)
+        group_id = validated_data.pop('group_id', None)
         first_lesson_date = validated_data.pop('first_lesson_date', None)
         monthly_fee = validated_data.pop('monthly_fee', None)
         due_day = validated_data.pop('due_day', None)
@@ -365,9 +368,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         
         if user.role == 'student':
             from lessons.scheduling import create_student_schedule_and_lessons
+            from lessons.scheduling import create_group_schedule_and_lessons
             from payments.models import FinancialSettings
             from payments.views import upsert_finance_profile, generate_monthly_payments
             teacher = User.objects.filter(id=teacher_id).first() if teacher_id else None
+            group = StudentGroup.objects.filter(id=group_id).first() if group_id else None
+            if group_id and not group:
+                raise serializers.ValidationError({'group_id': 'Grupo não encontrado.'})
+            if group:
+                if teacher and not group.teacher_id:
+                    group.teacher = teacher
+                    group.save(update_fields=['teacher', 'updated_at'])
+                teacher = teacher or group.teacher
             teacher_settings = FinancialSettings.objects.filter(teacher=teacher).first() if teacher else None
             monthly_fee = monthly_fee if monthly_fee is not None else getattr(teacher_settings, 'default_monthly_fee', 0)
             due_day = due_day or getattr(teacher_settings, 'default_due_day', 10)
@@ -386,12 +398,22 @@ class RegisterSerializer(serializers.ModelSerializer):
             if schedules is None and schedule_day is not None and schedule_time is not None:
                 schedules = [{'day': schedule_day, 'time': schedule_time, 'source': 'js'}]
             try:
-                create_student_schedule_and_lessons(
-                    user,
-                    teacher=teacher,
-                    schedule_entries=schedules or [],
-                    first_lesson_date=first_lesson_date,
-                )
+                if group:
+                    group.students.add(user)
+                    create_group_schedule_and_lessons(
+                        group,
+                        user,
+                        teacher=teacher,
+                        schedule_entries=schedules or [],
+                        first_lesson_date=first_lesson_date,
+                    )
+                else:
+                    create_student_schedule_and_lessons(
+                        user,
+                        teacher=teacher,
+                        schedule_entries=schedules or [],
+                        first_lesson_date=first_lesson_date,
+                    )
             except ValueError as exc:
                 raise serializers.ValidationError({'schedule': str(exc)})
 
@@ -405,6 +427,22 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_photo(self, value):
         return validate_photo_file(value)
+
+
+class StudentGroupSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.name', read_only=True)
+    student_names = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentGroup
+        fields = ['id', 'name', 'teacher', 'teacher_name', 'students', 'student_names', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'student_names', 'created_at', 'updated_at']
+
+    def get_student_names(self, obj):
+        return [
+            student.name or student.email
+            for student in obj.students.filter(role='student').order_by('name', 'email')
+        ]
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):

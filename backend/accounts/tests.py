@@ -11,8 +11,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from accounts.models import User
-from lessons.models import Lesson, TeacherAvailability
+from accounts.models import StudentGroup, User
+from lessons.models import Lesson, StudentRecurringSchedule, TeacherAvailability
 from lessons.scheduling import create_student_schedule_and_lessons
 
 
@@ -245,6 +245,52 @@ class StudentRegistrationScheduleTests(TestCase):
         self.assertEqual(lessons[0].status, 'scheduled')
         self.assertEqual(lessons[0].date, first_lesson_date)
         self.assertEqual(lessons[1].date, first_lesson_date + datetime.timedelta(days=7))
+
+    def test_group_registration_creates_one_shared_schedule_and_lesson_track(self):
+        self.client.force_authenticate(self.teacher)
+        group_response = self.client.post('/api/accounts/student-groups/', {
+            'name': 'Grupo A',
+            'teacher': str(self.teacher.id),
+        }, format='json')
+        self.assertEqual(group_response.status_code, status.HTTP_201_CREATED)
+        group_id = group_response.data['id']
+
+        base_payload = {
+            'password': '123',
+            'role': 'student',
+            'level': 'A1/A2',
+            'teacher_id': str(self.teacher.id),
+            'group_id': group_id,
+            'schedules': [
+                {
+                    'day_of_week': 3,
+                    'time': '20:00:00',
+                },
+            ],
+        }
+        response_one = self.client.post('/api/accounts/register/', {
+            **base_payload,
+            'email': 'group-student-1@test.com',
+            'name': 'Group Student 1',
+        }, format='json')
+        response_two = self.client.post('/api/accounts/register/', {
+            **base_payload,
+            'email': 'group-student-2@test.com',
+            'name': 'Group Student 2',
+        }, format='json')
+
+        self.assertEqual(response_one.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response_two.status_code, status.HTTP_201_CREATED)
+
+        group = StudentGroup.objects.get(id=group_id)
+        self.assertEqual(group.students.count(), 2)
+        self.assertEqual(StudentRecurringSchedule.objects.filter(group=group).count(), 1)
+
+        group_lessons = Lesson.objects.filter(group=group, is_template=False).order_by('order')
+        self.assertEqual(group_lessons.count(), 3)
+        self.assertTrue(all(lesson.student_id is None for lesson in group_lessons))
+        self.assertEqual(Lesson.objects.filter(student__in=group.students.all(), is_template=False).count(), 0)
+        self.assertEqual(timezone.localtime(group_lessons[0].date).weekday(), 3)
 
 
 class UserPhotoUpdateTests(TestCase):

@@ -35,6 +35,7 @@ class Lesson(models.Model):
     date = models.DateTimeField(null=True, blank=True)
     teacher = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='lessons_taught')
     student = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='lessons_attended')
+    group = models.ForeignKey('accounts.StudentGroup', null=True, blank=True, on_delete=models.CASCADE, related_name='lessons')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='scheduled')
     notes = models.TextField(blank=True, null=True)
     meeting_url = models.URLField(blank=True, null=True)
@@ -61,7 +62,8 @@ class StudentRecurringSchedule(models.Model):
     DAY_CHOICES = WEEKDAY_CHOICES
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recurring_schedules')
+    student = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='recurring_schedules')
+    group = models.ForeignKey('accounts.StudentGroup', null=True, blank=True, on_delete=models.CASCADE, related_name='recurring_schedules')
     teacher = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='student_recurring_schedules')
     day_of_week = models.IntegerField(choices=DAY_CHOICES)
     start_time = models.TimeField()
@@ -341,6 +343,7 @@ class Homework(models.Model):
     report_generated_at = models.DateTimeField(blank=True, null=True)
     teacher = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='homework_created')
     student = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name='homework_received')
+    group = models.ForeignKey('accounts.StudentGroup', null=True, blank=True, on_delete=models.CASCADE, related_name='homework_items')
     lesson = models.ForeignKey(Lesson, related_name='homework_items', on_delete=models.CASCADE)
     template = models.ForeignKey('HomeworkTemplate', null=True, blank=True, on_delete=models.SET_NULL, related_name='homework_items')
     created_at = models.DateTimeField(auto_now_add=True)
