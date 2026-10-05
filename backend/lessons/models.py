@@ -215,6 +215,7 @@ class VocabularyReviewLog(models.Model):
     RATING_CHOICES = (
         ('very_hard', 'Muito Dificil'),
         ('hard', 'Dificil'),
+        ('good', 'Boa'),
         ('easy', 'Facil'),
     )
 

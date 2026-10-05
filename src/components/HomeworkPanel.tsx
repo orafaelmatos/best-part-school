@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertCircle, BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, X } from "lucide-react";
+import { AlertCircle, BookOpen, Copy, GripVertical, Headphones, Image as ImageIcon, Plus, Save, Send, Trash2, UserRound, UsersRound, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type QuestionType = "open_text" | "multiple_choice";
@@ -90,6 +90,25 @@ type HomeworkTemplate = {
   description?: string;
   classification?: string;
   questions: HomeworkQuestion[];
+};
+
+type LessonContext = {
+  id: string;
+  title?: string;
+  date?: string | null;
+  teacher?: string | null;
+  student?: string | null;
+  student_name?: string;
+  group?: string | null;
+  group_name?: string;
+};
+
+type HomeworkPanelProps = {
+  lesson: LessonContext;
+  onUpdated?: () => void;
+  mode?: "panel" | "create-dialog";
+  autoOpenCreateKey?: string | number | null;
+  onCreateDialogClose?: () => void;
 };
 
 type QuestionErrorKey = "prompt" | "options" | "correct_option_index" | "reserve_question";
@@ -267,7 +286,7 @@ const emptyQuestion = (order: number): HomeworkQuestion => ({
   order,
 });
 
-const emptyForm = (lesson: any): Partial<Homework> & { questions: HomeworkQuestion[] } => ({
+const emptyForm = (lesson: LessonContext): Partial<Homework> & { questions: HomeworkQuestion[] } => ({
   title: "",
   description: "",
   classification: "",
@@ -347,7 +366,13 @@ const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] 
   return payload;
 };
 
-export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: () => void }) => {
+export const HomeworkPanel = ({
+  lesson,
+  onUpdated,
+  mode = "panel",
+  autoOpenCreateKey = null,
+  onCreateDialogClose,
+}: HomeworkPanelProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -357,6 +382,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
   const [editing, setEditing] = useState<Homework | null>(null);
   const [form, setForm] = useState(emptyForm(lesson));
   const [editorErrors, setEditorErrors] = useState<HomeworkEditorErrors>(emptyEditorErrors);
+  const lastAutoOpenKeyRef = useRef<string | number | null>(null);
 
   const { data: homeworkItems = [] } = useQuery({
     queryKey: ["homework", lesson.id],
@@ -364,6 +390,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       const res = await api.get(`/homework/?lesson=${lesson.id}`);
       return Array.isArray(res.data) ? res.data : (res.data.results || []);
     },
+    enabled: mode === "panel",
   });
 
   const { data: templates = [] } = useQuery({
@@ -378,7 +405,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
   useEffect(() => {
     setForm(emptyForm(lesson));
     setEditorErrors(emptyEditorErrors());
-  }, [lesson.id]);
+  }, [lesson]);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["homework", lesson.id] });
@@ -409,8 +436,9 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
       setEditing(null);
       setForm(emptyForm(lesson));
       setEditorErrors(emptyEditorErrors());
+      onCreateDialogClose?.();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       if (error instanceof Error && error.message === "homework-validation") {
         toast({
           title: "Confira a lição de casa",
@@ -420,7 +448,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
         return;
       }
 
-      const apiErrors = parseHomeworkApiErrors(error?.response?.data);
+      const apiErrors = parseHomeworkApiErrors((error as { response?: { data?: unknown } })?.response?.data);
       setEditorErrors(apiErrors);
       toast({
         title: "Erro ao salvar lição de casa",
@@ -440,7 +468,7 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
     onSuccess: refresh,
   });
 
-  const openEditor = (homework?: Homework) => {
+  const openEditor = useCallback((homework?: Homework) => {
     if (homework) {
       setEditing(homework);
       setForm({
@@ -473,6 +501,23 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
     }
     setEditorErrors(emptyEditorErrors());
     setOpen(true);
+  }, [lesson]);
+
+  useEffect(() => {
+    if (mode !== "create-dialog" || !autoOpenCreateKey || !isTeacher) return;
+    if (lastAutoOpenKeyRef.current === autoOpenCreateKey) return;
+    lastAutoOpenKeyRef.current = autoOpenCreateKey;
+    openEditor();
+  }, [autoOpenCreateKey, isTeacher, mode, lesson.id, openEditor]);
+
+  const handleEditorOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setEditing(null);
+      setForm(emptyForm(lesson));
+      setEditorErrors(emptyEditorErrors());
+      onCreateDialogClose?.();
+    }
   };
 
   const updateQuestion = (index: number, patch: Partial<HomeworkQuestion>) => {
@@ -529,6 +574,41 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
     }));
   };
 
+  const editorDialogContent = (
+    <DialogContent className="max-w-4xl overflow-y-auto sm:max-h-[90vh]">
+      <DialogHeader>
+        <DialogTitle>{editing ? "Editar Lição de Casa" : "Criar Lição de Casa"}</DialogTitle>
+      </DialogHeader>
+      <HomeworkRecipientSummary lesson={lesson} />
+      <HomeworkEditor
+        form={form}
+        templates={templates}
+        errors={editorErrors}
+        onApplyTemplate={applyTemplate}
+        onChange={updateForm}
+        onQuestionChange={updateQuestion}
+        onMoveQuestion={moveQuestion}
+      />
+      <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-border">
+        <Button variant="outline" onClick={() => saveMutation.mutate("draft")} disabled={saveMutation.isPending}>
+          <Save className="mr-2 h-4 w-4" /> Salvar rascunho
+        </Button>
+        <Button onClick={() => saveMutation.mutate("pending")} disabled={saveMutation.isPending}>
+          <Send className="mr-2 h-4 w-4" /> Disponibilizar
+        </Button>
+      </div>
+    </DialogContent>
+  );
+
+  if (mode === "create-dialog") {
+    if (!isTeacher) return null;
+    return (
+      <Dialog open={open} onOpenChange={handleEditorOpenChange}>
+        {editorDialogContent}
+      </Dialog>
+    );
+  }
+
   return (
     <div className="bg-card p-6 border border-border rounded-xl shadow-sm space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -539,34 +619,13 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
           <p className="text-sm text-muted-foreground mt-1">Atividades vinculadas a esta aula.</p>
         </div>
         {isTeacher && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={handleEditorOpenChange}>
             <DialogTrigger asChild>
               <Button onClick={() => openEditor()}>
                 <Plus className="mr-2 h-4 w-4" /> Criar Lição de Casa
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl overflow-y-auto sm:max-h-[90vh]">
-              <DialogHeader>
-                <DialogTitle>{editing ? "Editar Lição de Casa" : "Criar Lição de Casa"}</DialogTitle>
-              </DialogHeader>
-              <HomeworkEditor
-                form={form}
-                templates={templates}
-                errors={editorErrors}
-                onApplyTemplate={applyTemplate}
-                onChange={updateForm}
-                onQuestionChange={updateQuestion}
-                onMoveQuestion={moveQuestion}
-              />
-              <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-border">
-                <Button variant="outline" onClick={() => saveMutation.mutate("draft")} disabled={saveMutation.isPending}>
-                  <Save className="mr-2 h-4 w-4" /> Salvar rascunho
-                </Button>
-                <Button onClick={() => saveMutation.mutate("pending")} disabled={saveMutation.isPending}>
-                  <Send className="mr-2 h-4 w-4" /> Disponibilizar
-                </Button>
-              </div>
-            </DialogContent>
+            {editorDialogContent}
           </Dialog>
         )}
       </div>
@@ -590,6 +649,39 @@ export const HomeworkPanel = ({ lesson, onUpdated }: { lesson: any; onUpdated?: 
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+const HomeworkRecipientSummary = ({ lesson }: { lesson: LessonContext }) => {
+  const isGroup = Boolean(lesson?.group);
+  const recipientName = isGroup
+    ? lesson?.group_name || "Turma sem nome"
+    : lesson?.student_name || "Aluno não informado";
+  const Icon = isGroup ? UsersRound : UserRound;
+  const lessonDate = lesson?.date
+    ? new Date(lesson.date).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+    : "";
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 rounded-md bg-background p-2 text-muted-foreground">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {isGroup ? "Enviar para turma" : "Enviar para aluno"}
+            </p>
+            <p className="mt-1 break-words text-sm font-semibold text-foreground">{recipientName}</p>
+          </div>
+        </div>
+        <div className="text-sm text-muted-foreground sm:text-right">
+          <p className="font-medium text-foreground">{lesson?.title || "Aula sem título"}</p>
+          {lessonDate ? <p className="mt-1">{lessonDate}</p> : null}
+        </div>
+      </div>
     </div>
   );
 };

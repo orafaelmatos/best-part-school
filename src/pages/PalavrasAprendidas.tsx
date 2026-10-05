@@ -20,7 +20,7 @@ const PalavrasAprendidas = () => {
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Nova area</p>
-                <h2 className="mt-2 text-xl font-semibold text-foreground">Transforme os cards em fases curtas de revisao</h2>
+                <h2 className="mt-2 text-xl font-semibold text-foreground">Transforme as palavras em fases curtas de revisao</h2>
                 <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
                   O jogo usa as palavras do proprio aluno para criar desafios simples, com vidas, progresso e reforco real da fila de estudo.
                 </p>

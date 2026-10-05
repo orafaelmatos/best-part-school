@@ -238,7 +238,7 @@ const JogoVocabulario = () => {
         />
 
         <div className="mt-8 rounded-[28px] border border-border bg-card p-8 text-sm leading-7 text-muted-foreground shadow-sm">
-          O jogo esta disponivel no portal do aluno, porque usa diretamente os cards de vocabulario e a fila de revisao individual.
+          O jogo esta disponivel no portal do aluno, porque usa diretamente as palavras de vocabulario e a fila de revisao individual.
         </div>
       </DashboardLayout>
     );
@@ -304,7 +304,7 @@ const JogoVocabulario = () => {
                     <h2 className="mt-2 text-xl font-semibold text-foreground">Regras pensadas para estudo de verdade</h2>
                   </div>
                   <Button asChild variant="outline">
-                    <Link to={APP_PATHS.learnedWords}>Abrir meus cards</Link>
+                    <Link to={APP_PATHS.learnedWords}>Abrir minhas palavras</Link>
                   </Button>
                 </div>
 
@@ -426,7 +426,7 @@ const EmptyGameState = () => (
     </div>
     <h2 className="mt-5 text-2xl font-semibold text-foreground">Ainda nao ha palavras suficientes para jogar</h2>
     <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
-      Assim que o aluno acumular cards de vocabulario, esta area pode virar um treino diario leve, curto e com impacto real na revisao.
+      Assim que o aluno acumular palavras de vocabulario, esta area pode virar um treino diario leve, curto e com impacto real na revisao.
     </p>
     <Button asChild className="mt-6">
       <Link to={APP_PATHS.learnedWords}>Ver palavras aprendidas</Link>
@@ -707,7 +707,7 @@ const GameSummaryCard = ({
         Jogar novamente
       </Button>
       <Button asChild variant="outline">
-        <Link to={APP_PATHS.learnedWords}>Voltar aos cards</Link>
+        <Link to={APP_PATHS.learnedWords}>Voltar às palavras</Link>
       </Button>
     </div>
   </section>
@@ -829,12 +829,18 @@ const AnswerButton = ({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-[88px] rounded-[18px] border-[3px] px-4 py-4 text-center text-sm font-semibold uppercase tracking-[0.18em] transition duration-150 disabled:cursor-not-allowed",
+        "flex min-h-[104px] w-full items-center justify-center overflow-hidden rounded-[18px] border-[3px] px-3 py-3 text-center text-[0.68rem] font-semibold uppercase leading-[1.45] tracking-normal transition duration-150 disabled:cursor-not-allowed sm:text-xs",
         toneClass,
       )}
-      style={PIXEL_FONT_STYLE}
+      style={{
+        ...PIXEL_FONT_STYLE,
+        hyphens: "auto",
+        letterSpacing: 0,
+        overflowWrap: "anywhere",
+        wordBreak: "break-word",
+      }}
     >
-      {label}
+      <span className="block max-w-full">{label}</span>
     </button>
   );
 };

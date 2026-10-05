@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   BookOpen,
   BookText,
   Calendar,
+  Camera,
   ClipboardList,
   CreditCard,
   Gamepad2,
+  Globe2,
   Headphones,
   LayoutDashboard,
   LogOut,
@@ -23,13 +26,16 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import SidebarBadge, { useSidebarBadges } from "./SidebarBadges";
 import AIConversationSidebar from "./AIConversationSidebar";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { absoluteMediaUrl } from "@/lib/config";
 import {
   AI_WORKSPACE_SIDEBAR_WIDTH_CLASS,
   DEFAULT_SIDEBAR_WIDTH_CLASS,
   isAiWorkspacePath,
 } from "@/lib/appSidebar";
-import { APP_PATHS, LOGIN_PATH } from "@/lib/routes";
+import { APP_PATHS, LANDING_PATH, LOGIN_PATH } from "@/lib/routes";
 
 type BadgeKey = "homework" | "learned_words" | "finance";
 
@@ -59,6 +65,13 @@ type FeaturedMenuItem = {
   path: string;
   tone: "sky" | "emerald";
 };
+
+type UserProfile = {
+  id: string;
+  photo_url?: string | null;
+};
+
+const MAX_PROFILE_PHOTO_SIZE = 8 * 1024 * 1024;
 
 const ADMIN_TEACHER_MENU_ITEMS: MenuItem[] = [
   { label: "Painel Geral", icon: LayoutDashboard, path: APP_PATHS.dashboard },
@@ -119,10 +132,10 @@ const ADMIN_TEACHER_MOBILE_NAV_ITEMS: MobileNavItem[] = [
   { label: "Menu", icon: Menu, action: "menu" },
 ];
 
-const getRoleLabel = (role?: string) => {
+const getRoleLabel = (role?: string, level?: string | null) => {
   if (role === "admin") return "Admin";
   if (role === "teacher") return "Professor";
-  if (role === "student") return "Aluno";
+  if (role === "student") return `Aluno${level ? ` - ${level}` : ""}`;
   return "Usuario";
 };
 
@@ -177,9 +190,42 @@ const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: badges } = useSidebarBadges(user?.role === "student");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const isAiWorkspace = user?.role === "student" && isAiWorkspacePath(location.pathname);
+
+  const profileQuery = useQuery({
+    queryKey: ["current-user-profile", user?.user_id],
+    queryFn: async () => {
+      const response = await api.get(`/accounts/users/${user?.user_id}/`);
+      return response.data as UserProfile;
+    },
+    enabled: Boolean(user?.user_id),
+  });
+
+  const profilePhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const payload = new FormData();
+      payload.append("photo", file);
+      return api.patch(`/accounts/users/${user?.user_id}/`, payload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["current-user-profile", user?.user_id] });
+      toast({ title: "Foto atualizada" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Erro ao atualizar foto",
+        description: error.response?.data?.photo?.[0] || "Nao foi possivel salvar a imagem agora.",
+        variant: "destructive",
+      });
+    },
+  });
 
   useEffect(() => {
     setMobileOpen(false);
@@ -209,6 +255,32 @@ const AppSidebar = () => {
     navigate(LOGIN_PATH);
   };
 
+  const handleProfilePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Imagem invalida",
+        description: "Envie uma foto em PNG, JPG, JPEG ou WEBP.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > MAX_PROFILE_PHOTO_SIZE) {
+      toast({
+        title: "Imagem muito grande",
+        description: "A foto deve ter no maximo 8 MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    profilePhotoMutation.mutate(file);
+  };
+
   const badgePropsByKey = {
     homework: badges?.homework,
     learned_words: badges?.learned_words,
@@ -216,6 +288,7 @@ const AppSidebar = () => {
   };
   const userDisplayName = getDisplayName(user?.name, user?.email);
   const userInitials = getInitials(userDisplayName);
+  const userPhotoUrl = absoluteMediaUrl(profileQuery.data?.photo_url);
   const mobileNavItems = user?.role === "student" ? STUDENT_MOBILE_NAV_ITEMS : ADMIN_TEACHER_MOBILE_NAV_ITEMS;
   const mobilePageTitle = getMobilePageTitle(location.pathname, user?.role);
 
@@ -228,14 +301,24 @@ const AppSidebar = () => {
       menuSections={menuSections}
       onLogout={handleLogout}
       onNavigate={() => setMobileOpen(false)}
+      onProfilePhotoClick={user?.role === "student" ? () => profilePhotoInputRef.current?.click() : undefined}
       userName={userDisplayName}
       userInitials={userInitials}
-      userRoleLabel={getRoleLabel(user?.role)}
+      userPhotoUrl={userPhotoUrl}
+      userRoleLabel={getRoleLabel(user?.role, user?.level)}
+      isPhotoUploading={profilePhotoMutation.isPending}
     />
   );
 
   return (
     <>
+      <input
+        ref={profilePhotoInputRef}
+        type="file"
+        accept=".png,.jpg,.jpeg,.webp,image/*"
+        className="hidden"
+        onChange={handleProfilePhotoChange}
+      />
       <div className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[rgba(15,23,42,0.92)] px-4 pb-3 pt-[calc(0.75rem_+_env(safe-area-inset-top))] backdrop-blur lg:hidden">
         <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
           <button
@@ -373,24 +456,30 @@ const MobileBottomNavigation = ({
 const SidebarContent = ({
   badgesByKey,
   isAiWorkspace,
+  isPhotoUploading,
   isItemActive,
   isStudent,
   menuSections,
   onLogout,
   onNavigate,
+  onProfilePhotoClick,
   userName,
   userInitials,
+  userPhotoUrl,
   userRoleLabel,
 }: {
   badgesByKey: Record<BadgeKey, { count: number; state: "none" | "default" | "warning" | "danger" } | undefined>;
   isAiWorkspace: boolean;
+  isPhotoUploading: boolean;
   isItemActive: (path: string) => boolean;
   isStudent: boolean;
   menuSections: MenuSection[];
   onLogout: () => void;
   onNavigate: () => void;
+  onProfilePhotoClick?: () => void;
   userName: string;
   userInitials: string;
+  userPhotoUrl?: string | null;
   userRoleLabel: string;
 }) => (
   <>
@@ -443,15 +532,42 @@ const SidebarContent = ({
 
     <div className="border-t border-white/10 px-4 pb-4 pt-4">
       <div className="rounded-[28px] bg-white/8 p-3.5 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-white text-sm font-semibold text-slate-900">
-            {userInitials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">{userName}</p>
-            <p className="text-xs text-slate-300">{userRoleLabel}</p>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={onProfilePhotoClick}
+          disabled={!onProfilePhotoClick || isPhotoUploading}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-2xl p-1.5 text-left transition",
+            onProfilePhotoClick ? "hover:bg-white/8" : "cursor-default",
+          )}
+          title={onProfilePhotoClick ? "Alterar foto do perfil" : undefined}
+        >
+          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[18px] bg-white text-sm font-semibold text-slate-900">
+            {userPhotoUrl ? (
+              <img src={userPhotoUrl} alt={userName} className="h-full w-full object-cover" />
+            ) : (
+              userInitials
+            )}
+            {onProfilePhotoClick ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-slate-950/0 text-white opacity-0 transition hover:bg-slate-950/45 hover:opacity-100">
+                <Camera className="h-4 w-4" />
+              </span>
+            ) : null}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-white">{userName}</span>
+            <span className="block text-xs text-slate-300">{isPhotoUploading ? "Enviando foto..." : userRoleLabel}</span>
+          </span>
+        </button>
+
+        <Link
+          to={LANDING_PATH}
+          onClick={onNavigate}
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/6 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/12 hover:text-white"
+        >
+          <Globe2 className="h-4 w-4" />
+          Visitar site
+        </Link>
 
         <button
           type="button"

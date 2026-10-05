@@ -8,7 +8,6 @@ import {
   Clock3,
   Copy,
   ExternalLink,
-  FileBadge2,
   FileText,
   Landmark,
   MessageCircleMore,
@@ -38,6 +37,13 @@ const currency = (value: number | string | null | undefined) =>
   Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleDateString("pt-BR") : "—";
+
+const pixKeyTypeLabel = (value?: string | null) => {
+  if (value === "cpf") return "CPF";
+  if (value === "phone") return "Telefone";
+  if (value === "random") return "Chave aleatoria";
+  return "E-mail";
+};
 
 const FinanceCard = ({ label, value, icon: Icon, tone = "default" }: any) => (
   <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -94,7 +100,7 @@ const Pagamentos = () => {
   const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [contractFile, setContractFile] = useState<File | null>(null);
   const [settingsForm, setSettingsForm] = useState({
     pix_key_type: "email",
     pix_key: "",
@@ -132,11 +138,9 @@ const Pagamentos = () => {
   });
 
   const paymentActionMutation = useMutation({
-    mutationFn: async ({ paymentId, action, payload }: { paymentId: string; action: string; payload?: any }) => {
+    mutationFn: async ({ paymentId, action }: { paymentId: string; action: string }) => {
       if (action === "paid") return api.patch(`/payments/${paymentId}/mark_paid/`);
       if (action === "pending") return api.patch(`/payments/${paymentId}/mark_pending/`);
-      if (action === "approve") return api.patch(`/payments/${paymentId}/approve_receipt/`);
-      if (action === "reject") return api.patch(`/payments/${paymentId}/reject_receipt/`, payload);
       if (action === "charge") return api.post(`/payments/${paymentId}/charge_student/`);
       throw new Error("Acao invalida");
     },
@@ -163,23 +167,26 @@ const Pagamentos = () => {
     },
   });
 
-  const uploadReceiptMutation = useMutation({
-    mutationFn: async ({ paymentId, file }: { paymentId: string; file: File }) => {
+  const uploadContractMutation = useMutation({
+    mutationFn: async ({ studentId, file }: { studentId: string; file: File }) => {
       const payload = new FormData();
-      payload.append("file", file);
-      return api.post(`/payments/${paymentId}/upload_receipt/`, payload, {
+      payload.append("contract_file", file);
+      payload.append("contract_name", file.name);
+      return api.patch(`/accounts/users/${studentId}/`, payload, {
         headers: { "Content-Type": "multipart/form-data" },
       });
     },
     onSuccess: () => {
-      setReceiptFile(null);
+      setContractFile(null);
+      queryClient.invalidateQueries({ queryKey: ["student-finance-detail"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["my-finance"] });
-      toast({ title: "Comprovante enviado", description: "Agora o professor precisa confirmar o pagamento." });
+      toast({ title: "Contrato anexado", description: "O aluno ja pode abrir o contrato pelo financeiro." });
     },
     onError: (err: any) => {
       toast({
-        title: "Erro ao enviar comprovante",
-        description: err.response?.data?.error || "Nao foi possivel enviar o comprovante.",
+        title: "Erro ao anexar contrato",
+        description: err.response?.data?.contract_file?.[0] || err.response?.data?.error || "Nao foi possivel enviar o contrato.",
         variant: "destructive",
       });
     },
@@ -211,6 +218,10 @@ const Pagamentos = () => {
     }
   }, [settingsQuery.data]);
 
+  useEffect(() => {
+    setContractFile(null);
+  }, [selectedStudentId]);
+
   const teacherActions = (item: any) => (
     <>
       <Button size="sm" onClick={() => paymentActionMutation.mutate({ paymentId: item.id, action: "charge" })}>
@@ -228,7 +239,7 @@ const Pagamentos = () => {
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <PageHeader
           title="Financeiro"
-          description={isTeacher ? "Recebimentos, inadimplencia e confirmacoes em um painel unico." : "Mensalidade, PIX e comprovantes em um fluxo simples."}
+          description={isTeacher ? "Recebimentos, inadimplencia e contratos em um painel unico." : "Mensalidade, PIX e contrato em um fluxo simples."}
         />
         {isTeacher && (
           <Button className="w-full sm:w-auto" onClick={() => setIsSettingsOpen(true)}>
@@ -246,7 +257,6 @@ const Pagamentos = () => {
             <FinanceCard label="Total pendente" value={currency(teacherDashboard?.total_pending)} icon={Clock3} tone="warning" />
             <FinanceCard label="Total vencido" value={currency(teacherDashboard?.total_overdue)} icon={AlertCircle} tone="danger" />
             <FinanceCard label="Alunos inadimplentes" value={teacherDashboard?.delinquent_students || 0} icon={XCircle} tone="danger" />
-            <FinanceCard label="Aguardando confirmacao" value={teacherDashboard?.awaiting_confirmation || 0} icon={FileBadge2} tone="warning" />
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -272,12 +282,6 @@ const Pagamentos = () => {
             <SectionList title="Pagamentos pendentes" description="Cobrar rapido e abrir detalhes do aluno." items={teacherDashboard?.pending_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
             <SectionList title="Proximos do vencimento" description="Aulas e cobrancas que merecem atencao agora." items={teacherDashboard?.due_soon_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
             <SectionList title="Vencidos" description="Mensalidades em atraso." items={teacherDashboard?.overdue_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
-            <SectionList title="Aguardando confirmacao" description="Comprovantes enviados pelos alunos." items={teacherDashboard?.awaiting_confirmation_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={(item: any) => (
-              <>
-                <Button size="sm" onClick={() => paymentActionMutation.mutate({ paymentId: item.id, action: "approve" })}>Aprovar</Button>
-                <Button size="sm" variant="outline" onClick={() => paymentActionMutation.mutate({ paymentId: item.id, action: "reject", payload: { reason: "Comprovante recusado" } })}>Rejeitar</Button>
-              </>
-            )} />
           </div>
         </div>
       ) : (
@@ -287,7 +291,7 @@ const Pagamentos = () => {
               <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">Mensalidade atual</h2>
-                  <p className="text-sm text-muted-foreground">Resumo da cobranca e envio de comprovante.</p>
+                  <p className="text-sm text-muted-foreground">Resumo da cobranca, vencimento e PIX do professor.</p>
                 </div>
                 {studentFinance?.current_payment && <StatusBadge status={studentFinance.current_payment.status} />}
               </div>
@@ -296,34 +300,44 @@ const Pagamentos = () => {
                 <div className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-3">
                     <FinanceCard label="Mensalidade" value={currency(studentFinance.current_payment.amount)} icon={BadgeDollarSign} />
-                    <FinanceCard label="Vencimento" value={dateLabel(studentFinance.current_payment.due_date)} icon={Clock3} />
-                    <FinanceCard label="Chave PIX" value={studentFinance?.settings?.pix_key || "Nao configurada"} icon={Landmark} />
+                    <FinanceCard label="Vencimento da mensalidade" value={dateLabel(studentFinance.current_payment.due_date)} icon={Clock3} tone={studentFinance.current_payment.status === "overdue" ? "danger" : "warning"} />
+                    <FinanceCard label={`Chave PIX do professor (${pixKeyTypeLabel(studentFinance?.settings?.pix_key_type)})`} value={studentFinance?.settings?.pix_key || "Nao configurada"} icon={Landmark} />
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    <p className="font-semibold">Pague para o professor até {dateLabel(studentFinance.current_payment.due_date)}.</p>
+                    <p className="mt-1 leading-6">
+                      Use a chave PIX do professor acima, leia o QR Code abaixo ou copie o codigo PIX copia e cola.
+                    </p>
                   </div>
                   <div className="rounded-xl border border-border bg-muted/30 p-4">
                     <p className="text-sm font-medium">Instrucoes</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{studentFinance?.settings?.payment_instructions || "Pague via PIX e envie o comprovante para confirmacao manual."}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{studentFinance?.settings?.payment_instructions || "Pague via PIX usando a chave do professor. Se precisar confirmar algo, fale diretamente com o professor."}</p>
                   </div>
                   <div className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-sm font-medium">PIX copia e cola</p>
-                        <p className="mt-1 text-xs text-muted-foreground break-all">{studentFinance.pix_payload || "Configure a chave PIX com o professor."}</p>
+                        <p className="text-sm font-semibold">Copie e cole para pagar para o professor</p>
+                        <p className="mt-1 text-xs text-muted-foreground break-all">{studentFinance.pix_payload || "O professor ainda precisa configurar a chave PIX."}</p>
                       </div>
                       <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={async () => {
                         await navigator.clipboard.writeText(studentFinance.pix_payload || "");
                         toast({ title: "Codigo PIX copiado" });
                       }}>
                         <Copy className="mr-2 h-4 w-4" />
-                        Copiar
+                        Copiar PIX
                       </Button>
                     </div>
                     {studentFinance.pix_payload && (
-                      <div className="mt-4 flex justify-center rounded-xl bg-muted/20 p-4">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(studentFinance.pix_payload)}`}
-                          alt="QR Code PIX"
-                          className="h-44 w-44 rounded-lg border border-border bg-white p-2"
-                        />
+                      <div className="mt-4 rounded-xl bg-muted/20 p-4">
+                        <p className="text-center text-sm font-semibold text-foreground">Leia este QR Code para pagar para o professor</p>
+                        <p className="mt-1 text-center text-xs text-muted-foreground">ou copie e cole o codigo PIX acima no app do banco.</p>
+                        <div className="mt-4 flex justify-center">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(studentFinance.pix_payload)}`}
+                            alt="QR Code PIX para pagar o professor"
+                            className="h-48 w-48 rounded-lg border border-border bg-white p-2"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -336,8 +350,8 @@ const Pagamentos = () => {
             </div>
 
             <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">Contrato e comprovante</h2>
-              <p className="mt-1 text-sm text-muted-foreground">O comprovante muda o status para aguardando confirmacao.</p>
+              <h2 className="text-lg font-semibold">Contrato</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Se quiser ver seu contrato, clique aqui.</p>
 
               <div className="mt-5 space-y-4">
                 {studentFinance?.profile?.contract_url ? (
@@ -346,31 +360,15 @@ const Pagamentos = () => {
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 ) : (
-                  <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">Contrato ainda nao enviado.</div>
+                  <div className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">Contrato ainda nao anexado pelo professor.</div>
                 )}
-
-                <FileUploadField
-                  label="Enviar comprovante"
-                  description="Formatos aceitos: PDF, PNG, JPG e JPEG."
-                  file={receiptFile}
-                  onChange={setReceiptFile}
-                />
-
-                <Button
-                  className="w-full"
-                  disabled={!receiptFile || !studentFinance?.current_payment || uploadReceiptMutation.isPending}
-                  onClick={() => uploadReceiptMutation.mutate({ paymentId: studentFinance.current_payment.id, file: receiptFile! })}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  {uploadReceiptMutation.isPending ? "Enviando..." : "Enviar comprovante"}
-                </Button>
               </div>
             </div>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <SectionList title="Proximas mensalidades" description="O que vem pela frente." items={studentFinance?.upcoming_payments || []} onOpenDetails={setSelectedPayment} />
-            <SectionList title="Historico financeiro" description="Pagamentos e comprovantes recentes." items={studentFinance?.payment_history || []} onOpenDetails={setSelectedPayment} />
+            <SectionList title="Historico financeiro" description="Pagamentos recentes." items={studentFinance?.payment_history || []} onOpenDetails={setSelectedPayment} />
           </div>
         </div>
       )}
@@ -429,7 +427,7 @@ const Pagamentos = () => {
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Detalhes financeiros do aluno</DialogTitle>
-            <DialogDescription>Mensalidade, contrato, timeline e comprovantes em um unico lugar.</DialogDescription>
+            <DialogDescription>Mensalidade, contrato e timeline financeira em um unico lugar.</DialogDescription>
           </DialogHeader>
           {studentDetailQuery.data && (
             <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
@@ -440,12 +438,32 @@ const Pagamentos = () => {
                     {currency(studentDetailQuery.data.profile.monthly_fee)} · vence dia {studentDetailQuery.data.profile.due_day}
                   </p>
                 </div>
-                {studentDetailQuery.data.profile.contract_url && (
+                {studentDetailQuery.data.profile.contract_url ? (
                   <a href={studentDetailQuery.data.profile.contract_url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-border bg-card p-4 text-sm font-medium hover:bg-muted/40">
                     <span className="flex items-center gap-2"><FileText className="h-4 w-4" /> {studentDetailQuery.data.profile.contract_name || "Contrato"}</span>
                     <ExternalLink className="h-4 w-4" />
                   </a>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
+                    Nenhum contrato anexado ainda.
+                  </div>
                 )}
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <FileUploadField
+                    label="Contrato do aluno"
+                    description="Anexe ou troque o contrato que o aluno podera abrir no financeiro."
+                    file={contractFile}
+                    onChange={setContractFile}
+                  />
+                  <Button
+                    className="mt-4 w-full"
+                    disabled={!contractFile || uploadContractMutation.isPending}
+                    onClick={() => uploadContractMutation.mutate({ studentId: studentDetailQuery.data.profile.student, file: contractFile! })}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    {uploadContractMutation.isPending ? "Anexando..." : "Anexar contrato"}
+                  </Button>
+                </div>
                 <div className="rounded-xl border border-border bg-card p-4">
                   <p className="text-sm font-semibold">Observacoes</p>
                   <p className="mt-2 text-sm text-muted-foreground">{studentDetailQuery.data.profile.notes || "Sem observacoes financeiras."}</p>
@@ -489,7 +507,7 @@ const Pagamentos = () => {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Detalhes da mensalidade</DialogTitle>
-            <DialogDescription>Contrato, comprovantes e status desta cobranca.</DialogDescription>
+            <DialogDescription>Valor, vencimento e status desta cobranca.</DialogDescription>
           </DialogHeader>
           {selectedPayment && (
             <div className="space-y-4">
@@ -499,19 +517,6 @@ const Pagamentos = () => {
                   <p className="text-sm text-muted-foreground">Vencimento {dateLabel(selectedPayment.due_date)}</p>
                 </div>
                 <StatusBadge status={selectedPayment.status} />
-              </div>
-              <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-sm font-semibold">Comprovantes</p>
-                <div className="mt-3 space-y-2">
-                  {selectedPayment.receipts?.length ? selectedPayment.receipts.map((receipt: any) => (
-                    <a key={receipt.id} href={receipt.file_url} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border p-3 text-sm hover:bg-muted/30">
-                      <span>{receipt.original_name || "Comprovante"}</span>
-                      <StatusBadge status={receipt.review_status === "approved" ? "paid" : receipt.review_status === "rejected" ? "failed" : "pending"} />
-                    </a>
-                  )) : (
-                    <p className="text-sm text-muted-foreground">Nenhum comprovante enviado ainda.</p>
-                  )}
-                </div>
               </div>
             </div>
           )}

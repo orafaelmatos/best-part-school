@@ -3,7 +3,7 @@ import { ArrowLeft, CheckCircle2, Flame, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import VocabularyAudioButton from "@/components/VocabularyAudioButton";
 
-export type ReviewRating = "very_hard" | "hard" | "easy";
+export type ReviewRating = "very_hard" | "hard" | "good" | "easy";
 
 export type VocabularyCard = {
   id: string;
@@ -38,15 +38,42 @@ type Props = {
   isReviewing?: boolean;
 };
 
-const ratingCopy: Record<ReviewRating, string> = {
-  very_hard: "Muito Difícil",
-  hard: "Difícil",
-  easy: "Fácil",
-};
+const ratingOptions: Array<{
+  rating: ReviewRating;
+  label: string;
+  description: string;
+  schedule: string;
+}> = [
+  {
+    rating: "very_hard",
+    label: "Errei 😵",
+    description: "Essa ainda não entrou na cabeça.",
+    schedule: "Volta em 10 minutos",
+  },
+  {
+    rating: "hard",
+    label: "Difícil 😬",
+    description: "Lembrei, mas sofri.",
+    schedule: "Volta em 1 dia",
+  },
+  {
+    rating: "good",
+    label: "Boa 👍",
+    description: "Consegui lembrar de boa.",
+    schedule: "Volta em 3 dias",
+  },
+  {
+    rating: "easy",
+    label: "Fácil 😎",
+    description: "Essa já tá tranquila.",
+    schedule: "Volta em 7 dias",
+  },
+];
 
 const ratingStyles: Record<ReviewRating, string> = {
   very_hard: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
   hard: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+  good: "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
   easy: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
 };
 
@@ -73,7 +100,8 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
       if (!revealed) return;
       if (event.key === "1") onReview(activeCard, "very_hard");
       if (event.key === "2") onReview(activeCard, "hard");
-      if (event.key === "3") onReview(activeCard, "easy");
+      if (event.key === "3") onReview(activeCard, "good");
+      if (event.key === "4") onReview(activeCard, "easy");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -91,7 +119,7 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
       <div className="mx-auto flex min-h-[420px] max-w-2xl flex-col items-center justify-center rounded-lg border border-border bg-card p-8 text-center">
         <CheckCircle2 className="mb-4 h-10 w-10 text-emerald-600" />
         <h2 className="text-2xl font-semibold">Fila concluída</h2>
-        <p className="mt-2 text-sm text-muted-foreground">As próximas revisões aparecem quando o algoritmo agendar novos cards.</p>
+        <p className="mt-2 text-sm text-muted-foreground">As próximas revisões aparecem quando o algoritmo agendar novas palavras.</p>
         <Button className="mt-6" onClick={onBack}>Voltar ao painel</Button>
       </div>
     );
@@ -151,16 +179,18 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
                   />
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {(Object.keys(ratingCopy) as ReviewRating[]).map((rating) => (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {ratingOptions.map((option) => (
                   <Button
-                    key={rating}
+                    key={option.rating}
                     variant="outline"
                     disabled={isReviewing}
-                    className={ratingStyles[rating]}
-                    onClick={() => submitReview(rating)}
+                    className={`h-auto min-h-[118px] flex-col items-start justify-start gap-2 whitespace-normal rounded-xl px-3 py-3 text-left ${ratingStyles[option.rating]}`}
+                    onClick={() => submitReview(option.rating)}
                   >
-                    {ratingCopy[rating]}
+                    <span className="text-sm font-semibold leading-5">{option.label}</span>
+                    <span className="text-xs font-normal leading-5 opacity-85">{option.description}</span>
+                    <span className="text-[11px] font-semibold leading-4 opacity-80">{option.schedule}</span>
                   </Button>
                 ))}
               </div>
@@ -171,7 +201,7 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
 
       <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
         <RotateCcw className="h-3.5 w-3.5" />
-        Espaço revela. Depois use 1, 2 ou 3 para responder.
+        Espaço revela. Depois use 1, 2, 3 ou 4 para responder.
       </div>
     </div>
   );

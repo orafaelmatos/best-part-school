@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from difflib import SequenceMatcher
 
@@ -8,6 +9,7 @@ from openai import OpenAI
 from .models import HomeworkAnswer
 
 client = OpenAI()
+CHEAP_HOMEWORK_MODEL = os.getenv('OPENAI_CHEAP_HOMEWORK_MODEL', 'gpt-5-nano')
 
 
 def clean_text(value, limit=None):
@@ -75,6 +77,26 @@ class HomeworkAutoCorrectionService:
                 },
             },
             'required': ['is_correct', 'feedback', 'explanation', 'expected_answer', 'second_chance_question'],
+        },
+        'strict': True,
+    }
+    teacher_focus_schema = {
+        'name': 'homework_teacher_focus_report',
+        'schema': {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {
+                'summary': {'type': 'string'},
+                'focus_points': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                },
+                'suggested_next_steps': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                },
+            },
+            'required': ['summary', 'focus_points', 'suggested_next_steps'],
         },
         'strict': True,
     }
@@ -194,7 +216,7 @@ class HomeworkAutoCorrectionService:
     def _ai_correct(cls, homework, question_payload, student_answer, include_second_chance=False):
         try:
             response = client.chat.completions.create(
-                model='gpt-4o-mini',
+                model=CHEAP_HOMEWORK_MODEL,
                 messages=[
                     {
                         'role': 'system',
@@ -236,6 +258,162 @@ class HomeworkAutoCorrectionService:
             return payload
         except Exception:
             return None
+
+    @classmethod
+    def _answer_text(cls, question, answer, *, second_chance=False):
+        if not answer:
+            return ''
+        if second_chance:
+            selected = answer.second_chance_selected_option_index
+            answer_text = answer.second_chance_answer_text
+            metadata = answer.correction_metadata if isinstance(answer.correction_metadata, dict) else {}
+            second_chance_question = metadata.get('second_chance_question') or {}
+            options = second_chance_question.get('options') or []
+            question_type = second_chance_question.get('type') or question.type
+        else:
+            selected = answer.selected_option_index
+            answer_text = answer.answer_text
+            options = question.options or []
+            question_type = question.type
+
+        if question_type == 'multiple_choice':
+            if selected is None or selected >= len(options):
+                return ''
+            return clean_text(options[selected], limit=600)
+        return clean_text(answer_text, limit=1200)
+
+    @classmethod
+    def _fallback_teacher_focus_report(cls, homework):
+        attention_points = []
+        student_report = homework.student_report if isinstance(homework.student_report, dict) else {}
+        for point in student_report.get('attention_points') or []:
+            text = clean_text(point, limit=180)
+            if text:
+                attention_points.append(text)
+            if len(attention_points) >= 3:
+                break
+
+        if not attention_points:
+            answers = (
+                HomeworkAnswer.objects.filter(homework=homework, is_correct=False)
+                .select_related('question')
+                .order_by('question__order')[:3]
+            )
+            attention_points = [
+                clean_text(answer.auto_explanation or answer.expected_answer or answer.question.prompt, limit=180)
+                for answer in answers
+                if clean_text(answer.auto_explanation or answer.expected_answer or answer.question.prompt, limit=180)
+            ]
+
+        return {
+            'generated_at': timezone.now().isoformat(),
+            'model': CHEAP_HOMEWORK_MODEL,
+            'summary': 'Revise os erros principais da homework antes de avançar para uma nova estrutura.',
+            'focus_points': attention_points or ['Revisar os itens em que o aluno demonstrou maior insegurança.'],
+            'suggested_next_steps': [
+                'Escolha 2 ou 3 exemplos da homework e peça uma nova versão oral ou escrita.',
+                'Faça uma correção guiada, pedindo que o aluno explique a regra com as próprias palavras.',
+            ],
+        }
+
+    @classmethod
+    def generate_teacher_focus_report(cls, homework):
+        answers = list(
+            HomeworkAnswer.objects.filter(homework=homework)
+            .select_related('question')
+            .order_by('question__order')
+        )
+        if not answers:
+            raise ValueError('Esta homework ainda não possui respostas do aluno.')
+
+        mistakes = []
+        for answer in answers:
+            needs_focus = (
+                answer.is_correct is False
+                or answer.second_chance_is_correct is False
+                or bool(answer.auto_explanation)
+                or bool(answer.second_chance_explanation)
+            )
+            if not needs_focus:
+                continue
+            mistakes.append({
+                'question': clean_text(answer.question.prompt, limit=1000),
+                'student_answer': cls._answer_text(answer.question, answer),
+                'first_try_correct': answer.is_correct,
+                'first_feedback': clean_text(answer.auto_feedback, limit=240),
+                'first_explanation': clean_text(answer.auto_explanation, limit=360),
+                'expected_answer': clean_text(answer.expected_answer, limit=700),
+                'second_chance_answer': cls._answer_text(answer.question, answer, second_chance=True),
+                'second_chance_correct': answer.second_chance_is_correct,
+                'second_chance_feedback': clean_text(answer.second_chance_feedback, limit=240),
+                'second_chance_explanation': clean_text(answer.second_chance_explanation, limit=360),
+            })
+
+        if not mistakes:
+            mistakes = [{
+                'question': 'Nenhum erro relevante identificado.',
+                'student_answer': '',
+                'first_try_correct': True,
+                'first_feedback': '',
+                'first_explanation': '',
+                'expected_answer': '',
+                'second_chance_answer': '',
+                'second_chance_correct': None,
+                'second_chance_feedback': '',
+                'second_chance_explanation': '',
+            }]
+
+        try:
+            response = client.chat.completions.create(
+                model=CHEAP_HOMEWORK_MODEL,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': (
+                            'You help an English teacher decide what to focus on next with a Brazilian student. '
+                            'Use only the homework mistakes provided. '
+                            'Return short Brazilian Portuguese JSON. '
+                            'Be practical: name the language point, why it matters, and one quick classroom action. '
+                            'Keep the whole report concise.'
+                        ),
+                    },
+                    {
+                        'role': 'user',
+                        'content': json.dumps(
+                            {
+                                'student': clean_text(getattr(homework.student, 'name', '') or getattr(homework.student, 'email', ''), limit=120),
+                                'homework_title': clean_text(homework.title, limit=200),
+                                'classification': clean_text(homework.classification, limit=120),
+                                'student_report': homework.student_report if isinstance(homework.student_report, dict) else {},
+                                'mistakes': mistakes[:12],
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                response_format={'type': 'json_schema', 'json_schema': cls.teacher_focus_schema},
+            )
+            payload = json.loads(response.choices[0].message.content)
+            report = {
+                'generated_at': timezone.now().isoformat(),
+                'model': CHEAP_HOMEWORK_MODEL,
+                'summary': clean_text(payload.get('summary'), limit=500),
+                'focus_points': [
+                    clean_text(item, limit=220)
+                    for item in (payload.get('focus_points') or [])
+                    if clean_text(item, limit=220)
+                ][:4],
+                'suggested_next_steps': [
+                    clean_text(item, limit=220)
+                    for item in (payload.get('suggested_next_steps') or [])
+                    if clean_text(item, limit=220)
+                ][:4],
+            }
+            if not report['summary'] or not report['focus_points']:
+                return cls._fallback_teacher_focus_report(homework)
+            return report
+        except Exception:
+            return cls._fallback_teacher_focus_report(homework)
 
     @classmethod
     def evaluate_primary_answer(cls, homework, question, answer_text='', selected_option_index=None):

@@ -1116,6 +1116,47 @@ class HomeworkSubmissionTests(TestCase):
             'Now answer: How do you go to school?',
         )
 
+    @patch('lessons.homework_auto.client.chat.completions.create')
+    def test_teacher_can_generate_focus_report_from_homework_errors(self, create_mock):
+        payload = {
+            'summary': 'O aluno precisa reforçar simple present com terceira pessoa.',
+            'focus_points': ['Terceira pessoa no simple present: lembrar do -s em he/she/it.'],
+            'suggested_next_steps': ['Refazer duas frases parecidas oralmente antes de escrever.'],
+        }
+        create_mock.return_value = type('OpenAIResponse', (), {
+            'choices': [
+                type('Choice', (), {
+                    'message': type('Message', (), {'content': json.dumps(payload)})()
+                })()
+            ]
+        })()
+        HomeworkAnswer.objects.create(
+            homework=self.homework,
+            question=self.question,
+            student=self.student,
+            answer_text='He go to the park.',
+            is_correct=False,
+            auto_feedback='Resposta incorreta.',
+            auto_explanation='Use -s com he/she/it no simple present.',
+            expected_answer='He goes to the park.',
+            answered_at=timezone.now(),
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post(f'/api/homework/{self.homework.id}/teacher_focus_report/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['report']['summary'], payload['summary'])
+        self.assertEqual(response.data['report']['model'], 'gpt-5-nano')
+        create_mock.assert_called_once()
+        self.assertEqual(create_mock.call_args.kwargs['model'], 'gpt-5-nano')
+
+        self.homework.refresh_from_db()
+        self.assertEqual(
+            self.homework.student_report['teacher_focus_report']['focus_points'][0],
+            payload['focus_points'][0],
+        )
+
 
 class HomeworkQuestionMediaTests(TestCase):
     def setUp(self):
@@ -1198,10 +1239,19 @@ class VocabularySpacedRepetitionTests(TestCase):
         self.card.refresh_from_db()
 
         self.assertEqual(result.log.rating, 'easy')
-        self.assertGreaterEqual(self.card.interval_days, 4)
+        self.assertEqual(self.card.interval_days, 7)
         self.assertGreater(self.card.repetition_count, 0)
         self.assertGreater(self.card.confidence_level, 0)
         self.assertGreater(self.card.next_review_at, timezone.now())
+
+    def test_good_review_returns_in_three_days(self):
+        result = schedule_card(self.card, 'good')
+        self.card.refresh_from_db()
+
+        self.assertEqual(result.log.rating, 'good')
+        self.assertEqual(self.card.interval_days, 3)
+        self.assertGreater(self.card.confidence_level, 0)
+        self.assertGreater(self.card.next_review_at, timezone.now() + datetime.timedelta(days=2))
 
     def test_very_hard_review_resets_learning_state(self):
         schedule_card(self.card, 'easy')

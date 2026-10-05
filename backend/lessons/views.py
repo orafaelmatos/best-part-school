@@ -174,8 +174,8 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
     def review(self, request, pk=None):
         card = self.get_object()
         rating = request.data.get('rating')
-        if rating not in ['very_hard', 'hard', 'easy']:
-            return Response({'error': 'Use rating: very_hard, hard ou easy.'}, status=status.HTTP_400_BAD_REQUEST)
+        if rating not in ['very_hard', 'hard', 'good', 'easy']:
+            return Response({'error': 'Use rating: very_hard, hard, good ou easy.'}, status=status.HTTP_400_BAD_REQUEST)
         result = schedule_card(card, rating)
         return Response({
             'card': self.get_serializer(result.card).data,
@@ -628,6 +628,26 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             'answer': HomeworkAnswerSerializer(answer, context=self.get_serializer_context()).data,
             'report': homework.student_report or None,
         })
+
+    @action(detail=True, methods=['post'])
+    def teacher_focus_report(self, request, pk=None):
+        homework = self.get_object()
+        user = request.user
+        if user.role == 'student':
+            raise exceptions.PermissionDenied('Alunos não podem gerar relatório do professor.')
+        if user.role == 'teacher' and homework.teacher_id != user.id:
+            raise exceptions.PermissionDenied('Somente o professor da homework pode gerar este relatório.')
+
+        try:
+            report = HomeworkAutoCorrectionService.generate_teacher_focus_report(homework)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        student_report = homework.student_report if isinstance(homework.student_report, dict) else {}
+        student_report['teacher_focus_report'] = report
+        homework.student_report = student_report
+        homework.save(update_fields=['student_report', 'updated_at'])
+        return Response({'report': report, 'homework': self.get_serializer(homework).data})
 
 class HomeworkAnswerViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkAnswerSerializer

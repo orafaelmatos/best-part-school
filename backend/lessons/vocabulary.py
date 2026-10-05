@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 QUALITY_BY_RATING = {
     'very_hard': 1,
     'hard': 3,
+    'good': 4,
     'easy': 5,
 }
 
@@ -168,35 +169,33 @@ def schedule_card(card, rating, reviewed_at=None):
     ease = sm2_easiness(previous_ease, quality)
 
     if rating == 'very_hard':
-        interval = 0 if previous_interval <= 1 else max(1, round(previous_interval * 0.25))
+        interval = 0
         repetitions = 0
         failures = card.failure_count + 1
         confidence = max(0, card.confidence_level - 24)
-        delay = datetime.timedelta(minutes=20 if card.last_reviewed_at is None else 8 * 60)
-        next_review_at = reviewed_at + delay
+        next_review_at = reviewed_at + datetime.timedelta(minutes=10)
         difficulty = 'weak'
     elif rating == 'hard':
-        if previous_repetitions == 0:
-            interval = 1
-        else:
-            interval = max(previous_interval + 1, round(previous_interval * 1.2))
+        interval = 1
         repetitions = previous_repetitions + 1
         failures = card.failure_count
         confidence = min(100, max(10, card.confidence_level + 8))
         next_review_at = reviewed_at + datetime.timedelta(days=interval)
         difficulty = 'learning' if confidence < 65 else 'stable'
-    else:
-        if previous_repetitions == 0:
-            interval = 4
-        elif previous_repetitions == 1:
-            interval = 7
-        else:
-            interval = max(previous_interval + 2, round(previous_interval * ease * 1.3))
+    elif rating == 'good':
+        interval = 3
         repetitions = previous_repetitions + 1
         failures = card.failure_count
-        confidence = min(100, max(25, card.confidence_level + 18))
+        confidence = min(100, max(18, card.confidence_level + 14))
         next_review_at = reviewed_at + datetime.timedelta(days=interval)
-        difficulty = 'mastered' if interval >= 60 and confidence >= 85 else 'stable'
+        difficulty = 'stable'
+    else:
+        interval = 7
+        repetitions = previous_repetitions + 1
+        failures = card.failure_count
+        confidence = min(100, max(25, card.confidence_level + 22))
+        next_review_at = reviewed_at + datetime.timedelta(days=interval)
+        difficulty = 'mastered' if confidence >= 90 and previous_repetitions >= 3 else 'stable'
 
     card.easiness_factor = ease
     card.interval_days = interval
@@ -257,7 +256,7 @@ def vocabulary_stats(student):
     logs = VocabularyReviewLog.objects.filter(student=student)
     recent_logs = logs.filter(reviewed_at__gte=now - datetime.timedelta(days=30))
     total_recent = recent_logs.count()
-    easy_recent = recent_logs.filter(rating='easy').count()
+    easy_recent = recent_logs.filter(rating__in=['good', 'easy']).count()
     reviewed_days = set(logs.values_list('reviewed_at__date', flat=True)[:365])
     streak = 0
     cursor = timezone.localdate()

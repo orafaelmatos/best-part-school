@@ -2,12 +2,14 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
+import { HomeworkPanel } from "@/components/HomeworkPanel";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarClock, CheckCircle2, Clock, Inbox, ArrowLeft } from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckCircle2, Clock, Inbox, Plus, Search, Sparkles, UserRound } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
 type ApiHomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "corrected";
@@ -62,6 +64,7 @@ type HomeworkItem = {
     second_chance_correct?: number;
     incorrect_after_second_chance?: number;
     attention_points?: string[];
+    teacher_focus_report?: TeacherFocusReport | null;
   } | null;
   student_name?: string;
   teacher_name?: string;
@@ -69,6 +72,40 @@ type HomeworkItem = {
   questions: HomeworkQuestion[];
   answers?: HomeworkAnswer[];
   updated_at?: string | null;
+};
+
+type TeacherFocusReport = {
+  generated_at?: string;
+  model?: string;
+  summary: string;
+  focus_points: string[];
+  suggested_next_steps: string[];
+};
+
+type LessonOption = {
+  id: string;
+  title: string;
+  date?: string | null;
+  status?: string;
+  student?: string | null;
+  student_name?: string;
+  group?: string | null;
+  group_name?: string;
+  teacher?: string | null;
+};
+
+type RecipientOption = {
+  key: string;
+  type: "student" | "group";
+  id: string;
+  name: string;
+  lessonCount: number;
+  latestDate?: string | null;
+};
+
+type CorrectionPayload = {
+  generalFeedback: string;
+  answersFeedback: Record<string, string>;
 };
 
 const statusStyles = {
@@ -91,6 +128,75 @@ const formatDate = (value?: string | null) => {
   return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 };
 
+const formatLessonOptionDate = (value?: string | null) => {
+  if (!value) return "Sem data";
+  return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const getLessonRecipientName = (lesson?: LessonOption | null) => {
+  if (!lesson) return "";
+  return lesson.group ? lesson.group_name || "Turma sem nome" : lesson.student_name || "Aluno não informado";
+};
+
+const getLessonRecipientKey = (lesson?: LessonOption | null) => {
+  if (!lesson) return "";
+  if (lesson.group) return `group:${lesson.group}`;
+  if (lesson.student) return `student:${lesson.student}`;
+  return "";
+};
+
+const normalizeSearchText = (value: string) => (
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+);
+
+const normalizeList = (data: unknown) => Array.isArray(data) ? data : ((data as { results?: unknown[] })?.results || []);
+
+const splitNumberedPrompt = (prompt: string) => {
+  const text = (prompt || "").replace(/\r\n/g, "\n").trim();
+  if (!text) return [];
+
+  const matches = Array.from(text.matchAll(/(?:^|\s)(\d{1,3})[.)]\s+/g));
+  if (matches.length < 2) {
+    return text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  }
+
+  return matches.map((match, index) => {
+    const start = (match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index || text.length : text.length;
+    return text.slice(start, end).trim();
+  }).filter(Boolean);
+};
+
+const FormattedQuestionPrompt = ({ prompt, questionNumber }: { prompt: string; questionNumber: number }) => {
+  const parts = splitNumberedPrompt(prompt);
+  const isNumberedList = parts.length > 1;
+
+  return (
+    <div className="mb-3 rounded-lg border border-border bg-muted/20 p-3 text-sm">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Pergunta {questionNumber}
+      </p>
+      {isNumberedList ? (
+        <ol className="list-decimal space-y-1.5 pl-5 leading-6 text-foreground">
+          {parts.map((part, index) => (
+            <li key={`${part}-${index}`} className="pl-1">
+              <span className="whitespace-pre-wrap">{part}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="whitespace-pre-wrap font-semibold leading-6 text-foreground">
+          {parts[0] || prompt}
+        </p>
+      )}
+    </div>
+  );
+};
+
 export default function CorrigirHomework() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -99,6 +205,14 @@ export default function CorrigirHomework() {
   const [generalFeedback, setGeneralFeedback] = useState("");
   const [answersFeedback, setAnswersFeedback] = useState<Record<string, string>>({});
   const [openingHomeworkId, setOpeningHomeworkId] = useState<string | null>(null);
+  const [teacherFocusReport, setTeacherFocusReport] = useState<TeacherFocusReport | null>(null);
+  const [newHomeworkPickerOpen, setNewHomeworkPickerOpen] = useState(false);
+  const [selectedRecipientKey, setSelectedRecipientKey] = useState("");
+  const [selectedLessonId, setSelectedLessonId] = useState("");
+  const [recipientSearchTerm, setRecipientSearchTerm] = useState("");
+  const [lessonSearchTerm, setLessonSearchTerm] = useState("");
+  const [createHomeworkLesson, setCreateHomeworkLesson] = useState<LessonOption | null>(null);
+  const [createHomeworkKey, setCreateHomeworkKey] = useState<string | null>(null);
 
   const { data: homeworkItems = [], isLoading } = useQuery({
     queryKey: ["teacher-homework"],
@@ -109,6 +223,90 @@ export default function CorrigirHomework() {
       return list.filter((hw: HomeworkItem) => hw.status !== "draft") as HomeworkItem[];
     },
   });
+
+  const { data: lessonOptions = [], isLoading: isLoadingLessons } = useQuery({
+    queryKey: ["teacher-lessons-for-homework"],
+    queryFn: async () => {
+      const res = await api.get("/lessons/", {
+        params: {
+          all: true,
+          is_template: false,
+          ordering: "-date",
+        },
+      });
+      return (normalizeList(res.data) as LessonOption[])
+        .filter((lesson) => Boolean(lesson.student || lesson.group))
+        .sort((a, b) => {
+          const aDate = a.date ? new Date(a.date).getTime() : 0;
+          const bDate = b.date ? new Date(b.date).getTime() : 0;
+          return bDate - aDate;
+        });
+    },
+  });
+
+  const selectedLesson = useMemo(
+    () => lessonOptions.find((lesson) => lesson.id === selectedLessonId) || null,
+    [lessonOptions, selectedLessonId],
+  );
+
+  const recipientOptions = useMemo(() => {
+    const recipients = new Map<string, RecipientOption>();
+
+    lessonOptions.forEach((lesson) => {
+      const key = getLessonRecipientKey(lesson);
+      if (!key) return;
+
+      const existing = recipients.get(key);
+      const lessonDate = lesson.date || null;
+      if (existing) {
+        existing.lessonCount += 1;
+        if (lessonDate && (!existing.latestDate || new Date(lessonDate).getTime() > new Date(existing.latestDate).getTime())) {
+          existing.latestDate = lessonDate;
+        }
+        return;
+      }
+
+      recipients.set(key, {
+        key,
+        type: lesson.group ? "group" : "student",
+        id: lesson.group || lesson.student || key,
+        name: getLessonRecipientName(lesson),
+        lessonCount: 1,
+        latestDate: lessonDate,
+      });
+    });
+
+    return Array.from(recipients.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [lessonOptions]);
+
+  const filteredRecipientOptions = useMemo(() => {
+    const search = normalizeSearchText(recipientSearchTerm);
+    if (!search) return recipientOptions;
+    return recipientOptions.filter((recipient) => normalizeSearchText(recipient.name).includes(search));
+  }, [recipientOptions, recipientSearchTerm]);
+
+  const lessonsForSelectedRecipient = useMemo(() => {
+    if (!selectedRecipientKey) return [];
+    return lessonOptions.filter((lesson) => getLessonRecipientKey(lesson) === selectedRecipientKey);
+  }, [lessonOptions, selectedRecipientKey]);
+
+  const filteredLessonOptions = useMemo(() => {
+    const search = normalizeSearchText(lessonSearchTerm);
+    if (!search) return lessonsForSelectedRecipient;
+    return lessonsForSelectedRecipient.filter((lesson) => {
+      const searchable = [
+        lesson.title,
+        lesson.status,
+        lesson.date ? formatLessonOptionDate(lesson.date) : "",
+      ].filter(Boolean).join(" ");
+      return normalizeSearchText(searchable).includes(search);
+    });
+  }, [lessonSearchTerm, lessonsForSelectedRecipient]);
+
+  const selectedRecipient = useMemo(
+    () => recipientOptions.find((recipient) => recipient.key === selectedRecipientKey) || null,
+    [recipientOptions, selectedRecipientKey],
+  );
 
   const { pendingReviewCount, filteredHomeworkItems } = useMemo(() => {
     let pendingReview = 0;
@@ -122,7 +320,7 @@ export default function CorrigirHomework() {
   }, [homeworkItems]);
 
   const correctionMutation = useMutation({
-    mutationFn: async ({ homeworkId, payload }: { homeworkId: string, payload: any }) => {
+    mutationFn: async ({ homeworkId, payload }: { homeworkId: string; payload: CorrectionPayload }) => {
       const patchData = {
         status: "corrected",
         teacher_feedback: payload.generalFeedback
@@ -155,6 +353,39 @@ export default function CorrigirHomework() {
     }
   });
 
+  const teacherFocusMutation = useMutation({
+    mutationFn: async (homeworkId: string) => {
+      const { data } = await api.post(`/homework/${homeworkId}/teacher_focus_report/`);
+      return data as { report: TeacherFocusReport; homework?: HomeworkItem };
+    },
+    onSuccess: (data) => {
+      setTeacherFocusReport(data.report);
+      if (data.homework) {
+        setSelectedHomework(data.homework);
+      } else {
+        setSelectedHomework((current) => current ? {
+          ...current,
+          student_report: {
+            ...(current.student_report || {}),
+            teacher_focus_report: data.report,
+          },
+        } : current);
+      }
+      queryClient.invalidateQueries({ queryKey: ["teacher-homework"] });
+      toast({
+        title: "Relatório gerado",
+        description: "A IA resumiu os pontos de foco para este aluno.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Erro",
+        description: "Não foi possível gerar o relatório de foco agora.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCorrect = async (homework: HomeworkItem) => {
     setOpeningHomeworkId(homework.id);
     try {
@@ -162,6 +393,7 @@ export default function CorrigirHomework() {
       const latestHomework = data as HomeworkItem;
 
       setGeneralFeedback(latestHomework.teacher_feedback || "");
+      setTeacherFocusReport(latestHomework.student_report?.teacher_focus_report || null);
       const initialFeedback: Record<string, string> = {};
       latestHomework.answers?.forEach(ans => {
         if (ans.id && ans.teacher_feedback) {
@@ -184,6 +416,29 @@ export default function CorrigirHomework() {
         answersFeedback
       }
     });
+  };
+
+  const handleStartNewHomework = () => {
+    if (!selectedLesson) return;
+    setCreateHomeworkLesson(selectedLesson);
+    setCreateHomeworkKey(`${selectedLesson.id}-${Date.now()}`);
+    handleNewHomeworkPickerOpenChange(false);
+  };
+
+  const handleNewHomeworkPickerOpenChange = (open: boolean) => {
+    setNewHomeworkPickerOpen(open);
+    if (!open) {
+      setSelectedRecipientKey("");
+      setSelectedLessonId("");
+      setRecipientSearchTerm("");
+      setLessonSearchTerm("");
+    }
+  };
+
+  const handleSelectRecipient = (recipientKey: string) => {
+    setSelectedRecipientKey(recipientKey);
+    setSelectedLessonId("");
+    setLessonSearchTerm("");
   };
 
   if (selectedHomework) {
@@ -219,13 +474,60 @@ export default function CorrigirHomework() {
               </div>
             ) : null}
 
+            <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-sky-950">Foco sugerido pela IA</p>
+                  <p className="mt-1 text-sm text-sky-900">
+                    Gere um resumo curto do que revisar com o aluno a partir dos erros da homework.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => teacherFocusMutation.mutate(selectedHomework.id)}
+                  disabled={teacherFocusMutation.isPending}
+                  className="border-sky-200 bg-white text-sky-800 hover:bg-sky-100"
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {teacherFocusMutation.isPending ? "Gerando..." : teacherFocusReport ? "Gerar novamente" : "Gerar relatório"}
+                </Button>
+              </div>
+
+              {teacherFocusReport ? (
+                <div className="mt-4 space-y-3 text-sm text-sky-950">
+                  <p className="leading-6">{teacherFocusReport.summary}</p>
+                  {teacherFocusReport.focus_points?.length ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">Pontos de foco</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {teacherFocusReport.focus_points.map((point, index) => (
+                          <li key={`${point}-${index}`}>{point}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {teacherFocusReport.suggested_next_steps?.length ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-sky-800">Próximos passos</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {teacherFocusReport.suggested_next_steps.map((step, index) => (
+                          <li key={`${step}-${index}`}>{step}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             <div className="space-y-6 mt-6">
               {selectedHomework.questions.map((q, idx) => {
                 const answer = selectedHomework.answers?.find(a => a.question === q.id);
                 
                 return (
                   <div key={q.id} className="border border-border rounded-lg p-4 bg-background">
-                    <p className="font-semibold text-sm mb-2">{idx + 1}. {q.prompt}</p>
+                    <FormattedQuestionPrompt prompt={q.prompt} questionNumber={idx + 1} />
                     <HomeworkQuestionMedia className="mb-3" imageUrl={q.image_url} audioUrl={q.audio_url} />
                     
                     {answer ? (
@@ -313,10 +615,171 @@ export default function CorrigirHomework() {
 
   return (
     <DashboardLayout>
-      <PageHeader 
-        title="Homework" 
-        description="Avalie os exercícios enviados pelos alunos."
-      />
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <PageHeader
+          title="Homework"
+          description="Avalie os exercícios enviados pelos alunos."
+        />
+        <Button className="w-full lg:w-auto" onClick={() => setNewHomeworkPickerOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nova homework
+        </Button>
+      </div>
+
+      <Dialog open={newHomeworkPickerOpen} onOpenChange={handleNewHomeworkPickerOpenChange}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Nova homework</DialogTitle>
+            <DialogDescription>
+              Primeiro escolha o aluno ou turma, depois selecione a aula que receberá a atividade.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <section className="space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">1. Aluno ou turma</p>
+                <p className="mt-1 text-xs text-muted-foreground">Digite para encontrar rapidamente.</p>
+              </div>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={recipientSearchTerm}
+                  onChange={(event) => setRecipientSearchTerm(event.target.value)}
+                  placeholder="Buscar aluno ou turma"
+                  className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+                  disabled={isLoadingLessons}
+                />
+              </label>
+
+              <div className="max-h-[320px] overflow-y-auto rounded-lg border border-border">
+                {isLoadingLessons ? (
+                  <p className="p-4 text-sm text-muted-foreground">Carregando alunos...</p>
+                ) : filteredRecipientOptions.length === 0 ? (
+                  <p className="p-4 text-sm text-muted-foreground">Nenhum aluno ou turma encontrado.</p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredRecipientOptions.map((recipient) => {
+                      const isSelected = recipient.key === selectedRecipientKey;
+                      return (
+                        <button
+                          key={recipient.key}
+                          type="button"
+                          onClick={() => handleSelectRecipient(recipient.key)}
+                          className={`flex w-full items-start gap-3 p-3 text-left transition ${
+                            isSelected ? "bg-sky-50 text-sky-950" : "hover:bg-muted/60"
+                          }`}
+                        >
+                          <span className={`mt-0.5 rounded-md p-2 ${isSelected ? "bg-white text-sky-700" : "bg-muted text-muted-foreground"}`}>
+                            <UserRound className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">{recipient.name}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {recipient.type === "group" ? "Turma" : "Aluno"} · {recipient.lessonCount} aula{recipient.lessonCount === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">2. Aula</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {selectedRecipient ? `Aulas de ${selectedRecipient.name}` : "Selecione um aluno primeiro."}
+                </p>
+              </div>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={lessonSearchTerm}
+                  onChange={(event) => setLessonSearchTerm(event.target.value)}
+                  placeholder="Buscar aula"
+                  className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100 disabled:bg-muted/40"
+                  disabled={!selectedRecipientKey}
+                />
+              </label>
+
+              <div className="max-h-[320px] overflow-y-auto rounded-lg border border-border">
+                {!selectedRecipientKey ? (
+                  <p className="p-4 text-sm text-muted-foreground">Escolha um aluno ou turma para ver as aulas.</p>
+                ) : filteredLessonOptions.length === 0 ? (
+                  <p className="p-4 text-sm text-muted-foreground">Nenhuma aula encontrada para esse filtro.</p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredLessonOptions.map((lesson) => {
+                      const isSelected = lesson.id === selectedLessonId;
+                      return (
+                        <button
+                          key={lesson.id}
+                          type="button"
+                          onClick={() => setSelectedLessonId(lesson.id)}
+                          className={`flex w-full items-start gap-3 p-3 text-left transition ${
+                            isSelected ? "bg-sky-50 text-sky-950" : "hover:bg-muted/60"
+                          }`}
+                        >
+                          <span className={`mt-0.5 rounded-md p-2 ${isSelected ? "bg-white text-sky-700" : "bg-muted text-muted-foreground"}`}>
+                            <CalendarClock className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-words text-sm font-semibold">{lesson.title}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {formatLessonOptionDate(lesson.date)}{lesson.status ? ` · ${lesson.status}` : ""}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {selectedLesson ? (
+              <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-sm lg:col-span-2">
+                <p className="font-semibold text-sky-950">{getLessonRecipientName(selectedLesson)}</p>
+                <p className="mt-1 text-sky-900">
+                  {selectedLesson.title} · {formatLessonOptionDate(selectedLesson.date)}
+                </p>
+              </div>
+            ) : null}
+
+            {!isLoadingLessons && lessonOptions.length === 0 ? (
+              <p className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground lg:col-span-2">
+                Nenhuma aula com aluno ou turma foi encontrada para criar homework.
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleNewHomeworkPickerOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleStartNewHomework} disabled={!selectedLesson}>
+              Continuar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {createHomeworkLesson ? (
+        <HomeworkPanel
+          key={createHomeworkKey || createHomeworkLesson.id}
+          lesson={createHomeworkLesson}
+          mode="create-dialog"
+          autoOpenCreateKey={createHomeworkKey}
+          onCreateDialogClose={() => setCreateHomeworkLesson(null)}
+          onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ["teacher-homework"] });
+            queryClient.invalidateQueries({ queryKey: ["teacher-lessons-for-homework"] });
+          }}
+        />
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <div className="rounded-xl border border-border bg-card p-4 flex items-start gap-4">
