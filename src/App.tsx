@@ -26,7 +26,7 @@ import PalavrasAprendidas from "./pages/PalavrasAprendidas";
 import JogoVocabulario from "./pages/JogoVocabulario";
 import CorrigirHomework from "./pages/CorrigirHomework";
 import InterpreteIA from "./pages/InterpreteIA";
-import { APP_PATHS, LANDING_PATH, LOGIN_PATH } from "./lib/routes";
+import { APP_PATHS, LANDING_PATH, LOGIN_PATH, PUBLIC_PATHS } from "./lib/routes";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +54,11 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path={LANDING_PATH} element={<LandingPage />} />
+            <Route path={PUBLIC_PATHS.courses} element={<LandingPage />} />
+            <Route path={PUBLIC_PATHS.methodology} element={<LandingPage />} />
+            <Route path={PUBLIC_PATHS.testimonials} element={<LandingPage />} />
+            <Route path={PUBLIC_PATHS.teacher} element={<LandingPage />} />
+            <Route path={PUBLIC_PATHS.contact} element={<LandingPage />} />
             <Route path={LOGIN_PATH} element={<Login />} />
 
             <Route path="/alunos" element={<RedirectToPath to={APP_PATHS.students} />} />

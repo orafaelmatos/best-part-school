@@ -2,6 +2,15 @@ export const LANDING_PATH = "/";
 export const LOGIN_PATH = "/login";
 export const APP_BASE_PATH = "/app";
 
+export const PUBLIC_PATHS = {
+  home: LANDING_PATH,
+  courses: "/cursos",
+  methodology: "/metodologia",
+  testimonials: "/depoimentos",
+  teacher: "/professor",
+  contact: "/contato",
+} as const;
+
 const withAppBase = (path = "") => {
   if (!path || path === "/") {
     return APP_BASE_PATH;
