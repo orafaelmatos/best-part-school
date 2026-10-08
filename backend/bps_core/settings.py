@@ -58,12 +58,12 @@ def get_database_config():
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-in-production")
 DEBUG = env_bool("DJANGO_DEBUG", False)
 
-LOCAL_DEV_HOSTS = "localhost,127.0.0.1,192.168.50.64"
+LOCAL_DEV_HOSTS = "localhost,127.0.0.1,192.168.50.12"
 LOCAL_DEV_ORIGINS = ",".join(
     [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-        "http://192.168.50.64:8080",
+        "http://192.168.50.12:8080",
     ]
 )
 

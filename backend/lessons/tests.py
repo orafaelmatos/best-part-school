@@ -961,6 +961,99 @@ class HomeworkSubmissionTests(TestCase):
             order=0,
         )
 
+    def test_teacher_can_save_incomplete_homework_draft(self):
+        self.client.force_authenticate(user=self.teacher)
+
+        draft_response = self.client.post(
+            '/api/homework/',
+            {
+                'title': 'Draft in progress',
+                'status': 'draft',
+                'teacher': str(self.teacher.id),
+                'student': str(self.student.id),
+                'lesson': str(self.lesson.id),
+                'auto_correction_enabled': True,
+                'questions': [
+                    {
+                        'type': 'open_text',
+                        'prompt': '',
+                        'options': [],
+                        'correct_option_index': None,
+                        'reference_answer': '',
+                        'second_chance_mode': 'reserve',
+                        'reserve_question': None,
+                        'order': 0,
+                    }
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(draft_response.status_code, status.HTTP_201_CREATED)
+        draft = Homework.objects.get(id=draft_response.data['id'])
+        self.assertEqual(draft.status, 'draft')
+        self.assertEqual(draft.teacher_id, self.teacher.id)
+        self.assertEqual(draft.questions.get().prompt, '')
+
+        list_response = self.client.get('/api/homework/')
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_items = list_response.data if isinstance(list_response.data, list) else list_response.data['results']
+        self.assertIn(str(draft.id), {str(item['id']) for item in listed_items})
+
+        publish_response = self.client.post(
+            '/api/homework/',
+            {
+                'title': 'Invalid pending homework',
+                'status': 'pending',
+                'teacher': str(self.teacher.id),
+                'student': str(self.student.id),
+                'lesson': str(self.lesson.id),
+                'auto_correction_enabled': True,
+                'questions': [
+                    {
+                        'type': 'open_text',
+                        'prompt': '',
+                        'options': [],
+                        'correct_option_index': None,
+                        'reference_answer': '',
+                        'second_chance_mode': 'reserve',
+                        'reserve_question': None,
+                        'order': 0,
+                    }
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(publish_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('questions', publish_response.data)
+
+    def test_student_can_autosave_homework_answers_without_submitting(self):
+        self.client.force_authenticate(user=self.student)
+
+        response = self.client.post(
+            f'/api/homework/{self.homework.id}/save_draft_answers/',
+            {
+                'answers': [
+                    {
+                        'question': str(self.question.id),
+                        'answer_text': 'Draft answer still being written.',
+                        'selected_option_index': None,
+                    }
+                ]
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.homework.refresh_from_db()
+        self.assertEqual(self.homework.status, 'in_progress')
+
+        answer = HomeworkAnswer.objects.get(homework=self.homework, question=self.question, student=self.student)
+        self.assertEqual(answer.answer_text, 'Draft answer still being written.')
+        self.assertIsNone(answer.answered_at)
+        self.assertEqual(response.data['homework']['status'], 'in_progress')
+
     def test_student_can_resubmit_homework_and_teacher_sees_latest_answer(self):
         self.client.force_authenticate(user=self.student)
 

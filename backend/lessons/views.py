@@ -328,10 +328,20 @@ class HomeworkViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             return qs
         if user.role == 'teacher':
-            return qs.filter(teacher=user)
+            return qs.filter(Q(teacher=user) | Q(lesson__teacher=user)).distinct()
         return qs.filter(student=user).exclude(status='draft')
 
     def perform_create(self, serializer):
+        if self.request.user.role in ['teacher', 'admin'] and not serializer.validated_data.get('teacher'):
+            serializer.save(teacher=self.request.user)
+            return
+        serializer.save()
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        if self.request.user.role in ['teacher', 'admin'] and not getattr(instance, 'teacher_id', None):
+            serializer.save(teacher=self.request.user)
+            return
         serializer.save()
 
     def _clone_homework_for_student(self, source, student):
@@ -376,6 +386,8 @@ class HomeworkViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         prepared_data = self._prepare_request_data(request)
+        if request.user.role in ['teacher', 'admin'] and not prepared_data.get('teacher'):
+            prepared_data['teacher'] = str(request.user.id)
         lesson = None
         if prepared_data.get('lesson'):
             lesson = Lesson.objects.select_related('group').prefetch_related('group__students').filter(id=prepared_data.get('lesson')).first()
@@ -549,6 +561,68 @@ class HomeworkViewSet(viewsets.ModelViewSet):
         homework.status = 'sent'
         homework.save()
         return Response(self.get_serializer(homework).data)
+
+    @action(detail=True, methods=['post'])
+    def save_draft_answers(self, request, pk=None):
+        homework = self.get_object()
+        answers = request.data.get('answers', [])
+        student = homework.student or request.user
+        saved_answers = []
+
+        for answer_payload in answers:
+            question = homework.questions.filter(id=answer_payload.get('question')).first()
+            if not question:
+                continue
+
+            has_primary_answer = 'answer_text' in answer_payload or 'selected_option_index' in answer_payload
+            has_second_chance_answer = (
+                'second_chance_answer_text' in answer_payload
+                or 'second_chance_selected_option_index' in answer_payload
+            )
+            primary_text = answer_payload.get('answer_text', '')
+            primary_option = answer_payload.get('selected_option_index')
+            second_chance_text = answer_payload.get('second_chance_answer_text', '')
+            second_chance_option = answer_payload.get('second_chance_selected_option_index')
+
+            answer = HomeworkAnswer.objects.filter(homework=homework, question=question, student=student).first()
+            should_create_answer = (
+                has_primary_answer
+                and (str(primary_text or '').strip() or primary_option is not None)
+            )
+
+            if not answer and should_create_answer:
+                answer = HomeworkAnswer.objects.create(
+                    homework=homework,
+                    question=question,
+                    student=student,
+                )
+
+            if not answer:
+                continue
+
+            changed_fields = []
+            if has_primary_answer and not answer.answered_at:
+                answer.answer_text = primary_text or ''
+                answer.selected_option_index = primary_option
+                changed_fields.extend(['answer_text', 'selected_option_index'])
+
+            metadata = answer.correction_metadata if isinstance(answer.correction_metadata, dict) else {}
+            second_chance_question = metadata.get('second_chance_question')
+            if has_second_chance_answer and isinstance(second_chance_question, dict) and not answer.second_chance_answered_at:
+                answer.second_chance_answer_text = second_chance_text or ''
+                answer.second_chance_selected_option_index = second_chance_option
+                changed_fields.extend(['second_chance_answer_text', 'second_chance_selected_option_index'])
+
+            if changed_fields:
+                answer.save(update_fields=[*changed_fields, 'updated_at'])
+                saved_answers.append(answer)
+
+        HomeworkAutoCorrectionService.refresh_homework_status(homework, student)
+        homework.refresh_from_db()
+        return Response({
+            'homework': self.get_serializer(homework).data,
+            'saved_answers': HomeworkAnswerSerializer(saved_answers, many=True, context=self.get_serializer_context()).data,
+        })
 
     @action(detail=True, methods=['post'])
     def answer_question(self, request, pk=None):

@@ -9,6 +9,7 @@ import {
   Clock3,
   FileText,
   Flag,
+  Image as ImageIcon,
   MoreVertical,
   Play,
   Search,
@@ -150,9 +151,12 @@ const MinhasAulas = () => {
         completedCount={completedCount}
         completedLessons={completedLessons}
         isLoading={lessonsQuery.isLoading}
+        expandedId={expandedId}
         nextLessonId={nextLesson?.id}
+        onToggleLesson={(lessonId) => setExpandedId((current) => (current === lessonId ? null : lessonId))}
         progressPercent={progressPercent}
         remainingLessonsCount={remainingLessonsCount}
+        summaryByLesson={summaryByLesson}
         trailLessons={trailLessons}
       />
 
@@ -626,6 +630,15 @@ const DesktopLessonDetails = ({
   const richDetail = summary?.summary || lesson.notes || "";
   const attachments = lesson.attachments || [];
   const hasLinks = Boolean(lesson.meeting_url || lesson.recording_url || attachments.length);
+  const summaryWords = summary?.words || [];
+  const lessonWords = lesson.new_words || [];
+  const hasVocabulary = Boolean(
+    summaryWords.length ||
+    lessonWords.length ||
+    summary?.mistakes?.length ||
+    summary?.next_topics?.length ||
+    summary?.flashcards?.length
+  );
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -641,36 +654,101 @@ const DesktopLessonDetails = ({
         />
       </div>
 
-      <div className="rounded-[16px] border border-slate-200 bg-white p-4">
-        <div className="flex items-center gap-2 text-slate-950">
-          <BookOpen className="h-4 w-4 text-sky-700" />
-          <h3 className="text-sm font-semibold">Materiais</h3>
+      <div className="space-y-4">
+        <div className="rounded-[16px] border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2 text-slate-950">
+            <BookOpen className="h-4 w-4 text-sky-700" />
+            <h3 className="text-sm font-semibold">Materiais</h3>
+          </div>
+
+          {hasLinks ? (
+            <div className="mt-3 space-y-2">
+              {lesson.meeting_url ? (
+                <MaterialLink href={lesson.meeting_url} icon={Video} label="Link da aula" />
+              ) : null}
+              {lesson.recording_url ? (
+                <MaterialLink href={lesson.recording_url} icon={Play} label="Gravação" />
+              ) : null}
+              {attachments.map((attachment) => (
+                attachment.is_image ? (
+                  <ImageMaterialLink
+                    key={attachment.id}
+                    href={attachment.file_url}
+                    label={attachment.file_name || "Imagem anexada"}
+                  />
+                ) : (
+                  <MaterialLink
+                    key={attachment.id}
+                    href={attachment.file_url}
+                    icon={FileText}
+                    label={attachment.file_name || "Arquivo anexado"}
+                  />
+                )
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Nenhum material anexado ainda.</p>
+          )}
         </div>
 
-        {hasLinks ? (
-          <div className="mt-3 space-y-2">
-            {lesson.meeting_url ? (
-              <MaterialLink href={lesson.meeting_url} icon={Video} label="Link da aula" />
+        {hasVocabulary ? (
+          <div className="rounded-[16px] border border-slate-200 bg-white p-4">
+            <div className="flex items-center gap-2 text-slate-950">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <h3 className="text-sm font-semibold">Palavras e revisão</h3>
+            </div>
+
+            {summaryWords.length || lessonWords.length ? (
+              <div className="mt-3 space-y-2">
+                {summaryWords.map((word) => (
+                  <VocabularyRow key={word.id} word={word.word} meaning={word.meaning} />
+                ))}
+                {!summaryWords.length ? lessonWords.map((word) => (
+                  <VocabularyRow key={word.id} word={word.word} meaning={word.meaning} />
+                )) : null}
+              </div>
             ) : null}
-            {lesson.recording_url ? (
-              <MaterialLink href={lesson.recording_url} icon={Play} label="Gravação" />
+
+            {summary?.mistakes?.length ? (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Pontos para revisar</p>
+                <div className="mt-2 space-y-2">
+                  {summary.mistakes.slice(0, 3).map((mistake) => (
+                    <p key={mistake.id} className="text-sm leading-5 text-slate-600">
+                      {mistake.mistake}{mistake.correction ? ` -> ${mistake.correction}` : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
             ) : null}
-            {attachments.map((attachment) => (
-              <MaterialLink
-                key={attachment.id}
-                href={attachment.file_url}
-                icon={FileText}
-                label={attachment.file_name || "Arquivo anexado"}
-              />
-            ))}
           </div>
-        ) : (
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">Nenhum material anexado ainda.</p>
-        )}
+        ) : null}
       </div>
     </div>
   );
 };
+
+const VocabularyRow = ({ word, meaning }: { word: string; meaning: string }) => (
+  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <p className="text-sm font-semibold text-slate-900">{word}</p>
+    {meaning ? <p className="mt-0.5 text-xs leading-5 text-slate-600">{meaning}</p> : null}
+  </div>
+);
+
+const ImageMaterialLink = ({ href, label }: { href: string; label: string }) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noreferrer"
+    className="block overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700"
+  >
+    <img src={href} alt={label} className="h-32 w-full object-cover" />
+    <span className="flex min-h-10 items-center gap-2 px-3 py-2">
+      <ImageIcon className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 truncate">{label}</span>
+    </span>
+  </a>
+);
 
 const MaterialLink = ({
   href,
@@ -721,18 +799,24 @@ const DesktopEmptyState = ({
 const MobileLessonsView = ({
   completedCount,
   completedLessons,
+  expandedId,
   isLoading,
   nextLessonId,
+  onToggleLesson,
   progressPercent,
   remainingLessonsCount,
+  summaryByLesson,
   trailLessons,
 }: {
   completedCount: number;
   completedLessons: LessonHistoryLesson[];
+  expandedId: string | null;
   isLoading: boolean;
   nextLessonId?: string;
+  onToggleLesson: (lessonId: string) => void;
   progressPercent: number;
   remainingLessonsCount: number;
+  summaryByLesson: Map<string, LessonHistorySummary>;
   trailLessons: LessonHistoryLesson[];
 }) => (
   <div className="space-y-4 md:hidden">
@@ -771,7 +855,15 @@ const MobileLessonsView = ({
             Nenhuma aula concluida ainda.
           </div>
         ) : (
-          completedLessons.map((lesson) => <MobileLessonCard key={lesson.id} lesson={lesson} />)
+          completedLessons.map((lesson) => (
+            <MobileLessonCard
+              key={lesson.id}
+              expanded={expandedId === lesson.id}
+              lesson={lesson}
+              onToggle={() => onToggleLesson(lesson.id)}
+              summary={summaryByLesson.get(lesson.id)}
+            />
+          ))
         )}
       </div>
     </section>
@@ -793,8 +885,11 @@ const MobileLessonsView = ({
           trailLessons.map((lesson) => (
             <MobileTrailStep
               key={lesson.id}
+              expanded={expandedId === lesson.id}
               lesson={lesson}
               isNext={lesson.id === nextLessonId}
+              onToggle={() => onToggleLesson(lesson.id)}
+              summary={summaryByLesson.get(lesson.id)}
             />
           ))
         )}
@@ -810,9 +905,19 @@ const MobileLessonMetric = ({ label, value }: { label: string; value: number }) 
   </div>
 );
 
-const MobileLessonCard = ({ lesson }: { lesson: LessonHistoryLesson }) => (
+const MobileLessonCard = ({
+  expanded,
+  lesson,
+  onToggle,
+  summary,
+}: {
+  expanded: boolean;
+  lesson: LessonHistoryLesson;
+  onToggle: () => void;
+  summary?: LessonHistorySummary;
+}) => (
   <article className="rounded-[20px] border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-    <div className="flex items-start gap-3">
+    <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 text-left">
       <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-500 text-white">
         <CheckCircle2 className="h-4 w-4" />
       </span>
@@ -830,16 +935,30 @@ const MobileLessonCard = ({ lesson }: { lesson: LessonHistoryLesson }) => (
         <p className="mt-1 truncate font-semibold text-slate-950">{lesson.title}</p>
         <p className="mt-0.5 text-xs text-slate-600">{lesson.level ? `Nivel ${lesson.level}` : "Nivel nao informado"}</p>
       </div>
-    </div>
+      <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-100">
+        {expanded ? "Ocultar" : "Ver"}
+      </span>
+    </button>
+    {expanded ? (
+      <div className="mt-3 border-t border-emerald-100 pt-3">
+        <DesktopLessonDetails lesson={lesson} summary={summary} />
+      </div>
+    ) : null}
   </article>
 );
 
 const MobileTrailStep = ({
+  expanded,
   lesson,
   isNext,
+  onToggle,
+  summary,
 }: {
+  expanded: boolean;
   lesson: LessonHistoryLesson;
   isNext: boolean;
+  onToggle: () => void;
+  summary?: LessonHistorySummary;
 }) => {
   const completed = isCompletedLesson(lesson);
   const upcoming = isUpcomingLesson(lesson);
@@ -855,7 +974,7 @@ const MobileTrailStep = ({
             : "border-slate-200 bg-slate-50/80",
       )}
     >
-      <div className="flex items-start gap-3">
+      <button type="button" onClick={onToggle} className="flex w-full items-start gap-3 text-left">
         <span
           className={cn(
             "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl",
@@ -893,7 +1012,15 @@ const MobileTrailStep = ({
             {lesson.date ? ` · ${formatLessonDateShort(lesson.date)}` : ""}
           </p>
         </div>
-      </div>
+        <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-200">
+          {expanded ? "Ocultar" : "Ver"}
+        </span>
+      </button>
+      {expanded ? (
+        <div className={cn("mt-3 border-t pt-3", completed ? "border-emerald-100" : "border-slate-200")}>
+          <DesktopLessonDetails lesson={lesson} summary={summary} />
+        </div>
+      ) : null}
     </article>
   );
 };

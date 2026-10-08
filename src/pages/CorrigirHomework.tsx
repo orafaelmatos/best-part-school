@@ -13,6 +13,9 @@ import { ArrowLeft, CalendarClock, CheckCircle2, Clock, Inbox, Plus, Search, Spa
 
 type QuestionType = "open_text" | "multiple_choice";
 type ApiHomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "corrected";
+type UiHomeworkStatus = "draft" | "pending" | "in_progress" | "sent" | "late" | "corrected";
+type HomeworkStatusFilter = "all" | UiHomeworkStatus;
+type CorrectionTypeFilter = "all" | "auto" | "manual";
 
 type HomeworkQuestion = {
   id: string;
@@ -22,6 +25,19 @@ type HomeworkQuestion = {
   audio_url?: string | null;
   audio_transcript?: string;
   options: string[];
+  correct_option_index: number | null;
+  reference_answer?: string;
+  correction_instructions?: string;
+  explanation?: string;
+  second_chance_mode?: "none" | "reserve";
+  reserve_question?: {
+    type: QuestionType;
+    prompt: string;
+    options: string[];
+    correct_option_index: number | null;
+    reference_answer?: string;
+    explanation?: string;
+  } | null;
   order: number;
 };
 
@@ -67,8 +83,14 @@ type HomeworkItem = {
     teacher_focus_report?: TeacherFocusReport | null;
   } | null;
   student_name?: string;
+  student?: string;
   teacher_name?: string;
+  teacher?: string;
+  group?: string;
+  group_name?: string;
+  lesson?: string;
   lesson_title?: string;
+  template?: string;
   questions: HomeworkQuestion[];
   answers?: HomeworkAnswer[];
   updated_at?: string | null;
@@ -108,20 +130,42 @@ type CorrectionPayload = {
   answersFeedback: Record<string, string>;
 };
 
-const statusStyles = {
+const statusStyles: Record<UiHomeworkStatus, string> = {
+  draft: "bg-slate-100 text-slate-700 border-slate-200",
   pending: "bg-amber-50 text-amber-700 border-amber-200",
+  in_progress: "bg-violet-50 text-violet-700 border-violet-200",
   sent: "bg-blue-50 text-blue-700 border-blue-200",
   late: "bg-red-50 text-red-700 border-red-200",
   corrected: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
-const getHomeworkStatus = (homework: HomeworkItem) => {
+const getHomeworkStatus = (homework: HomeworkItem): UiHomeworkStatus => {
+  if (homework.status === "draft") return "draft";
   if (homework.status === "corrected") return "corrected";
   if (homework.status === "sent") return "sent";
-  if (homework.status === "in_progress") return "pending";
+  if (homework.status === "in_progress") return "in_progress";
   if (homework.due_date && new Date(homework.due_date).getTime() < Date.now()) return "late";
   return "pending";
 };
+
+const statusLabel: Record<UiHomeworkStatus, string> = {
+  draft: "Rascunho",
+  pending: "Pendente",
+  in_progress: "Em andamento",
+  sent: "Aguardando Correção",
+  late: "Atrasado",
+  corrected: "Corrigido",
+};
+
+const statusFilterOptions: { value: HomeworkStatusFilter; label: string }[] = [
+  { value: "all", label: "Todas" },
+  { value: "draft", label: "Rascunhos" },
+  { value: "sent", label: "Aguardando correção" },
+  { value: "pending", label: "Pendentes" },
+  { value: "in_progress", label: "Em andamento" },
+  { value: "late", label: "Atrasadas" },
+  { value: "corrected", label: "Corrigidas" },
+];
 
 const formatDate = (value?: string | null) => {
   if (!value) return "Sem prazo";
@@ -143,6 +187,17 @@ const getLessonRecipientKey = (lesson?: LessonOption | null) => {
   if (lesson.group) return `group:${lesson.group}`;
   if (lesson.student) return `student:${lesson.student}`;
   return "";
+};
+
+const getHomeworkRecipientName = (homework: HomeworkItem) => {
+  if (homework.group) return homework.group_name || "Turma sem nome";
+  return homework.student_name || "Aluno não informado";
+};
+
+const getHomeworkRecipientKey = (homework: HomeworkItem) => {
+  if (homework.group) return `group:${homework.group}`;
+  if (homework.student) return `student:${homework.student}`;
+  return `unknown:${getHomeworkRecipientName(homework)}`;
 };
 
 const normalizeSearchText = (value: string) => (
@@ -213,14 +268,18 @@ export default function CorrigirHomework() {
   const [lessonSearchTerm, setLessonSearchTerm] = useState("");
   const [createHomeworkLesson, setCreateHomeworkLesson] = useState<LessonOption | null>(null);
   const [createHomeworkKey, setCreateHomeworkKey] = useState<string | null>(null);
+  const [editingHomeworkDraft, setEditingHomeworkDraft] = useState<HomeworkItem | null>(null);
+  const [homeworkSearchTerm, setHomeworkSearchTerm] = useState("");
+  const [homeworkStatusFilter, setHomeworkStatusFilter] = useState<HomeworkStatusFilter>("all");
+  const [homeworkRecipientFilter, setHomeworkRecipientFilter] = useState("all");
+  const [homeworkClassificationFilter, setHomeworkClassificationFilter] = useState("all");
+  const [correctionTypeFilter, setCorrectionTypeFilter] = useState<CorrectionTypeFilter>("all");
 
   const { data: homeworkItems = [], isLoading } = useQuery({
     queryKey: ["teacher-homework"],
     queryFn: async () => {
-      // Excluímos rascunhos para correção
       const res = await api.get("/homework/?ordering=-updated_at");
-      const list = Array.isArray(res.data) ? res.data : (res.data?.results || []);
-      return list.filter((hw: HomeworkItem) => hw.status !== "draft") as HomeworkItem[];
+      return normalizeList(res.data) as HomeworkItem[];
     },
   });
 
@@ -308,16 +367,118 @@ export default function CorrigirHomework() {
     [recipientOptions, selectedRecipientKey],
   );
 
-  const { pendingReviewCount, filteredHomeworkItems } = useMemo(() => {
+  const homeworkRecipientOptions = useMemo(() => {
+    const recipients = new Map<string, { key: string; name: string; count: number }>();
+    homeworkItems.forEach((homework) => {
+      const key = getHomeworkRecipientKey(homework);
+      const name = getHomeworkRecipientName(homework);
+      const existing = recipients.get(key);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      recipients.set(key, { key, name, count: 1 });
+    });
+    return Array.from(recipients.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [homeworkItems]);
+
+  const homeworkClassificationOptions = useMemo(() => {
+    return Array.from(new Set(homeworkItems.map((item) => item.classification).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [homeworkItems]);
+
+  const statusCounts = useMemo(() => {
+    return homeworkItems.reduce(
+      (counts, homework) => {
+        const status = getHomeworkStatus(homework);
+        counts.all += 1;
+        counts[status] += 1;
+        return counts;
+      },
+      {
+        all: 0,
+        draft: 0,
+        pending: 0,
+        in_progress: 0,
+        sent: 0,
+        late: 0,
+        corrected: 0,
+      } as Record<HomeworkStatusFilter, number>,
+    );
+  }, [homeworkItems]);
+
+  const { draftCount, pendingReviewCount, filteredHomeworkItems } = useMemo(() => {
+    let drafts = 0;
     let pendingReview = 0;
     const items = homeworkItems.filter(item => {
+      if (item.status === "draft") {
+        drafts++;
+      }
       if (item.status === "sent" && !item.auto_correction_enabled) {
         pendingReview++;
       }
-      return true; 
+      const status = getHomeworkStatus(item);
+      if (homeworkStatusFilter !== "all" && status !== homeworkStatusFilter) {
+        return false;
+      }
+      if (homeworkRecipientFilter !== "all" && getHomeworkRecipientKey(item) !== homeworkRecipientFilter) {
+        return false;
+      }
+      if (homeworkClassificationFilter !== "all" && item.classification !== homeworkClassificationFilter) {
+        return false;
+      }
+      if (correctionTypeFilter === "auto" && !item.auto_correction_enabled) {
+        return false;
+      }
+      if (correctionTypeFilter === "manual" && item.auto_correction_enabled) {
+        return false;
+      }
+
+      const search = normalizeSearchText(homeworkSearchTerm);
+      if (!search) {
+        return true;
+      }
+
+      const searchable = [
+        item.title,
+        item.description,
+        item.classification,
+        item.student_name,
+        item.group_name,
+        item.lesson_title,
+        item.due_date ? formatDate(item.due_date) : "",
+        item.updated_at ? formatDate(item.updated_at) : "",
+        statusLabel[status],
+        item.auto_correction_enabled ? "correcao automatica auto ia" : "correcao manual professor",
+      ].filter(Boolean).join(" ");
+
+      return normalizeSearchText(searchable).includes(search);
     });
-    return { pendingReviewCount: pendingReview, filteredHomeworkItems: items };
-  }, [homeworkItems]);
+    return { draftCount: drafts, pendingReviewCount: pendingReview, filteredHomeworkItems: items };
+  }, [
+    correctionTypeFilter,
+    homeworkClassificationFilter,
+    homeworkItems,
+    homeworkRecipientFilter,
+    homeworkSearchTerm,
+    homeworkStatusFilter,
+  ]);
+
+  const hasActiveHomeworkFilters = Boolean(
+    homeworkSearchTerm.trim() ||
+    homeworkStatusFilter !== "all" ||
+    homeworkRecipientFilter !== "all" ||
+    homeworkClassificationFilter !== "all" ||
+    correctionTypeFilter !== "all"
+  );
+
+  const clearHomeworkFilters = () => {
+    setHomeworkSearchTerm("");
+    setHomeworkStatusFilter("all");
+    setHomeworkRecipientFilter("all");
+    setHomeworkClassificationFilter("all");
+    setCorrectionTypeFilter("all");
+  };
 
   const correctionMutation = useMutation({
     mutationFn: async ({ homeworkId, payload }: { homeworkId: string; payload: CorrectionPayload }) => {
@@ -420,9 +581,44 @@ export default function CorrigirHomework() {
 
   const handleStartNewHomework = () => {
     if (!selectedLesson) return;
+    setEditingHomeworkDraft(null);
     setCreateHomeworkLesson(selectedLesson);
     setCreateHomeworkKey(`${selectedLesson.id}-${Date.now()}`);
     handleNewHomeworkPickerOpenChange(false);
+  };
+
+  const handleContinueDraft = async (homework: HomeworkItem) => {
+    setOpeningHomeworkId(homework.id);
+    try {
+      const { data } = await api.get(`/homework/${homework.id}/`);
+      const latestHomework = data as HomeworkItem;
+      const lessonId = latestHomework.lesson || homework.lesson;
+      if (!lessonId) {
+        toast({
+          title: "Rascunho sem aula",
+          description: "Não foi possível encontrar a aula vinculada a esta homework.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const lessonFromList = lessonOptions.find((lesson) => lesson.id === lessonId);
+      const draftLesson: LessonOption = lessonFromList || {
+        id: lessonId,
+        title: latestHomework.lesson_title || homework.lesson_title || "Aula",
+        student: latestHomework.student || homework.student || null,
+        student_name: latestHomework.student_name || homework.student_name,
+        group: latestHomework.group || homework.group || null,
+        group_name: latestHomework.group_name || homework.group_name,
+        teacher: latestHomework.teacher || homework.teacher || null,
+      };
+
+      setEditingHomeworkDraft(latestHomework);
+      setCreateHomeworkLesson(draftLesson);
+      setCreateHomeworkKey(`draft-${latestHomework.id}-${Date.now()}`);
+    } finally {
+      setOpeningHomeworkId(null);
+    }
   };
 
   const handleNewHomeworkPickerOpenChange = (open: boolean) => {
@@ -773,7 +969,11 @@ export default function CorrigirHomework() {
           lesson={createHomeworkLesson}
           mode="create-dialog"
           autoOpenCreateKey={createHomeworkKey}
-          onCreateDialogClose={() => setCreateHomeworkLesson(null)}
+          autoOpenHomework={editingHomeworkDraft}
+          onCreateDialogClose={() => {
+            setCreateHomeworkLesson(null);
+            setEditingHomeworkDraft(null);
+          }}
           onUpdated={() => {
             queryClient.invalidateQueries({ queryKey: ["teacher-homework"] });
             queryClient.invalidateQueries({ queryKey: ["teacher-lessons-for-homework"] });
@@ -791,13 +991,126 @@ export default function CorrigirHomework() {
             <h3 className="text-2xl font-bold">{pendingReviewCount}</h3>
           </div>
         </div>
+        <div className="rounded-xl border border-border bg-card p-4 flex items-start gap-4">
+          <div className="rounded-lg bg-slate-100 p-2 text-slate-700">
+             <Clock size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Rascunhos</p>
+            <h3 className="text-2xl font-bold">{draftCount}</h3>
+          </div>
+        </div>
       </div>
+
+      <section className="mb-6 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <label className="text-sm font-semibold text-foreground">Buscar homework</label>
+            <div className="relative mt-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={homeworkSearchTerm}
+                onChange={(event) => setHomeworkSearchTerm(event.target.value)}
+                placeholder="Aluno, turma, título, aula, categoria..."
+                className="h-11 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:w-[560px]">
+            <label className="block">
+              <span className="text-xs font-semibold text-muted-foreground">Aluno ou turma</span>
+              <select
+                value={homeworkRecipientFilter}
+                onChange={(event) => setHomeworkRecipientFilter(event.target.value)}
+                className="mt-2 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="all">Todos</option>
+                {homeworkRecipientOptions.map((recipient) => (
+                  <option key={recipient.key} value={recipient.key}>
+                    {recipient.name} ({recipient.count})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-muted-foreground">Categoria</span>
+              <select
+                value={homeworkClassificationFilter}
+                onChange={(event) => setHomeworkClassificationFilter(event.target.value)}
+                className="mt-2 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="all">Todas</option>
+                {homeworkClassificationOptions.map((classification) => (
+                  <option key={classification} value={classification}>
+                    {classification}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-muted-foreground">Correção</span>
+              <select
+                value={correctionTypeFilter}
+                onChange={(event) => setCorrectionTypeFilter(event.target.value as CorrectionTypeFilter)}
+                className="mt-2 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+              >
+                <option value="all">Todas</option>
+                <option value="auto">Automática</option>
+                <option value="manual">Manual</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {statusFilterOptions.map((option) => {
+              const active = homeworkStatusFilter === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setHomeworkStatusFilter(option.value)}
+                  className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                    active
+                      ? "border-sky-200 bg-sky-600 text-white shadow-sm"
+                      : "border-border bg-background text-muted-foreground hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800"
+                  }`}
+                >
+                  {option.label}
+                  <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${
+                    active ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                  }`}>
+                    {statusCounts[option.value]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <span>
+              {filteredHomeworkItems.length} de {homeworkItems.length} homework{homeworkItems.length === 1 ? "" : "s"}
+            </span>
+            {hasActiveHomeworkFilters ? (
+              <Button type="button" variant="outline" size="sm" onClick={clearHomeworkFilters}>
+                Limpar filtros
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-muted-foreground">Carregando atividades...</div>
         ) : filteredHomeworkItems.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">Nenhuma atividade encontrada.</div>
+          <div className="p-8 text-center text-muted-foreground">
+            {hasActiveHomeworkFilters ? "Nenhuma homework encontrada com esses filtros." : "Nenhuma atividade encontrada."}
+          </div>
         ) : (
           <div className="divide-y divide-border">
             {filteredHomeworkItems.map((item) => {
@@ -808,17 +1121,12 @@ export default function CorrigirHomework() {
                 <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-muted/50 transition-colors">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${
-                        status === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                        status === 'corrected' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        status === 'late' ? 'bg-red-50 text-red-700 border-red-200' :
-                        'bg-amber-50 text-amber-700 border-amber-200'
-                      }`}>
-                        {status === 'sent' ? 'Aguardando Correção' :
-                         status === 'corrected' ? 'Corrigido' :
-                         status === 'late' ? 'Atrasado' : 'Pendente'}
+                      <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${statusStyles[status]}`}>
+                        {statusLabel[status]}
                       </span>
-                      <span className="text-xs text-muted-foreground">Enviado por {item.student_name || "Desconhecido"}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {item.status === "draft" ? "Para" : "Enviado por"} {item.student_name || item.group_name || "Desconhecido"}
+                      </span>
                     </div>
                     <h4 className="font-semibold">{item.title}</h4>
                     <p className="text-sm text-muted-foreground mt-0.5">
@@ -827,7 +1135,11 @@ export default function CorrigirHomework() {
                   </div>
                   
                   <div>
-                    {isReady ? (
+                    {item.status === "draft" ? (
+                      <Button onClick={() => void handleContinueDraft(item)} size="sm" disabled={openingHomeworkId === item.id}>
+                        {openingHomeworkId === item.id ? "Carregando..." : "Continuar homework"}
+                      </Button>
+                    ) : isReady ? (
                       <Button onClick={() => void handleCorrect(item)} size="sm" disabled={openingHomeworkId === item.id}>
                         {openingHomeworkId === item.id ? "Carregando..." : "Avaliar"}
                       </Button>

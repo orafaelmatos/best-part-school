@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
@@ -95,6 +95,8 @@ type DraftAnswer = {
   selected_option_index?: number | null;
 };
 
+type DraftSaveState = "idle" | "saving" | "saved" | "error";
+
 const statusCopy: Record<UiHomeworkStatus, string> = {
   pending: "Pendente",
   in_progress: "Em andamento",
@@ -112,6 +114,37 @@ const statusStyles: Record<UiHomeworkStatus, string> = {
 };
 
 const normalizeList = (data: unknown) => Array.isArray(data) ? data : ((data as { results?: unknown[] })?.results || []);
+
+const hasOwnDraft = (answers: Record<string, DraftAnswer>, questionId: string) =>
+  Object.prototype.hasOwnProperty.call(answers, questionId);
+
+const getPrimaryDraftAnswers = (homework: HomeworkItem): Record<string, DraftAnswer> => {
+  const drafts: Record<string, DraftAnswer> = {};
+  homework.questions.forEach((question) => {
+    const answer = homework.answers?.find((item) => item.question === question.id);
+    if (!answer) return;
+    if (!homework.auto_correction_enabled || !answer.answered_at) {
+      drafts[question.id] = {
+        answer_text: answer.answer_text || "",
+        selected_option_index: answer.selected_option_index ?? null,
+      };
+    }
+  });
+  return drafts;
+};
+
+const getSecondChanceDraftAnswers = (homework: HomeworkItem): Record<string, DraftAnswer> => {
+  const drafts: Record<string, DraftAnswer> = {};
+  homework.questions.forEach((question) => {
+    const answer = homework.answers?.find((item) => item.question === question.id);
+    if (!answer?.second_chance_question || answer.second_chance_answered_at) return;
+    drafts[question.id] = {
+      answer_text: answer.second_chance_answer_text || "",
+      selected_option_index: answer.second_chance_selected_option_index ?? null,
+    };
+  });
+  return drafts;
+};
 
 const getHomeworkStatus = (homework: HomeworkItem): UiHomeworkStatus => {
   if (homework.status === "corrected") return "corrected";
@@ -150,6 +183,7 @@ const HomeworkLessons = () => {
   const [draftAnswers, setDraftAnswers] = useState<Record<string, DraftAnswer>>({});
   const [secondChanceDrafts, setSecondChanceDrafts] = useState<Record<string, DraftAnswer>>({});
   const [expandedSecondChance, setExpandedSecondChance] = useState<Record<string, boolean>>({});
+  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
 
   const { data: homeworkItems = [], isLoading } = useQuery({
     queryKey: ["student-homework"],
@@ -190,13 +224,68 @@ const HomeworkLessons = () => {
       const { data } = await api.get(`/homework/${homework.id}/`);
       const detailedHomework = data as HomeworkItem;
       setSelectedHomework(detailedHomework);
-      setDraftAnswers({});
-      setSecondChanceDrafts({});
+      setDraftAnswers(getPrimaryDraftAnswers(detailedHomework));
+      setSecondChanceDrafts(getSecondChanceDraftAnswers(detailedHomework));
       setExpandedSecondChance({});
+      setDraftSaveState("idle");
     } finally {
       setOpeningHomeworkId(null);
     }
   };
+
+  useEffect(() => {
+    if (!selectedHomework || !["pending", "in_progress"].includes(selectedHomework.status)) {
+      return;
+    }
+
+    const answersPayload = selectedHomework.questions
+      .map((question) => {
+        const answer = selectedHomework.answers?.find((item) => item.question === question.id);
+        const primaryDraft = draftAnswers[question.id] || {};
+        const secondChanceDraft = secondChanceDrafts[question.id] || {};
+        const hasPrimaryDraft = !answer?.answered_at && hasOwnDraft(draftAnswers, question.id);
+        const hasSecondChanceDraft = Boolean(
+          answer?.second_chance_question &&
+          !answer.second_chance_answered_at &&
+          hasOwnDraft(secondChanceDrafts, question.id)
+        );
+
+        if (!hasPrimaryDraft && !hasSecondChanceDraft) {
+          return null;
+        }
+
+        return {
+          question: question.id,
+          ...(hasPrimaryDraft ? {
+            answer_text: primaryDraft.answer_text || "",
+            selected_option_index: primaryDraft.selected_option_index ?? null,
+          } : {}),
+          ...(hasSecondChanceDraft ? {
+            second_chance_answer_text: secondChanceDraft.answer_text || "",
+            second_chance_selected_option_index: secondChanceDraft.selected_option_index ?? null,
+          } : {}),
+        };
+      })
+      .filter(Boolean);
+
+    if (!answersPayload.length) {
+      setDraftSaveState("idle");
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      setDraftSaveState("saving");
+      try {
+        await api.post(`/homework/${selectedHomework.id}/save_draft_answers/`, { answers: answersPayload });
+        setDraftSaveState("saved");
+        await queryClient.invalidateQueries({ queryKey: ["student-homework"] });
+      } catch {
+        setDraftSaveState("error");
+      }
+    }, 600);
+
+    return () => window.clearTimeout(timeout);
+  }, [draftAnswers, queryClient, secondChanceDrafts, selectedHomework]);
 
   const manualSubmitMutation = useMutation({
     mutationFn: async (homework: HomeworkItem) => {
@@ -262,6 +351,13 @@ const HomeworkLessons = () => {
 
   if (selectedHomework) {
     const uiStatus = getHomeworkStatus(selectedHomework);
+    const canAutosave = selectedHomework.status === "pending" || selectedHomework.status === "in_progress";
+    const draftSaveCopy: Record<DraftSaveState, string> = {
+      idle: "As respostas são salvas automaticamente enquanto você escreve.",
+      saving: "Salvando progresso...",
+      saved: "Progresso salvo automaticamente.",
+      error: "Não foi possível salvar agora. Suas alterações continuam na tela.",
+    };
     const hasPendingSecondChance = selectedHomework.questions.some((question) => {
       const answer = selectedHomework.answers?.find((item) => item.question === question.id);
       return Boolean(
@@ -306,6 +402,16 @@ const HomeworkLessons = () => {
               </div>
             ) : null}
           </div>
+
+          {canAutosave ? (
+            <p className={`rounded-lg px-3 py-2 text-xs font-medium ${
+              draftSaveState === "error"
+                ? "bg-red-50 text-red-700"
+                : "bg-sky-50 text-sky-700"
+            }`}>
+              {draftSaveCopy[draftSaveState]}
+            </p>
+          ) : null}
 
           {selectedHomework.student_report && !hasPendingSecondChance ? <ReportCard report={selectedHomework.student_report} /> : null}
 
@@ -510,6 +616,9 @@ const HomeworkLessons = () => {
                   <span>{formatDate(homework.due_date)}</span>
                   {homework.classification && <span className="inline-flex items-center gap-1"><Tag size={13} /> {homework.classification}</span>}
                 </div>
+                <span className="mt-4 inline-flex rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground">
+                  {uiStatus === "in_progress" ? "Continuar homework" : uiStatus === "pending" || uiStatus === "late" ? "Começar homework" : "Ver homework"}
+                </span>
                 {openingHomeworkId === homework.id ? <p className="mt-3 text-xs text-muted-foreground">Carregando atividade...</p> : null}
               </button>
             );

@@ -307,6 +307,7 @@ class HomeworkQuestionSerializer(serializers.ModelSerializer):
             'second_chance_mode', 'reserve_question', 'has_reserve_question', 'order',
         ]
         extra_kwargs = {
+            'prompt': {'required': False, 'allow_blank': True},
             'image': {'required': False, 'allow_null': True},
             'audio': {'required': False, 'allow_null': True},
             'audio_transcript': {'required': False, 'allow_blank': True},
@@ -348,38 +349,6 @@ class HomeworkQuestionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        question_type = attrs.get('type') or getattr(self.instance, 'type', '')
-        options = attrs.get('options')
-        correct_option_index = attrs.get('correct_option_index')
-
-        if question_type == 'multiple_choice':
-            if options is not None and len([item for item in options if str(item).strip()]) < 2:
-                raise serializers.ValidationError({'options': 'Adicione pelo menos duas opções.'})
-            if correct_option_index is None:
-                correct_option_index = getattr(self.instance, 'correct_option_index', None)
-            current_options = options if options is not None else getattr(self.instance, 'options', [])
-            if correct_option_index is None or correct_option_index < 0 or correct_option_index >= len(current_options or []):
-                raise serializers.ValidationError({'correct_option_index': 'Selecione a alternativa correta.'})
-
-        reserve_question = attrs.get('reserve_question')
-        second_chance_mode = attrs.get('second_chance_mode') or getattr(self.instance, 'second_chance_mode', 'ai_generated')
-        if second_chance_mode == 'reserve':
-            reserve_payload = reserve_question
-            if reserve_payload is None and self.instance:
-                reserve_payload = {
-                    'prompt': getattr(self.instance, 'reserve_prompt', ''),
-                }
-            if not isinstance(reserve_payload, dict) or not str(reserve_payload.get('prompt') or '').strip():
-                raise serializers.ValidationError({'reserve_question': 'Cadastre a questão reserva para usar esta opção.'})
-            reserve_type = reserve_payload.get('type') or 'open_text'
-            if reserve_type == 'multiple_choice':
-                reserve_options = [item for item in reserve_payload.get('options', []) if str(item).strip()]
-                reserve_index = reserve_payload.get('correct_option_index')
-                if len(reserve_options) < 2:
-                    raise serializers.ValidationError({'reserve_question': 'A questão reserva precisa ter pelo menos duas opções.'})
-                if reserve_index is None or reserve_index < 0 or reserve_index >= len(reserve_options):
-                    raise serializers.ValidationError({'reserve_question': 'Selecione a alternativa correta da questão reserva.'})
-
         return attrs
 
     def validate_image(self, value):
@@ -467,6 +436,95 @@ class HomeworkSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def _question_value(self, question, key, default=None):
+        if isinstance(question, dict):
+            return question.get(key, default)
+        return getattr(question, key, default)
+
+    def _reserve_question_payload(self, question):
+        reserve_payload = self._question_value(question, 'reserve_question')
+        if isinstance(reserve_payload, dict):
+            return reserve_payload
+        reserve_prompt = self._question_value(question, 'reserve_prompt', '')
+        if reserve_prompt is None:
+            return None
+        return {
+            'type': self._question_value(question, 'reserve_type', 'open_text'),
+            'prompt': reserve_prompt,
+            'options': self._question_value(question, 'reserve_options', []) or [],
+            'correct_option_index': self._question_value(question, 'reserve_correct_option_index'),
+        }
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        status = attrs.get('status', getattr(self.instance, 'status', 'draft'))
+        if status == 'draft':
+            return attrs
+
+        questions = attrs.get('questions')
+        if questions is None and self.instance:
+            questions = list(self.instance.questions.all())
+
+        if questions is None or len(questions) == 0:
+            raise serializers.ValidationError({'questions': 'Adicione pelo menos uma pergunta.'})
+
+        auto_correction_enabled = attrs.get(
+            'auto_correction_enabled',
+            getattr(self.instance, 'auto_correction_enabled', True),
+        )
+        question_errors = [{} for _ in questions]
+
+        def add_error(index, field, message):
+            question_errors[index].setdefault(field, []).append(message)
+
+        for index, question in enumerate(questions):
+            prompt = str(self._question_value(question, 'prompt', '') or '').strip()
+            if not prompt:
+                add_error(index, 'prompt', 'Preencha o texto da pergunta.')
+
+            question_type = self._question_value(question, 'type', 'open_text')
+            if question_type == 'multiple_choice':
+                options = self._question_value(question, 'options', []) or []
+                filled_options = [item for item in options if str(item).strip()]
+                correct_option_index = self._question_value(question, 'correct_option_index')
+                if len(filled_options) < 2:
+                    add_error(index, 'options', 'Adicione pelo menos duas opções.')
+                if (
+                    correct_option_index is None
+                    or correct_option_index < 0
+                    or correct_option_index >= len(options)
+                    or not str(options[correct_option_index] or '').strip()
+                ):
+                    add_error(index, 'correct_option_index', 'Selecione a alternativa correta.')
+
+            second_chance_mode = self._question_value(question, 'second_chance_mode', 'none')
+            if auto_correction_enabled and second_chance_mode == 'reserve':
+                reserve_payload = self._reserve_question_payload(question)
+                reserve_prompt = str((reserve_payload or {}).get('prompt') or '').strip()
+                if not reserve_prompt:
+                    add_error(index, 'reserve_question', 'Cadastre a questão reserva ou selecione "Sem segunda chance".')
+                    continue
+
+                reserve_type = (reserve_payload or {}).get('type') or 'open_text'
+                if reserve_type == 'multiple_choice':
+                    reserve_options = (reserve_payload or {}).get('options') or []
+                    reserve_filled_options = [item for item in reserve_options if str(item).strip()]
+                    reserve_index = (reserve_payload or {}).get('correct_option_index')
+                    if len(reserve_filled_options) < 2:
+                        add_error(index, 'reserve_question', 'A questão reserva precisa ter pelo menos duas opções.')
+                    if (
+                        reserve_index is None
+                        or reserve_index < 0
+                        or reserve_index >= len(reserve_options)
+                        or not str(reserve_options[reserve_index] or '').strip()
+                    ):
+                        add_error(index, 'reserve_question', 'Selecione a alternativa correta da questão reserva.')
+
+        if any(question_errors):
+            raise serializers.ValidationError({'questions': question_errors})
+
+        return attrs
 
     def _transcribe_audio(self, audio_file):
         if not audio_file:

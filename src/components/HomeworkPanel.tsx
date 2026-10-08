@@ -108,8 +108,11 @@ type HomeworkPanelProps = {
   onUpdated?: () => void;
   mode?: "panel" | "create-dialog";
   autoOpenCreateKey?: string | number | null;
+  autoOpenHomework?: Homework | null;
   onCreateDialogClose?: () => void;
 };
+
+type DraftSaveState = "idle" | "saving" | "saved" | "error";
 
 type QuestionErrorKey = "prompt" | "options" | "correct_option_index" | "reserve_question";
 
@@ -313,6 +316,58 @@ const normalizeDateInput = (value?: string | null) => {
   return value.slice(0, 16);
 };
 
+const hasText = (value?: string | null) => Boolean((value || "").trim());
+
+const hasMeaningfulHomeworkDraft = (form: Partial<Homework> & { questions: HomeworkQuestion[] }) => (
+  hasText(form.title) ||
+  hasText(form.description) ||
+  hasText(form.classification) ||
+  hasText(form.due_date) ||
+  form.questions.some((question) => (
+    hasText(question.prompt) ||
+    hasText(question.reference_answer) ||
+    hasText(question.correction_instructions) ||
+    hasText(question.explanation) ||
+    Boolean(question.image_file || question.audio_file || question.image_path || question.audio_path || question.image_url || question.audio_url) ||
+    question.options.some(hasText) ||
+    Boolean(question.reserve_question && (
+      hasText(question.reserve_question.prompt) ||
+      hasText(question.reserve_question.reference_answer) ||
+      hasText(question.reserve_question.explanation) ||
+      question.reserve_question.options.some(hasText)
+    ))
+  ))
+);
+
+const prepareHomeworkForEditor = (homework: Homework, lesson: LessonContext): Partial<Homework> & { questions: HomeworkQuestion[] } => ({
+  ...homework,
+  teacher: homework.teacher || lesson.teacher,
+  student: homework.student || lesson.student,
+  group: homework.group || lesson.group,
+  lesson: homework.lesson || lesson.id,
+  due_date: normalizeDateInput(homework.due_date),
+  questions: homework.questions.length
+    ? homework.questions.map((question, index) => ({
+        ...emptyQuestion(index),
+        ...question,
+        options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
+        reserve_question: question.reserve_question ? {
+          type: question.reserve_question.type || "open_text",
+          prompt: question.reserve_question.prompt || "",
+          options: question.reserve_question.type === "multiple_choice" && question.reserve_question.options?.length ? question.reserve_question.options : ["", ""],
+          correct_option_index: question.reserve_question.correct_option_index ?? null,
+          reference_answer: question.reserve_question.reference_answer || "",
+          explanation: question.reserve_question.explanation || "",
+        } : null,
+        order: question.order ?? index,
+        image_file: null,
+        audio_file: null,
+        remove_image: false,
+        remove_audio: false,
+      }))
+    : [emptyQuestion(0)],
+});
+
 const buildPayload = (form: Partial<Homework> & { questions: HomeworkQuestion[] }, status: HomeworkStatus) => {
   const payload = new FormData();
   payload.append("title", form.title || "Lição de Casa sem título");
@@ -371,6 +426,7 @@ export const HomeworkPanel = ({
   onUpdated,
   mode = "panel",
   autoOpenCreateKey = null,
+  autoOpenHomework = null,
   onCreateDialogClose,
 }: HomeworkPanelProps) => {
   const { user } = useAuth();
@@ -382,7 +438,13 @@ export const HomeworkPanel = ({
   const [editing, setEditing] = useState<Homework | null>(null);
   const [form, setForm] = useState(emptyForm(lesson));
   const [editorErrors, setEditorErrors] = useState<HomeworkEditorErrors>(emptyEditorErrors);
+  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
   const lastAutoOpenKeyRef = useRef<string | number | null>(null);
+  const draftHomeworkIdRef = useRef<string | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const autoSaveRequestRef = useRef(0);
+  const editingId = editing?.id;
+  const editingStatus = editing?.status;
 
   const { data: homeworkItems = [] } = useQuery({
     queryKey: ["homework", lesson.id],
@@ -405,6 +467,8 @@ export const HomeworkPanel = ({
   useEffect(() => {
     setForm(emptyForm(lesson));
     setEditorErrors(emptyEditorErrors());
+    setDraftSaveState("idle");
+    draftHomeworkIdRef.current = null;
   }, [lesson]);
 
   const refresh = () => {
@@ -415,10 +479,12 @@ export const HomeworkPanel = ({
 
   const saveMutation = useMutation({
     mutationFn: async (status: HomeworkStatus) => {
-      const validationErrors = validateHomeworkForm(form);
-      if (hasEditorErrors(validationErrors)) {
-        setEditorErrors(validationErrors);
-        throw new Error("homework-validation");
+      if (status !== "draft") {
+        const validationErrors = validateHomeworkForm(form);
+        if (hasEditorErrors(validationErrors)) {
+          setEditorErrors(validationErrors);
+          throw new Error("homework-validation");
+        }
       }
 
       setEditorErrors(emptyEditorErrors());
@@ -434,8 +500,10 @@ export const HomeworkPanel = ({
       refresh();
       setOpen(false);
       setEditing(null);
+      draftHomeworkIdRef.current = null;
       setForm(emptyForm(lesson));
       setEditorErrors(emptyEditorErrors());
+      setDraftSaveState("idle");
       onCreateDialogClose?.();
     },
     onError: (error: unknown) => {
@@ -471,51 +539,93 @@ export const HomeworkPanel = ({
   const openEditor = useCallback((homework?: Homework) => {
     if (homework) {
       setEditing(homework);
-      setForm({
-        ...homework,
-        due_date: normalizeDateInput(homework.due_date),
-        questions: homework.questions.length
-          ? homework.questions.map((question, index) => ({
-              ...emptyQuestion(index),
-              ...question,
-              options: question.type === "multiple_choice" && question.options.length ? question.options : ["", ""],
-              reserve_question: question.reserve_question ? {
-                type: question.reserve_question.type || "open_text",
-                prompt: question.reserve_question.prompt || "",
-                options: question.reserve_question.type === "multiple_choice" && question.reserve_question.options?.length ? question.reserve_question.options : ["", ""],
-                correct_option_index: question.reserve_question.correct_option_index ?? null,
-                reference_answer: question.reserve_question.reference_answer || "",
-                explanation: question.reserve_question.explanation || "",
-              } : null,
-              order: question.order ?? index,
-              image_file: null,
-              audio_file: null,
-              remove_image: false,
-              remove_audio: false,
-            }))
-          : [emptyQuestion(0)],
-      });
+      draftHomeworkIdRef.current = homework.id;
+      setForm(prepareHomeworkForEditor(homework, lesson));
     } else {
       setEditing(null);
+      draftHomeworkIdRef.current = null;
       setForm(emptyForm(lesson));
     }
     setEditorErrors(emptyEditorErrors());
+    setDraftSaveState("idle");
     setOpen(true);
   }, [lesson]);
 
+  const saveDraftNow = useCallback(async () => {
+    if (!isTeacher || !hasMeaningfulHomeworkDraft(form)) return null;
+    if (editingStatus && editingStatus !== "draft") return null;
+
+    const requestId = autoSaveRequestRef.current + 1;
+    autoSaveRequestRef.current = requestId;
+    setDraftSaveState("saving");
+
+    try {
+      const payload = buildPayload(form, "draft");
+      const homeworkId = draftHomeworkIdRef.current || editingId;
+      const res = homeworkId
+        ? await api.put(`/homework/${homeworkId}/`, payload)
+        : await api.post("/homework/", payload);
+      const savedHomework = res.data as Homework;
+      draftHomeworkIdRef.current = savedHomework.id;
+      setEditing(savedHomework);
+      queryClient.invalidateQueries({ queryKey: ["homework", lesson.id] });
+      queryClient.invalidateQueries({ queryKey: ["homework-templates"] });
+      onUpdated?.();
+      if (autoSaveRequestRef.current === requestId) {
+        setDraftSaveState("saved");
+      }
+      return savedHomework;
+    } catch {
+      if (autoSaveRequestRef.current === requestId) {
+        setDraftSaveState("error");
+      }
+      return null;
+    }
+  }, [editingId, editingStatus, form, isTeacher, lesson.id, onUpdated, queryClient]);
+
   useEffect(() => {
-    if (mode !== "create-dialog" || !autoOpenCreateKey || !isTeacher) return;
-    if (lastAutoOpenKeyRef.current === autoOpenCreateKey) return;
-    lastAutoOpenKeyRef.current = autoOpenCreateKey;
-    openEditor();
-  }, [autoOpenCreateKey, isTeacher, mode, lesson.id, openEditor]);
+    if (!open || !isTeacher || !hasMeaningfulHomeworkDraft(form)) return;
+    if (editingStatus && editingStatus !== "draft") return;
+
+    if (autoSaveTimerRef.current) {
+      window.clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      void saveDraftNow();
+    }, 1200);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [editingStatus, form, isTeacher, open, saveDraftNow]);
+
+  useEffect(() => {
+    if (mode !== "create-dialog" || !isTeacher) return;
+    const openKey = autoOpenHomework
+      ? `homework-${autoOpenHomework.id}-${autoOpenCreateKey || ""}`
+      : autoOpenCreateKey;
+    if (!openKey) return;
+    if (lastAutoOpenKeyRef.current === openKey) return;
+    lastAutoOpenKeyRef.current = openKey;
+    openEditor(autoOpenHomework || undefined);
+  }, [autoOpenCreateKey, autoOpenHomework, isTeacher, mode, lesson.id, openEditor]);
 
   const handleEditorOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      if (autoSaveTimerRef.current) {
+        window.clearTimeout(autoSaveTimerRef.current);
+      }
+      void saveDraftNow();
+    }
     setOpen(nextOpen);
     if (!nextOpen) {
       setEditing(null);
+      draftHomeworkIdRef.current = null;
       setForm(emptyForm(lesson));
       setEditorErrors(emptyEditorErrors());
+      setDraftSaveState("idle");
       onCreateDialogClose?.();
     }
   };
@@ -575,7 +685,12 @@ export const HomeworkPanel = ({
   };
 
   const editorDialogContent = (
-    <DialogContent className="max-w-4xl overflow-y-auto sm:max-h-[90vh]">
+    <DialogContent
+      hideCloseButton
+      className="max-w-4xl overflow-y-auto sm:max-h-[90vh]"
+      onInteractOutside={(event) => event.preventDefault()}
+      onEscapeKeyDown={(event) => event.preventDefault()}
+    >
       <DialogHeader>
         <DialogTitle>{editing ? "Editar Lição de Casa" : "Criar Lição de Casa"}</DialogTitle>
       </DialogHeader>
@@ -589,6 +704,21 @@ export const HomeworkPanel = ({
         onQuestionChange={updateQuestion}
         onMoveQuestion={moveQuestion}
       />
+      {(!editing || editing.status === "draft") ? (
+        <p className={`rounded-lg px-3 py-2 text-xs font-medium ${
+          draftSaveState === "error"
+            ? "bg-red-50 text-red-700"
+            : "bg-sky-50 text-sky-700"
+        }`}>
+          {draftSaveState === "saving"
+            ? "Salvando rascunho automaticamente..."
+            : draftSaveState === "saved"
+              ? "Rascunho salvo automaticamente. Você pode continuar depois."
+              : draftSaveState === "error"
+                ? "Não foi possível salvar o rascunho agora."
+                : "O rascunho será salvo automaticamente enquanto você monta a homework."}
+        </p>
+      ) : null}
       <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-border">
         <Button variant="outline" onClick={() => saveMutation.mutate("draft")} disabled={saveMutation.isPending}>
           <Save className="mr-2 h-4 w-4" /> Salvar rascunho
@@ -958,7 +1088,9 @@ const HomeworkCard = ({ homework, isTeacher, isStudent, showStudentName, onEdit,
         </div>
         {isTeacher && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={onEdit}>Editar</Button>
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              {homework.status === "draft" ? "Continuar homework" : "Editar"}
+            </Button>
             <Button variant="outline" size="sm" onClick={onDuplicate}><Copy className="mr-2 h-4 w-4" />Duplicar</Button>
             <Button variant="outline" size="sm" onClick={onSaveTemplate}>Salvar modelo</Button>
           </div>

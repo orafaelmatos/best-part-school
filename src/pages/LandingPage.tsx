@@ -440,7 +440,7 @@ const HomePage = () => (
         <Reveal>
           <SectionHeader
             eyebrow="Navegação"
-            title="Agora o site funciona por páginas"
+            title="Navegue pelas páginas do site pelas abas"
             description="Use as abas no topo para abrir cada assunto separadamente. Cada página mostra apenas o conteúdo daquela área."
           />
         </Reveal>
