@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db import transaction
+from django.db.models import Q
 import json
 from .models import StudentGroup
 
@@ -60,16 +61,17 @@ def coerce_schedules_payload(data):
     if isinstance(schedules_value, str) and schedules_value:
         try:
             parsed = json.loads(schedules_value)
-            if hasattr(mutable_data, 'setlist'):
-                mutable_data.setlist('schedules', parsed)
-            else:
-                mutable_data['schedules'] = parsed
+            # DRF treats an empty QueryDict list as an omitted field. Preserve []
+            # so multipart requests can explicitly clear a recurring schedule.
+            mutable_data = dict(mutable_data.items())
+            mutable_data['schedules'] = parsed
         except json.JSONDecodeError:
             raise serializers.ValidationError({'schedules': 'Formato invalido para agenda.'})
     return mutable_data
 
 class UserSerializer(serializers.ModelSerializer):
     recurring_schedules = serializers.SerializerMethodField()
+    student_groups = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     finance_profile = serializers.SerializerMethodField()
     effective_planned_lessons_count = serializers.SerializerMethodField()
     effective_completed_lessons_count = serializers.SerializerMethodField()
@@ -95,7 +97,7 @@ class UserSerializer(serializers.ModelSerializer):
             'listening', 'speaking', 'reading', 'writing',
             *STUDENT_TRACKING_FIELDS,
             'effective_planned_lessons_count', 'effective_completed_lessons_count', 'pending_lessons_count',
-            'recurring_schedules', 'finance_profile',
+            'recurring_schedules', 'student_groups', 'finance_profile',
             'schedule_day', 'schedule_time', 'schedules', 'teacher_id',
             'monthly_fee', 'due_day', 'finance_notes', 'contract_file', 'contract_name'
         ]
@@ -113,8 +115,13 @@ class UserSerializer(serializers.ModelSerializer):
         return normalize_email_value(value)
 
     def get_recurring_schedules(self, obj):
+        from lessons.models import StudentRecurringSchedule
         from lessons.serializers import StudentRecurringScheduleSerializer
-        return StudentRecurringScheduleSerializer(obj.recurring_schedules.filter(active=True), many=True).data
+        schedules = StudentRecurringSchedule.objects.filter(
+            Q(student=obj, group__isnull=True) | Q(group__students=obj),
+            active=True,
+        ).distinct()
+        return StudentRecurringScheduleSerializer(schedules, many=True).data
 
     def get_finance_profile(self, obj):
         from payments.serializers import StudentFinanceProfileSerializer
@@ -147,7 +154,10 @@ class UserSerializer(serializers.ModelSerializer):
             return student.finance_profile.teacher
 
         if student:
-            return User.objects.filter(lessons_taught__student=student, lessons_taught__is_template=False).first()
+            return User.objects.filter(
+                Q(lessons_taught__student=student, lessons_taught__is_template=False) |
+                Q(student_groups_taught__students=student)
+            ).distinct().first()
         return None
 
     def _finance_payload_was_sent(self, values):
@@ -217,6 +227,7 @@ class UserSerializer(serializers.ModelSerializer):
     def to_internal_value(self, data):
         return super().to_internal_value(coerce_schedules_payload(data))
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
         remove_photo = validated_data.pop('remove_photo', False)
@@ -233,7 +244,23 @@ class UserSerializer(serializers.ModelSerializer):
         old_photo = instance.photo
         old_photo_name = old_photo.name if old_photo else None
         old_photo_storage = old_photo.storage if old_photo else None
-        should_sync_lessons = any(field in validated_data for field in ['planned_lessons_count', 'completed_lessons_count'])
+        lesson_count_updates = {
+            field: validated_data[field]
+            for field in ['planned_lessons_count', 'completed_lessons_count']
+            if field in validated_data and validated_data[field] != getattr(instance, field)
+        }
+        if lesson_count_updates and instance.student_groups.exists():
+            # The form displays shared totals, which can differ from the stored
+            # per-student counters without representing a change to the group.
+            effective_counts = {
+                'planned_lessons_count': self.get_effective_planned_lessons_count,
+                'completed_lessons_count': self.get_effective_completed_lessons_count,
+            }
+            lesson_count_updates = {
+                field: value for field, value in lesson_count_updates.items()
+                if value != effective_counts[field](instance)
+            }
+        should_sync_lessons = bool(lesson_count_updates)
 
         if remove_photo:
             validated_data['photo'] = None
@@ -250,7 +277,7 @@ class UserSerializer(serializers.ModelSerializer):
         if old_photo_name and old_photo_storage:
             should_delete_old_photo = remove_photo or (new_photo and old_photo_name != current_photo_name)
             if should_delete_old_photo:
-                old_photo_storage.delete(old_photo_name)
+                transaction.on_commit(lambda: old_photo_storage.delete(old_photo_name))
 
         if instance.role == 'student':
             teacher = self._resolve_teacher(teacher_id=teacher_id, student=instance)
@@ -266,19 +293,35 @@ class UserSerializer(serializers.ModelSerializer):
 
             if schedules is None and schedule_day is not None and schedule_time is not None:
                 schedules = [{'day': schedule_day, 'time': schedule_time, 'source': 'js'}]
+            group = None
+            if schedules is not None or should_sync_lessons:
+                groups = instance.student_groups.all()
+                if teacher is not None:
+                    groups = groups.filter(teacher=teacher)
+                if groups.count() > 1:
+                    raise serializers.ValidationError({
+                        'schedule': 'Este aluno participa de mais de um grupo. A agenda precisa ser alterada por grupo.'
+                    })
+                group = groups.first()
             if schedules is not None:
                 from lessons.scheduling import recurring_schedule_entries_match, replace_student_recurring_schedules
-                if not recurring_schedule_entries_match(instance, teacher=teacher, schedule_entries=schedules):
+                if not recurring_schedule_entries_match(instance, teacher=teacher, schedule_entries=schedules, group=group):
                     try:
-                        replace_student_recurring_schedules(instance, teacher=teacher, schedule_entries=schedules)
+                        replace_student_recurring_schedules(instance, teacher=teacher, schedule_entries=schedules, group=group)
                     except ValueError as exc:
                         raise serializers.ValidationError({'schedule': str(exc)})
                     should_sync_lessons = True
 
             if should_sync_lessons:
-                from lessons.scheduling import sync_student_lesson_plan
+                from lessons.scheduling import realign_student_lessons_to_schedule, sync_student_lesson_plan
                 try:
-                    sync_student_lesson_plan(instance, teacher=teacher)
+                    if group and not lesson_count_updates:
+                        realign_student_lessons_to_schedule(instance, teacher=teacher, group=group)
+                    else:
+                        sync_student_lesson_plan(
+                            instance, teacher=teacher, group=group,
+                            sync_completed=group is None or 'completed_lessons_count' in lesson_count_updates,
+                        )
                 except ValueError as exc:
                     raise serializers.ValidationError({'schedule': str(exc)})
 

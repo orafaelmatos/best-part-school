@@ -20,6 +20,7 @@ from .models import (
     LessonSummaryNextTopic,
 )
 from .scheduling import lesson_end_time, lesson_start_times_overlap
+from .word_sentences import WORD_SENTENCE_BATCH_LIMIT
 
 class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
@@ -100,6 +101,35 @@ class NewWordSerializer(serializers.ModelSerializer):
     class Meta:
         model = NewWord
         fields = ['id', 'word', 'meaning', 'level', 'status']
+
+
+class GenerateWordSentencesSerializer(serializers.Serializer):
+    words = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        min_length=1,
+        max_length=WORD_SENTENCE_BATCH_LIMIT,
+    )
+
+    def validate_words(self, words):
+        seen = set()
+        unique_words = []
+        for word in words:
+            normalized = word.casefold()
+            if normalized not in seen:
+                seen.add(normalized)
+                unique_words.append(word)
+        return unique_words
+
+
+class WordSentenceDraftSerializer(serializers.Serializer):
+    source_word = serializers.CharField(max_length=100)
+    sentence = serializers.CharField(max_length=255)
+    translation = serializers.CharField(max_length=2000)
+
+
+class ApproveWordSentencesSerializer(serializers.Serializer):
+    items = WordSentenceDraftSerializer(many=True, min_length=1, max_length=WORD_SENTENCE_BATCH_LIMIT)
+
 
 class VocabularyCategorySerializer(serializers.ModelSerializer):
     class Meta:

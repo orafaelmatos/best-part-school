@@ -81,7 +81,7 @@ def ensure_vocabulary_card_audio(card, force=False, raise_errors=False):
     return audio_url or ''
 
 
-def sync_new_word_card(new_word, teacher=None):
+def sync_new_word_card(new_word, teacher=None, generate_audio=True):
     lesson = getattr(new_word, 'lesson', None)
     students = lesson_students(lesson) if lesson else []
     if not lesson or not students:
@@ -109,7 +109,8 @@ def sync_new_word_card(new_word, teacher=None):
             },
         )
         if created:
-            ensure_vocabulary_card_audio(card)
+            if generate_audio:
+                ensure_vocabulary_card_audio(card)
             synced_cards.append(card)
             continue
 
@@ -133,10 +134,11 @@ def sync_new_word_card(new_word, teacher=None):
 
         if updates:
             card.save(update_fields=[*updates, 'updated_at'])
-        if word_changed and not card.audio:
-            ensure_vocabulary_card_audio(card, force=True)
-        else:
-            ensure_vocabulary_card_audio(card)
+        if generate_audio:
+            if word_changed and not card.audio:
+                ensure_vocabulary_card_audio(card, force=True)
+            else:
+                ensure_vocabulary_card_audio(card)
         synced_cards.append(card)
     return synced_cards
 

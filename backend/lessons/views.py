@@ -5,6 +5,7 @@ from django.db.models import Max, Q
 from django.db import transaction
 from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkQuestion, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
+from .serializers import GenerateWordSentencesSerializer, ApproveWordSentencesSerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -13,6 +14,9 @@ from rest_framework.views import APIView
 from django.utils import timezone
 import datetime
 import json
+import logging
+from uuid import UUID
+from openai import OpenAIError
 from .scheduling import (
     insert_custom_lesson_into_student_sequence,
     lesson_students,
@@ -35,6 +39,9 @@ from .vocabulary import (
 )
 from .homework_auto import HomeworkAutoCorrectionService
 from ai_study.services import LessonSummaryWorkflowService
+from .word_sentences import SentenceGenerationError, WordSentenceService
+
+logger = logging.getLogger(__name__)
 
 class AttachmentViewSet(viewsets.ModelViewSet):
     serializer_class = AttachmentSerializer
@@ -760,6 +767,60 @@ class LessonViewSet(viewsets.ModelViewSet):
     ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
 
+    def _word_sentence_lesson(self):
+        lesson = self.get_object()
+        self._ensure_teacher_lesson_access(lesson)
+        if lesson.is_template or not lesson_students(lesson):
+            raise exceptions.ValidationError({'detail': 'Abra uma aula vinculada a um aluno ou turma para gerar cards.'})
+        return lesson
+
+    @action(detail=True, methods=['post'], url_path='generate-word-sentences', permission_classes=[permissions.IsAuthenticated])
+    def generate_word_sentences(self, request, pk=None):
+        lesson = self._word_sentence_lesson()
+        serializer = GenerateWordSentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            items = WordSentenceService.generate(lesson, serializer.validated_data['words'])
+        except (OpenAIError, SentenceGenerationError):
+            logger.warning('Could not generate word sentences for lesson %s', lesson.pk, exc_info=True)
+            return Response(
+                {'detail': 'Não foi possível gerar todas as frases agora. Tente novamente; nenhuma frase foi salva.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({'items': items})
+
+    @action(detail=True, methods=['post'], url_path='approve-word-sentences', permission_classes=[permissions.IsAuthenticated])
+    def approve_word_sentences(self, request, pk=None):
+        lesson = self._word_sentence_lesson()
+        serializer = ApproveWordSentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        created = []
+        skipped = 0
+        with transaction.atomic():
+            # Serialize approvals for this lesson so retries cannot duplicate cards.
+            lesson = Lesson.objects.select_for_update().get(pk=lesson.pk)
+            existing = {word.strip().casefold() for word in lesson.new_words.values_list('word', flat=True)}
+            for item in serializer.validated_data['items']:
+                sentence = item['sentence']
+                normalized = sentence.casefold()
+                if normalized in existing:
+                    skipped += 1
+                    continue
+                new_word = NewWord.objects.create(
+                    lesson=lesson,
+                    word=sentence,
+                    meaning=item['translation'],
+                    level=lesson.level,
+                )
+                sync_new_word_card(new_word, teacher=request.user, generate_audio=False)
+                existing.add(normalized)
+                created.append(new_word)
+        return Response({
+            'created_count': len(created),
+            'skipped_count': skipped,
+            'new_words': NewWordSerializer(created, many=True).data,
+        }, status=status.HTTP_201_CREATED)
+
     def _ensure_teacher_lesson_access(self, lesson):
         user = self.request.user
         if not getattr(user, 'is_authenticated', False):
@@ -1209,6 +1270,18 @@ class TeacherAvailabilityAPIView(APIView):
             date__gte=timezone.now(),
             status__in=['scheduled', 'rescheduled', 'in_progress']
         )
+        excluded_schedules = request.query_params.get('exclude_schedules')
+        if excluded_schedules:
+            try:
+                schedule_ids = [UUID(value) for value in excluded_schedules.split(',')]
+            except ValueError:
+                return Response({'error': 'Agenda inválida.'}, status=status.HTTP_400_BAD_REQUEST)
+            schedules = StudentRecurringSchedule.objects.filter(id__in=schedule_ids, teacher_id=teacher_id)
+            upcoming_lessons = upcoming_lessons.exclude(
+                (Q(group_id__in=schedules.filter(group__isnull=False).values('group_id')) |
+                 Q(student_id__in=schedules.filter(group__isnull=True, student__isnull=False).values('student_id'))) &
+                Q(is_extra=False, schedule_exception=False, status__in=['scheduled', 'rescheduled'])
+            )
 
         # 3. Pega datas bloqueadas
         blocked_dates = TeacherBlockedDate.objects.filter(
@@ -1402,7 +1475,7 @@ class StudentRecurringScheduleViewSet(viewsets.ModelViewSet):
             return qs
         if user.role == 'teacher':
             return qs.filter(teacher=user)
-        return qs.filter(student=user)
+        return qs.filter(Q(student=user) | Q(group__students=user)).distinct()
 
     @action(detail=True, methods=['patch'])
     def change_slot(self, request, pk=None):
@@ -1429,6 +1502,7 @@ class StudentRecurringScheduleViewSet(viewsets.ModelViewSet):
                 updated_lessons = realign_student_lessons_to_schedule(
                     updated_schedule.student,
                     teacher=updated_schedule.teacher,
+                    group=updated_schedule.group,
                 )
         except ValueError as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)

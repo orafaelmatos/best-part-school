@@ -55,6 +55,7 @@ type StudentFormData = {
 type RecurringScheduleRecord = {
   id: string;
   teacher?: string | null;
+  group?: string | null;
   day_of_week: number;
   start_time: string;
   active: boolean;
@@ -224,6 +225,10 @@ const Alunos = () => {
     return (total / students.length).toFixed(1);
   }, [students]);
 
+  const editingStudent = students.find((student: any) => student.id === editingStudentId);
+  const editingSchedules = getRecurringSchedules(editingStudent);
+  const isEditingGroup = Boolean(editingStudent?.student_groups?.length);
+
   const saveMutation = useMutation({
     mutationFn: async (data: StudentFormData) => {
       if (editingStudentId) {
@@ -303,7 +308,12 @@ const Alunos = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
       queryClient.invalidateQueries({ queryKey: ["teacher-availability-recurring"] });
+      queryClient.invalidateQueries({ queryKey: ["teacher-availability"] });
       queryClient.invalidateQueries({ queryKey: ["teacher-day-slots"] });
+      queryClient.invalidateQueries({ queryKey: ["lessons"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      queryClient.invalidateQueries({ queryKey: ["student"] });
+      queryClient.invalidateQueries({ queryKey: ["student-lesson-feed"] });
       toast({ title: editingStudentId ? "Aluno atualizado com sucesso!" : "Aluno cadastrado com sucesso!" });
       closeModal();
     },
@@ -405,7 +415,7 @@ const Alunos = () => {
       speaking: student.speaking ?? 1,
       reading: student.reading ?? 1,
       writing: student.writing ?? 1,
-      plannedLessons: String(student.planned_lessons_count ?? getPlannedLessons(student)),
+      plannedLessons: String(student.student_groups?.length ? getPlannedLessons(student) : student.planned_lessons_count ?? getPlannedLessons(student)),
       completedLessons: String(getCompletedLessons(student)),
       contractStartDate: toDateInputValue(student.contract_start_date),
       contractEndDate: toDateInputValue(student.contract_end_date),
@@ -759,17 +769,28 @@ const Alunos = () => {
 
                 <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Agenda recorrente</h3>
+                  {isEditingGroup && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      A agenda é compartilhada com o grupo. Alterar os horários atualiza as próximas aulas de todos os integrantes.
+                    </p>
+                  )}
                   <div className="mt-4">
                     <RecurringSchedulePicker
                       teacherId={user?.user_id}
                       value={formData.schedules}
                       onChange={(schedules) => setFormData({ ...formData, schedules })}
+                      excludedRecurringScheduleIds={editingSchedules.map((schedule) => schedule.id)}
                     />
                   </div>
                 </section>
 
                 <section className="rounded-xl border border-border bg-background/70 p-3 sm:p-4">
                   <h3 className="text-base font-semibold">Acompanhamento do aluno</h3>
+                  {isEditingGroup && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      A trilha de aulas é compartilhada. Alterar as quantidades atualiza a trilha do grupo.
+                    </p>
+                  )}
                   <div className="mt-4 grid gap-4 md:grid-cols-3">
                     <div>
                       <label className="mb-1 block text-sm font-medium">Quantidade de aulas que ele tera</label>

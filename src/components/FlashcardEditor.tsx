@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Book, Edit2, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import GenerateWordSentences from "@/components/GenerateWordSentences";
 
 export const FlashcardItem = ({ nw, isTeacher, isStudent, onEdit, onDelete, onStatusUpdate }: any) => {
   const [flipped, setFlipped] = useState(false);
@@ -170,6 +171,16 @@ export const FlashcardEditor = ({
         </div>
       </div>
 
+      {isTeacher && lesson?.id && (
+        <GenerateWordSentences
+          key={lesson.id}
+          lessonId={lesson.id}
+          level={lesson.level}
+          refetch={refetch}
+          onBeforePersist={onBeforePersist}
+        />
+      )}
+
       {lesson?.new_words?.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {lesson.new_words.map((nw: any) => (
@@ -189,15 +200,15 @@ export const FlashcardEditor = ({
       )}
 
       {isTeacher && (
-        <form onSubmit={handleAddOrEdit} className="mt-4 pt-4 border-t border-border/50 flex gap-2">
+        <form onSubmit={handleAddOrEdit} className="mt-4 pt-4 border-t border-border/50 flex flex-col gap-2 sm:flex-row">
           <input
             type="text" placeholder="Palavra/Expressão" required
-            className="flex-1 p-2 text-sm rounded-lg border border-border bg-background"
+            className="min-w-0 flex-1 p-2 text-sm rounded-lg border border-border bg-background"
             value={word} onChange={e => setWord(e.target.value)}
           />
           <input
             type="text" placeholder="Significado/Tradução" required
-            className="flex-[2] p-2 text-sm rounded-lg border border-border bg-background"
+            className="min-w-0 flex-[2] p-2 text-sm rounded-lg border border-border bg-background"
             value={meaning} onChange={e => setMeaning(e.target.value)}
           />
           <button disabled={loading} className="px-4 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg whitespace-nowrap hover:opacity-90">

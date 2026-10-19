@@ -241,7 +241,7 @@ const Calendario = () => {
     }) => {
       return api.patch(`/lessons/${lessonId}/start_lesson/`, customLessonTitle
         ? { custom_lesson_title: customLessonTitle }
-        : { selected_lesson: selectedLessonId });
+        : selectedLessonId ? { selected_lesson: selectedLessonId } : {});
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["lessons"] });
@@ -688,7 +688,7 @@ const Calendario = () => {
                       onClick={() => {
                         if (selectedLesson.status === 'in_progress') {
                           navigate(`${APP_PATHS.annotateLesson(selectedLesson.id)}?from=calendar`);
-                        } else if (selectedLesson.is_extra) {
+                        } else if (selectedLesson.is_extra || selectedLesson.group) {
                           startLessonMutation.mutate({ lessonId: selectedLesson.id });
                         } else {
                           setStartingLesson(selectedLesson);

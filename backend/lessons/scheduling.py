@@ -316,10 +316,10 @@ def validate_recurring_schedule_entries(student, teacher, entries, group=None):
             day_of_week=day_of_week,
             active=True,
         )
-        if student is not None:
-            conflicting_schedules = conflicting_schedules.exclude(student=student)
         if group is not None:
             conflicting_schedules = conflicting_schedules.exclude(group=group)
+        elif student is not None:
+            conflicting_schedules = conflicting_schedules.exclude(student=student)
 
         for schedule in conflicting_schedules:
             if lesson_start_times_overlap(schedule.start_time, start_time):
@@ -337,8 +337,20 @@ def recurring_schedule_signature(entries):
     )
 
 
-def current_student_recurring_schedule_signature(student, teacher=None):
-    schedules = StudentRecurringSchedule.objects.filter(student=student, active=True)
+def lesson_plan_schedules(student, group=None):
+    if group is not None:
+        return StudentRecurringSchedule.objects.filter(group=group)
+    return StudentRecurringSchedule.objects.filter(student=student, group__isnull=True)
+
+
+def lesson_plan_lessons(student, group=None):
+    if group is not None:
+        return Lesson.objects.filter(group=group, is_template=False)
+    return Lesson.objects.filter(student=student, group__isnull=True, is_template=False)
+
+
+def current_student_recurring_schedule_signature(student, teacher=None, group=None):
+    schedules = lesson_plan_schedules(student, group=group).filter(active=True)
     if teacher is not None:
         schedules = schedules.filter(teacher=teacher)
     else:
@@ -352,17 +364,17 @@ def current_student_recurring_schedule_signature(student, teacher=None):
     ])
 
 
-def recurring_schedule_entries_match(student, teacher=None, schedule_entries=None):
+def recurring_schedule_entries_match(student, teacher=None, schedule_entries=None, group=None):
     entries = build_schedule_entries(schedule_entries)
-    return current_student_recurring_schedule_signature(student, teacher=teacher) == recurring_schedule_signature(entries)
+    return current_student_recurring_schedule_signature(student, teacher=teacher, group=group) == recurring_schedule_signature(entries)
 
 
 @transaction.atomic
-def replace_student_recurring_schedules(student, teacher=None, schedule_entries=None):
+def replace_student_recurring_schedules(student, teacher=None, schedule_entries=None, group=None):
     entries = build_schedule_entries(schedule_entries)
-    validate_recurring_schedule_entries(student, teacher, entries)
+    validate_recurring_schedule_entries(student, teacher, entries, group=group)
 
-    schedules = StudentRecurringSchedule.objects.filter(student=student)
+    schedules = lesson_plan_schedules(student, group=group)
     if teacher is not None:
         schedules = schedules.filter(teacher=teacher)
     else:
@@ -371,7 +383,8 @@ def replace_student_recurring_schedules(student, teacher=None, schedule_entries=
 
     StudentRecurringSchedule.objects.bulk_create([
         StudentRecurringSchedule(
-            student=student,
+            student=None if group is not None else student,
+            group=group,
             teacher=teacher,
             day_of_week=entry['day_of_week'],
             start_time=entry['start_time'],
@@ -474,8 +487,8 @@ def next_sequence_slot_datetime(day_of_week, start_time, after_datetime):
     return candidate
 
 
-def iter_student_schedule_candidates(student, teacher, after_datetime, max_weeks=26):
-    schedules = StudentRecurringSchedule.objects.filter(student=student, active=True)
+def iter_student_schedule_candidates(student, teacher, after_datetime, max_weeks=26, group=None):
+    schedules = lesson_plan_schedules(student, group=group).filter(active=True)
     if teacher is not None:
         scoped = list(
             schedules.filter(Q(teacher=teacher) | Q(teacher__isnull=True)).order_by('day_of_week', 'start_time')
@@ -493,7 +506,7 @@ def iter_student_schedule_candidates(student, teacher, after_datetime, max_weeks
     return sorted({candidate for candidate in candidates})
 
 
-def build_student_sequence_dates(student, teacher, after_datetime, lesson_count, exclude_lesson_ids=None):
+def build_student_sequence_dates(student, teacher, after_datetime, lesson_count, exclude_lesson_ids=None, group=None):
     if lesson_count <= 0:
         return []
 
@@ -503,6 +516,7 @@ def build_student_sequence_dates(student, teacher, after_datetime, lesson_count,
         teacher,
         after_datetime,
         max_weeks=max_weeks,
+        group=group,
     )
 
     assigned_dates = []
@@ -521,7 +535,7 @@ def build_student_sequence_dates(student, teacher, after_datetime, lesson_count,
 
 
 @transaction.atomic
-def sync_student_completed_lesson_count(student, teacher=None):
+def sync_student_completed_lesson_count(student, teacher=None, group=None):
     target_count = max(
         int(getattr(student, 'completed_lessons_count', 0) or 0) - completed_extra_lesson_count(student, teacher=teacher),
         0,
@@ -529,7 +543,7 @@ def sync_student_completed_lesson_count(student, teacher=None):
     if target_count <= 0:
         return []
 
-    queryset = Lesson.objects.filter(student=student, is_template=False).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True)
+    queryset = lesson_plan_lessons(student, group=group).exclude(status__in=ARCHIVED_STATUSES).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(teacher=teacher)
     ordered_lessons = sorted(list(queryset), key=sequence_order_key)
@@ -555,8 +569,8 @@ def sync_student_completed_lesson_count(student, teacher=None):
 
 
 @transaction.atomic
-def sync_student_lesson_plan(student, teacher=None):
-    queryset = Lesson.objects.filter(student=student, is_template=False).exclude(is_extra=True)
+def sync_student_lesson_plan(student, teacher=None, group=None, sync_completed=True):
+    queryset = lesson_plan_lessons(student, group=group).exclude(is_extra=True)
     if teacher is not None:
         queryset = queryset.filter(Q(teacher=teacher) | Q(teacher__isnull=True))
     current_lessons = sorted(list(queryset), key=sequence_order_key)
@@ -578,7 +592,8 @@ def sync_student_lesson_plan(student, teacher=None):
                 level=spec['level'],
                 date=None,
                 status='pending',
-                student=student,
+                student=None if group is not None else student,
+                group=group,
                 teacher=teacher,
                 is_template=False,
                 template=spec['template'],
@@ -586,8 +601,9 @@ def sync_student_lesson_plan(student, teacher=None):
             ))
         Lesson.objects.bulk_create(new_lessons)
 
-    sync_student_completed_lesson_count(student, teacher=teacher)
-    realign_student_lessons_to_schedule(student, teacher=teacher)
+    if sync_completed:
+        sync_student_completed_lesson_count(student, teacher=teacher, group=group)
+    realign_student_lessons_to_schedule(student, teacher=teacher, group=group)
     return sorted(list(queryset), key=sequence_order_key)
 
 
@@ -823,10 +839,8 @@ def reorder_student_lessons(student, ordered_lesson_ids, teacher=None):
 
 
 @transaction.atomic
-def realign_student_lessons_to_schedule(student, teacher=None):
-    queryset = Lesson.objects.filter(
-        student=student,
-        is_template=False,
+def realign_student_lessons_to_schedule(student, teacher=None, group=None):
+    queryset = lesson_plan_lessons(student, group=group).filter(
         status__in=REORDERABLE_STATUSES,
     ).exclude(schedule_exception=True).exclude(is_extra=True)
     if teacher is not None:
@@ -836,7 +850,7 @@ def realign_student_lessons_to_schedule(student, teacher=None):
     if not lessons_to_realign:
         return []
 
-    all_student_lessons = Lesson.objects.filter(student=student, is_template=False).exclude(is_extra=True)
+    all_student_lessons = lesson_plan_lessons(student, group=group).exclude(is_extra=True)
     if teacher is not None:
         all_student_lessons = all_student_lessons.filter(teacher=teacher)
     ordered_lessons = sorted(list(all_student_lessons), key=sequence_order_key)
@@ -851,7 +865,7 @@ def realign_student_lessons_to_schedule(student, teacher=None):
             anchor_candidates.append(locked_lesson.date)
     anchor_datetime = max(anchor_candidates)
 
-    active_schedules = StudentRecurringSchedule.objects.filter(student=student, active=True)
+    active_schedules = lesson_plan_schedules(student, group=group).filter(active=True)
     if teacher is not None:
         scoped = active_schedules.filter(Q(teacher=teacher) | Q(teacher__isnull=True))
         if scoped.exists():
@@ -871,6 +885,7 @@ def realign_student_lessons_to_schedule(student, teacher=None):
         anchor_datetime,
         len(lessons_to_realign),
         exclude_lesson_ids=realign_ids,
+        group=group,
     )
 
     updated_at = timezone.now()

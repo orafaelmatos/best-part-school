@@ -100,9 +100,11 @@ const RecurringSchedulePicker = memo(({
   const [focusedDay, setFocusedDay] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["teacher-availability-recurring", teacherId],
+    queryKey: ["teacher-availability-recurring", teacherId, excludedRecurringScheduleIds],
     queryFn: async () => {
-      const res = await api.get(`/teacher-availability/${teacherId}/`);
+      const res = await api.get(`/teacher-availability/${teacherId}/`, excludedRecurringScheduleIds.length
+        ? { params: { exclude_schedules: excludedRecurringScheduleIds.join(",") } }
+        : undefined);
       return res.data;
     },
     enabled: !!teacherId,
