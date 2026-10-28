@@ -282,6 +282,29 @@ describe("AssistenteIA routing flow", () => {
     expect(screen.getByRole("button", { name: /Aeroporto/i })).toBeInTheDocument();
   });
 
+  it("renders saved writing corrections and explanations in the conversation", async () => {
+    mockedGet.mockImplementation(async (url) => {
+      if (url === "/ai-study/sessions/") return { data: [sessionSummary] };
+      if (url === "/ai-study/context-lessons/") return { data: [lessonOption] };
+      if (url === "/ai-study/sessions/session-writing/") return { data: {
+        ...sessionDetail, id: "session-writing", mode: "writing", title: "Writing salvo",
+        messages: [{ id: "writing-message", role: "assistant", content_type: "writing_feedback", text: "Feedback salvo.",
+          writing_feedback_detail: {
+            id: "feedback-writing", text_type: "email", original_text: "I want improve.", corrected_text: "I want to improve.",
+            estimated_level: "B1", writing_score: 82, general_feedback: "Uma ideia clara.", level_progress_feedback: "Pratique verbos.",
+            strengths: ["Mensagem objetiva."], error_explanations: [{ excerpt: "want improve", corrected: "want to improve", explanation: "Use to depois de want." }],
+            improvement_tips: [], exercises: [], grammar_breakdown: [], vocabulary_flashcards: [],
+          },
+        }],
+      } };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    renderAssistente(buildSessionPath("session-writing"));
+    expect(await screen.findByText("Análise de writing")).toBeInTheDocument();
+    expect(screen.getByText("I want to improve.")).toBeInTheDocument();
+    expect(screen.getByText("Use to depois de want.")).toBeInTheDocument();
+  });
+
   it("shows a translation popover when selecting assistant text", async () => {
     mockedGet.mockImplementation(async (url) => {
       if (url === "/ai-study/sessions/") {

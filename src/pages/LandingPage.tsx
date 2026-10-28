@@ -31,10 +31,12 @@ import {
   getOriginalPrice,
   isPaidCourse,
 } from "@/lib/courses";
-import { PUBLIC_PATHS } from "@/lib/routes";
+import { LOGIN_PATH, PUBLIC_PATHS } from "@/lib/routes";
+import { APP_TARGET, STUDENT_APP_URL } from "@/apps/target";
 import { cn } from "@/lib/utils";
 
 const logoSrc = "/img/bps-logo.png";
+const studentAccessHref = APP_TARGET === "site" ? STUDENT_APP_URL || PUBLIC_PATHS.contact : LOGIN_PATH;
 const platformVideoSrc = "/video/Bps video landing page.mp4";
 const teacherPhotoSrc = "/img/professor-best-part-school.jpeg";
 const testimonialVideoOneSrc = "/video/depoimento-aluno-1.mp4";
@@ -288,7 +290,7 @@ const SiteHeader = ({
 
       <div className="hidden items-center gap-3 lg:flex">
         <Button asChild className="h-11 rounded-full bg-white px-5 text-neutral-950 hover:bg-neutral-200">
-          <Link to="/login">
+          <Link to={studentAccessHref}>
             Área do Aluno
             <ArrowRight />
           </Link>
@@ -333,7 +335,7 @@ const SiteHeader = ({
             })}
           </div>
           <Button asChild className="mt-3 h-11 w-full rounded-full bg-white text-neutral-950 hover:bg-neutral-200">
-            <Link to="/login" onClick={closeMenu}>
+            <Link to={studentAccessHref} onClick={closeMenu}>
               Área do Aluno
               <ArrowRight />
             </Link>
@@ -790,7 +792,7 @@ const ContactPage = () => (
                 variant="outline"
                 className="h-12 rounded-full border-white/20 bg-transparent text-white hover:bg-white hover:text-neutral-950"
               >
-                <Link to="/login">Entrar na Área do Aluno</Link>
+                <Link to={studentAccessHref}>Entrar na Área do Aluno</Link>
               </Button>
             </div>
           </div>
@@ -873,7 +875,7 @@ const SiteFooter = () => (
         <div className="mt-4 space-y-3 text-sm text-neutral-700">
           <p>contato@bestpartschool.com</p>
           <p>Atendimento online</p>
-          <Link to="/login" className="inline-flex items-center gap-2 font-semibold text-neutral-950">
+          <Link to={studentAccessHref} className="inline-flex items-center gap-2 font-semibold text-neutral-950">
             Área do Aluno
             <ArrowRight size={16} />
           </Link>

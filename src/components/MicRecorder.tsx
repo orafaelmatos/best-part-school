@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Pause, Play, RotateCcw, Square, Trash2 } from "lucide-react";
+import { supportedRecordingMimeType } from "@/lib/recordingAudio";
 
 export type RecordingState = "idle" | "recording" | "paused" | "processing" | "uploading" | "completed" | "error";
 
@@ -24,6 +25,9 @@ const MicRecorder = ({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const shouldSubmitRef = useRef(true);
+  const mountedRef = useRef(true);
+  const isStartingRef = useRef(false);
+  const durationRef = useRef(0);
   const startedAtRef = useRef<number>(0);
   const elapsedBeforePauseRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
@@ -49,22 +53,39 @@ const MicRecorder = ({
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      shouldSubmitRef.current = false;
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
       stopTimer();
       cleanupStream();
     };
   }, []);
 
   const start = async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
     setError("");
     chunksRef.current = [];
     shouldSubmitRef.current = true;
     elapsedBeforePauseRef.current = 0;
+    durationRef.current = 0;
     setElapsed(0);
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("Este dispositivo não oferece suporte à gravação de áudio.");
+      }
+      const mimeType = supportedRecordingMimeType(MediaRecorder);
+      if (!mimeType) {
+        throw new Error("Este dispositivo não oferece um formato de gravação compatível.");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/wav";
       const recorder = new MediaRecorder(stream, { mimeType });
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
@@ -80,23 +101,31 @@ const MicRecorder = ({
           return;
         }
         onStateChange("processing");
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || chunksRef.current[0].type || mimeType });
         chunksRef.current = [];
-        onRecordingComplete(blob, Math.max(1, Math.round(elapsed)));
+        onRecordingComplete(blob, Math.max(1, Math.round(durationRef.current)));
       };
       recorder.start();
       startTimer();
       onStateChange("recording");
-    } catch {
-      setError("Não foi possível acessar o microfone.");
-      onStateChange("error");
+    } catch (cause) {
+      cleanupStream();
+      if (mountedRef.current) {
+        setError(cause instanceof Error && cause.message.startsWith("Este dispositivo")
+          ? cause.message
+          : "Não foi possível acessar o microfone. Verifique a permissão e tente novamente.");
+        onStateChange("error");
+      }
+    } finally {
+      isStartingRef.current = false;
     }
   };
 
   const pause = () => {
     if (recorderRef.current?.state === "recording") {
       recorderRef.current.pause();
-      elapsedBeforePauseRef.current = elapsed;
+      elapsedBeforePauseRef.current += (Date.now() - startedAtRef.current) / 1000;
+      setElapsed(elapsedBeforePauseRef.current);
       stopTimer();
       onStateChange("paused");
     }
@@ -113,6 +142,9 @@ const MicRecorder = ({
   const stop = () => {
     shouldSubmitRef.current = true;
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      durationRef.current = elapsedBeforePauseRef.current + (
+        recorderRef.current.state === "recording" ? (Date.now() - startedAtRef.current) / 1000 : 0
+      );
       recorderRef.current.stop();
     }
   };

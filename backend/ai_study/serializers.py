@@ -364,10 +364,10 @@ class SpeakingAudioUploadSerializer(serializers.Serializer):
     duration_seconds = serializers.DecimalField(max_digits=8, decimal_places=2, required=False)
 
     def validate_audio(self, value):
-        allowed_types = {'audio/webm', 'audio/wav', 'audio/wave', 'audio/x-wav'}
-        content_type = getattr(value, 'content_type', '')
+        allowed_types = {'audio/webm', 'audio/mp4', 'audio/wav', 'audio/wave', 'audio/x-wav'}
+        content_type = (getattr(value, 'content_type', '') or '').split(';', 1)[0].strip().lower()
         if content_type not in allowed_types:
-            raise serializers.ValidationError('Only .webm or .wav audio uploads are supported.')
+            raise serializers.ValidationError('Only WebM, MP4 or WAV audio uploads are supported.')
         if value.size > 25 * 1024 * 1024:
             raise serializers.ValidationError('Audio file must be 25 MB or smaller.')
         return value

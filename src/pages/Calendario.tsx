@@ -629,9 +629,6 @@ const Calendario = () => {
                 {user?.role === 'teacher' && selectedLesson.student_name && (
                   <p className="text-sm text-primary mt-1 font-medium">Aluno: {selectedLesson.student_name}</p>
                 )}
-                {user?.role === 'student' && selectedLesson.teacher_name && (
-                  <p className="text-sm text-primary mt-1 font-medium">Professor: {selectedLesson.teacher_name}</p>
-                )}
               </div>
               <button onClick={() => {
                 setSelectedLesson(null);

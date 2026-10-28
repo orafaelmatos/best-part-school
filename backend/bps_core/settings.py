@@ -22,7 +22,7 @@ def env_list(name, default=""):
 
 
 def get_database_config():
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("DATABASE_URL") 
     if database_url:
         parsed = urlparse(database_url)
         scheme = parsed.scheme.split("+", 1)[0]
@@ -64,6 +64,8 @@ LOCAL_DEV_ORIGINS = ",".join(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://192.168.50.12:8080",
+        "capacitor://localhost",
+        "https://localhost",
     ]
 )
 

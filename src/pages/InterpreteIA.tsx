@@ -848,7 +848,7 @@ const InterpreteIA = () => {
             </div>
           </section>
         ) : activeSession ? (
-          <section className="flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] md:rounded-[34px] lg:h-[calc(100dvh_-_4.5rem)]">
+          <section className="student-workspace flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] md:rounded-[34px] lg:h-[calc(100dvh_-_4.5rem)]">
             <header className="shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur md:px-5 md:py-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0">
@@ -979,7 +979,7 @@ const InterpreteIA = () => {
           <div className="rounded-[30px] border border-dashed border-slate-200 bg-white/92 px-8 py-12 text-center">
             <p className="text-lg font-semibold text-foreground">Sessao nao encontrada</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Essa sessao nao esta mais disponivel. Voce pode iniciar um novo treino ou abrir outra sessao pela sidebar.
+              Essa sessão não está mais disponível. Você pode iniciar um novo treino ou abrir outra sessão pelo histórico.
             </p>
             <button
               type="button"

@@ -30,3 +30,25 @@ backend/.env
 venv/
 backend/venv/
 backend/media/
+backend/.local-mobile/
+
+# Native build products and local SDK/signing configuration
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.jks
+*.keystore
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Pods/
+ios/**/build/
+ios/**/DerivedData/
+**/xcuserdata/
+
+# Isolated iOS live-reload project; never used for App Store builds
+.mobile-live-ios/
+.mobile-live-ios.lock

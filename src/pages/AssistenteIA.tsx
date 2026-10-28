@@ -6,7 +6,7 @@ import AudioPlayer from "@/components/AudioPlayer";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
-import type { WritingFeedback } from "@/components/WritingFeedbackCard";
+import WritingFeedbackCard, { type WritingFeedback } from "@/components/WritingFeedbackCard";
 import { useToast } from "@/hooks/use-toast";
 import {
   AIStudyMode,
@@ -27,6 +27,7 @@ import {
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { APP_PATHS } from "@/lib/routes";
+import { recordingFileExtension } from "@/lib/recordingAudio";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -598,6 +599,9 @@ const MessageBubble = ({
             <PronunciationFeedback feedback={message.feedback_detail} />
           </div>
         ) : null}
+        {message.writing_feedback_detail ? (
+          <WritingFeedbackCard feedback={message.writing_feedback_detail} />
+        ) : null}
         {isInteractive && message.metadata?.guided && message.metadata?.choices?.length && onChoiceSelect ? (
           <GuidedChoices
             choices={message.metadata.choices}
@@ -1053,7 +1057,7 @@ const AssistenteIA = () => {
 
     try {
       const formData = new FormData();
-      const extension = blob.type.includes("wav") ? "wav" : "webm";
+      const extension = recordingFileExtension(blob.type);
       formData.append("audio", blob, `speaking-${Date.now()}.${extension}`);
       formData.append("duration_seconds", String(durationSeconds));
       const response = await api.post(`/ai-study/sessions/${activeSession.id}/audio/`, formData, {
@@ -1197,7 +1201,7 @@ const AssistenteIA = () => {
       <div
         className={cn(
           "space-y-6",
-          isConversationPage && "h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
+          isConversationPage && "student-workspace h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
         )}
       >
         <section
@@ -1595,7 +1599,7 @@ const AssistenteIA = () => {
                     ) : null}
 
                     <div className="rounded-[30px] border border-slate-200/80 bg-white/98 p-3 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.4)]">
-                      <div className="flex items-end gap-3">
+                      <div className="flex min-w-0 items-end gap-2 sm:gap-3">
                         {canUseAudioInput ? (
                           <button
                             type="button"
@@ -1613,15 +1617,16 @@ const AssistenteIA = () => {
                           </button>
                         ) : null}
 
-                        <div className="flex min-h-[52px] flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
+                        <div className="student-composer-field flex min-h-[52px] min-w-0 flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
                           <textarea
+                            aria-label="Escrever mensagem"
                             value={input}
                             onChange={(event) => setInput(event.target.value)}
                             onKeyDown={handleComposerKeyDown}
                             placeholder={composerPlaceholder}
                             disabled={!activeSession || isBusy}
                             rows={1}
-                            className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                            className="max-h-32 min-h-[48px] w-full min-w-0 flex-1 resize-none bg-transparent px-3 py-3 text-base outline-none placeholder:text-muted-foreground disabled:opacity-50"
                           />
                         </div>
 
@@ -1670,7 +1675,7 @@ const AssistenteIA = () => {
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {hasSavedSessions
-                      ? "Abra uma conversa pelo histórico na sidebar ou inicie uma nova prática escolhendo o modo primeiro."
+                      ? "Abra uma conversa pelo histórico ou escolha um modo para começar uma nova prática."
                       : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">

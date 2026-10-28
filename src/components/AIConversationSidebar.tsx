@@ -304,7 +304,7 @@ const AIConversationSidebar = () => {
     <section className="rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.95)]">
       <div className="mb-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-          Workspace IA
+          Suas práticas
         </p>
       </div>
 
