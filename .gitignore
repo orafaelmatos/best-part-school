@@ -52,3 +52,6 @@ ios/**/DerivedData/
 # Isolated iOS live-reload project; never used for App Store builds
 .mobile-live-ios/
 .mobile-live-ios.lock
+
+# Separate working directories for production features
+.worktrees/

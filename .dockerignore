@@ -1,5 +1,6 @@
 .git
 .gitignore
+.worktrees
 .pytest_cache
 .vscode
 .idea

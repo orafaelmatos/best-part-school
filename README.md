@@ -2,6 +2,16 @@
 
 Projeto com frontend em Vite/React e backend em Django.
 
+## Desenvolvimento e produção
+
+A `main` é a base de produção. O app em desenvolvimento fica na `feat/mobile-app`; novas features para produção partem de `origin/main` em pastas de trabalho separadas.
+
+```bash
+bash scripts/new-feature.sh feat/nome-da-feature
+```
+
+Veja o [fluxo de desenvolvimento e publicação](docs/FLUXO_DE_DESENVOLVIMENTO.md), incluindo pull requests, validações e configuração do EasyPanel.
+
 ## Aplicativos Android e iOS
 
 A base Capacitor e os builds independentes do aluno, site e gestão estão implementados. A aplicação completa continua sendo o padrão de `npm run dev` e `npm run build`.
