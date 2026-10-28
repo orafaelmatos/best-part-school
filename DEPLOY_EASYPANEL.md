@@ -2,6 +2,16 @@
 
 Use o mesmo repositório para criar dois serviços separados.
 
+## Branch de produção
+
+Configure **os dois serviços**, frontend e backend, para acompanhar exclusivamente a branch `main`. Se houver deploy automático, confirme que seu gatilho também está limitado à `main`. Pushes em `feat/*`, `fix/*` ou `chore/*` não devem publicar esses serviços.
+
+O desenvolvimento do app fica na `feat/mobile-app`. Features web e alterações de API prontas para produção entram por pull request a partir de branches criadas de `origin/main`.
+
+O arquivo de CI deste repositório valida código; ele não executa deploy. O deploy continua sob controle do EasyPanel. Em homologação, use serviços, banco e volumes próprios e selecione a branch que deseja testar.
+
+Passo a passo: [fluxo de desenvolvimento e publicação](docs/FLUXO_DE_DESENVOLVIMENTO.md).
+
 ## 1. Backend
 
 - Tipo: app com build por `Dockerfile`

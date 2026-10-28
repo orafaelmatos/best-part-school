@@ -30,3 +30,6 @@ backend/.env
 venv/
 backend/venv/
 backend/media/
+
+# Separate working directories for production features
+.worktrees/
