@@ -48,6 +48,8 @@ class AIStudySession(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     auto_context = models.JSONField(default=dict, blank=True)
     guided_state = models.JSONField(default=dict, blank=True)
+    # Private exercise, answer key and assessment history. Never serialize to students.
+    review_state = models.JSONField(default=dict, blank=True)
     streaming_ready = models.BooleanField(default=True)
     last_interaction_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -58,6 +60,25 @@ class AIStudySession(models.Model):
 
     def __str__(self):
         return self.title or f"{self.student_id} - {self.mode} - {self.theme}"
+
+
+class LessonReviewReport(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.OneToOneField(AIStudySession, null=True, on_delete=models.SET_NULL, related_name='review_report')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='lesson_review_reports')
+    lesson = models.ForeignKey(Lesson, null=True, on_delete=models.SET_NULL, related_name='review_reports')
+    lesson_title = models.CharField(max_length=255)
+    started_at = models.DateTimeField()
+    completed_at = models.DateTimeField(default=timezone.now)
+    duration_seconds = models.PositiveIntegerField(default=0)
+    correct_count = models.PositiveIntegerField(default=0)
+    incorrect_count = models.PositiveIntegerField(default=0)
+    difficulties = models.JSONField(default=list)
+    activities = models.JSONField(default=list)
+    attempts = models.JSONField(default=list)
+
+    class Meta:
+        ordering = ['-completed_at']
 
 
 class AIContextLesson(models.Model):

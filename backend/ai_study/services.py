@@ -258,10 +258,12 @@ def openai_image_blocks(lesson, limit=4):
     return blocks, references
 
 
-def lesson_flashcard_references(lesson, limit=20):
+def lesson_flashcard_references(lesson, limit=20, student=None):
     cards = []
     queryset = getattr(lesson, 'vocabulary_cards', None)
     items = queryset.all() if queryset is not None else VocabularyCard.objects.filter(lesson=lesson)
+    if student:
+        items = items.filter(student=student)
     for card in items[:limit]:
         word = clean_context_text(card.word, limit=120)
         translation = clean_context_text(card.translation, limit=220)
@@ -348,9 +350,11 @@ class AIStudyContextService:
         return session
 
     @staticmethod
-    def lesson_snapshot(lesson):
+    def lesson_snapshot(lesson, student=None):
         summary_details = get_lesson_summary_details(lesson)
         homework = Homework.objects.filter(lesson=lesson).prefetch_related('questions', 'answers__question')
+        if student:
+            homework = homework.filter(Q(student=student) | Q(group__students=student)).exclude(status='draft').distinct()
         return {
             'lesson_id': str(lesson.id),
             'title': lesson.title,
@@ -368,7 +372,7 @@ class AIStudyContextService:
                 {'word': word.word, 'meaning': word.meaning, 'status': word.status}
                 for word in lesson.new_words.all()
             ],
-            'flashcards': lesson_flashcard_references(lesson, limit=20),
+            'flashcards': lesson_flashcard_references(lesson, limit=20, student=student),
             'visual_references': lesson_image_references(lesson, limit=6),
             'homework': [
                 {
@@ -376,6 +380,7 @@ class AIStudyContextService:
                     'status': item.status,
                     'classification': item.classification,
                     'teacher_feedback': item.teacher_feedback,
+                    'questions': [question.prompt for question in item.questions.all()],
                     'answers': [
                         {
                             'question': answer.question.prompt,
@@ -385,8 +390,11 @@ class AIStudyContextService:
                                 else ''
                             ),
                             'teacher_feedback': answer.teacher_feedback,
+                            'is_correct': answer.is_correct,
+                            'auto_feedback': answer.auto_feedback,
+                            'auto_explanation': answer.auto_explanation,
                         }
-                        for answer in item.answers.all()
+                        for answer in item.answers.all() if not student or answer.student_id == student.id
                     ],
                 }
                 for item in homework
@@ -399,7 +407,7 @@ class AIStudyContextService:
         AIContextLesson.objects.update_or_create(
             session=session,
             lesson=lesson,
-            defaults={'snapshot': AIStudyContextService.lesson_snapshot(lesson)},
+            defaults={'snapshot': AIStudyContextService.lesson_snapshot(lesson, student=session.student)},
         )
         now = timezone.now()
         session.lesson = lesson
@@ -554,7 +562,7 @@ class AIStudyContextService:
             lesson = context.lesson
             if not lesson:
                 continue
-            snapshot = AIStudyContextService.lesson_snapshot(lesson)
+            snapshot = AIStudyContextService.lesson_snapshot(lesson, student=session.student)
             selected.append(AIStudyContextService._compact_snapshot(snapshot))
             if not include_images or remaining_images <= 0:
                 continue
@@ -919,10 +927,11 @@ class AIStudyOpenAIService:
     }
 
     @staticmethod
-    def transcribe(audio_file):
+    def transcribe(audio_file, timeout=None):
         file_content = audio_file.read()
         audio_file.seek(0)
-        response = client.audio.transcriptions.create(
+        api_client = client.with_options(timeout=timeout, max_retries=0) if timeout else client
+        response = api_client.audio.transcriptions.create(
             model='whisper-1', 
             file=(getattr(audio_file, 'name', 'audio.webm'), file_content)
         )
@@ -1298,8 +1307,9 @@ class AIStudyOpenAIService:
         return title
 
     @staticmethod
-    def generate_tts(text, voice='nova', instructions=None):
-        response = client.audio.speech.create(
+    def generate_tts(text, voice='nova', instructions=None, timeout=None):
+        api_client = client.with_options(timeout=timeout, max_retries=0) if timeout else client
+        response = api_client.audio.speech.create(
             model='gpt-4o-mini-tts',
             voice=voice,
             input=text,
@@ -2408,8 +2418,8 @@ class AIStudyWorkflowService:
     def initial_message_payload(session, lesson=None):
         lesson = lesson or AIStudyContextService.primary_lesson(session)
         if session.mode == 'review' and lesson:
-            text = f"Aula atual: {lesson.title}. Vou usar esta aula como contexto principal. O que você quer revisar agora?"
-            metadata = {'initial': True, 'supports_streaming': True, 'mode': session.mode}
+            from .review import LessonReviewService
+            return LessonReviewService.initial_message_payload(session)
         elif AIStudyWorkflowService.is_guided_mode(session):
             state = AIStudyWorkflowService.ensure_guided_state(session)
             session.guided_state = state

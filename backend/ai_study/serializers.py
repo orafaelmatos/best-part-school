@@ -6,6 +6,7 @@ from .models import (
     AIConversationMessage,
     AIStudyRecommendation,
     AIStudySession,
+    LessonReviewReport,
     PronunciationReview,
     SpeakingAudio,
     SpeakingFeedback,
@@ -114,17 +115,32 @@ class AIConversationMessageSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+class LessonReviewReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonReviewReport
+        fields = ['id', 'session', 'lesson', 'lesson_title', 'started_at', 'completed_at',
+                  'duration_seconds', 'correct_count', 'incorrect_count', 'difficulties', 'activities', 'attempts']
+        read_only_fields = fields
+
+
 class AIStudySessionListSerializer(serializers.ModelSerializer):
     lesson_detail = serializers.SerializerMethodField()
     message_count = serializers.SerializerMethodField()
+    review_report = serializers.SerializerMethodField()
 
     class Meta:
         model = AIStudySession
         fields = [
             'id', 'student', 'lesson', 'lesson_detail', 'mode', 'title', 'title_source', 'is_pinned', 'status',
-            'message_count', 'guided_state', 'last_interaction_at', 'created_at', 'updated_at'
+            'message_count', 'guided_state', 'review_report', 'last_interaction_at', 'created_at', 'updated_at'
         ]
         read_only_fields = fields
+
+    def get_review_report(self, obj):
+        try:
+            return LessonReviewReportSerializer(obj.review_report).data
+        except LessonReviewReport.DoesNotExist:
+            return None
 
     def get_lesson_detail(self, obj):
         lesson = _resolved_session_lesson(obj)
@@ -314,6 +330,7 @@ class TextMessageSerializer(serializers.Serializer):
         default='free',
     )
     guided_action = serializers.JSONField(required=False)
+    review_revision = serializers.IntegerField(required=False, min_value=0)
 
     def validate_guided_action(self, value):
         if not isinstance(value, dict):
@@ -362,12 +379,13 @@ class ListeningAnswerSerializer(serializers.Serializer):
 class SpeakingAudioUploadSerializer(serializers.Serializer):
     audio = serializers.FileField()
     duration_seconds = serializers.DecimalField(max_digits=8, decimal_places=2, required=False)
+    review_revision = serializers.IntegerField(required=False, min_value=0)
 
     def validate_audio(self, value):
-        allowed_types = {'audio/webm', 'audio/wav', 'audio/wave', 'audio/x-wav'}
+        allowed_types = {'audio/webm', 'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mp4'}
         content_type = getattr(value, 'content_type', '')
         if content_type not in allowed_types:
-            raise serializers.ValidationError('Only .webm or .wav audio uploads are supported.')
+            raise serializers.ValidationError('Only .webm, .mp4 or .wav audio uploads are supported.')
         if value.size > 25 * 1024 * 1024:
             raise serializers.ValidationError('Audio file must be 25 MB or smaller.')
         return value

@@ -14,11 +14,13 @@ const MicRecorder = ({
   onStateChange,
   onRecordingComplete,
   disabled,
+  maxDurationSeconds,
 }: {
   state: RecordingState;
   onStateChange: (state: RecordingState) => void;
   onRecordingComplete: (blob: Blob, durationSeconds: number) => void;
   disabled?: boolean;
+  maxDurationSeconds?: number;
 }) => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -26,6 +28,7 @@ const MicRecorder = ({
   const shouldSubmitRef = useRef(true);
   const startedAtRef = useRef<number>(0);
   const elapsedBeforePauseRef = useRef<number>(0);
+  const elapsedRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
@@ -39,7 +42,10 @@ const MicRecorder = ({
     stopTimer();
     startedAtRef.current = Date.now();
     timerRef.current = window.setInterval(() => {
-      setElapsed(elapsedBeforePauseRef.current + (Date.now() - startedAtRef.current) / 1000);
+      const current = elapsedBeforePauseRef.current + (Date.now() - startedAtRef.current) / 1000;
+      elapsedRef.current = current;
+      setElapsed(current);
+      if (maxDurationSeconds && current >= maxDurationSeconds && recorderRef.current?.state === "recording") recorderRef.current.stop();
     }, 250);
   };
 
@@ -50,6 +56,8 @@ const MicRecorder = ({
 
   useEffect(() => {
     return () => {
+      shouldSubmitRef.current = false;
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
       stopTimer();
       cleanupStream();
     };
@@ -60,12 +68,13 @@ const MicRecorder = ({
     chunksRef.current = [];
     shouldSubmitRef.current = true;
     elapsedBeforePauseRef.current = 0;
+    elapsedRef.current = 0;
     setElapsed(0);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/wav";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const mimeType = ["audio/webm", "audio/mp4", "audio/wav"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -80,14 +89,15 @@ const MicRecorder = ({
           return;
         }
         onStateChange("processing");
-        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType.split(";")[0] || mimeType || "audio/webm" });
         chunksRef.current = [];
-        onRecordingComplete(blob, Math.max(1, Math.round(elapsed)));
+        onRecordingComplete(blob, Math.max(1, Math.round(elapsedRef.current)));
       };
       recorder.start();
       startTimer();
       onStateChange("recording");
     } catch {
+      cleanupStream();
       setError("Não foi possível acessar o microfone.");
       onStateChange("error");
     }
@@ -143,7 +153,7 @@ const MicRecorder = ({
                 ? "Gravação pausada"
                 : state === "uploading"
                   ? "Enviando para análise..."
-                  : "Grave sua resposta em inglês."}
+                  : maxDurationSeconds ? `Grave sua resposta em inglês (até ${maxDurationSeconds / 60} minutos).` : "Grave sua resposta em inglês."}
           </p>
         </div>
         <div className="rounded-full bg-muted px-3 py-1 text-sm font-semibold tabular-nums text-foreground">

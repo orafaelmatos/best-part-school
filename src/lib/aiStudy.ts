@@ -50,6 +50,12 @@ export type GuidedListeningJourney = {
 };
 
 export type GuidedState = {
+  review_revision?: number;
+  review_activity?: string;
+  review_activity_label?: string;
+  correct_count?: number;
+  incorrect_count?: number;
+  duration_seconds?: number;
   enabled?: boolean;
   stage?: string;
   scenario_key?: string;
@@ -86,9 +92,35 @@ export type SessionSummary = {
   lesson_detail?: LessonReference | null;
   message_count: number;
   guided_state?: GuidedState;
+  review_report?: LessonReviewReport | null;
   last_interaction_at?: string;
   created_at: string;
   updated_at: string;
+};
+
+export type LessonReviewReport = {
+  id: string;
+  session?: string | null;
+  lesson?: string | null;
+  lesson_title: string;
+  started_at: string;
+  completed_at: string;
+  duration_seconds: number;
+  correct_count: number;
+  incorrect_count: number;
+  difficulties: Array<{ topic: string; count: number }>;
+  activities: string[];
+  attempts: Array<{
+    exercise_id: string;
+    question: string;
+    answer: string;
+    is_correct: boolean;
+    feedback: string;
+    explanation: string;
+    error?: string;
+    correct_answer: string;
+    pronunciation_feedback?: string;
+  }>;
 };
 
 export type ListResponse<T> =

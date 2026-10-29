@@ -1,8 +1,12 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import AudioPlayer from "@/components/AudioPlayer";
+import LessonReviewReportCard from "@/components/LessonReviewReportCard";
+import { reviewActivityChoices, reviewActivityIcons } from "@/lib/lessonReview";
+import { reviewAudioAsWav } from "@/lib/reviewAudio";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
@@ -78,6 +82,8 @@ type AIMessage = {
   feedback_detail?: SpeakingFeedback | null;
   writing_feedback_detail?: WritingFeedback | null;
   metadata?: {
+    review_audio_url?: string | null;
+    review_feedback?: { is_correct: boolean };
     guided?: boolean;
     stage?: string;
     choices?: GuidedChoice[];
@@ -157,6 +163,15 @@ type TranslationPopoverState = {
 };
 
 const normalizeSelectedText = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const getReviewError = (error: unknown, fallback: string) => {
+  if (isAxiosError(error)) {
+    const data = error.response?.data;
+    if (typeof data?.detail === "string") return data.detail;
+    if (Array.isArray(data) && typeof data[0] === "string") return data[0];
+  }
+  return error instanceof Error && !isAxiosError(error) ? error.message : fallback;
+};
 
 const isTranslatableSelection = (value: string) => {
   if (value.length < 2 || value.length > 280) return false;
@@ -461,39 +476,42 @@ const GuidedChoices = ({
   return (
     <div className="mt-3 space-y-3">
       <div className={cn("gap-2", isGrid ? "grid sm:grid-cols-2" : "flex flex-wrap")}>
-        {choices.map((choice) => (
-          <button
-            key={choice.id}
-            type="button"
-            disabled={disabled}
-            onClick={() => onSelect(choice)}
-            className={cn(
-              "text-left transition disabled:opacity-50",
-              isGrid
-                ? "rounded-2xl border border-slate-200 bg-slate-50/90 p-3 hover:border-slate-300 hover:bg-white"
-                : choice.variant === "primary"
-                  ? "rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
-                  : choice.variant === "outline"
-                    ? "rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    : "rounded-full bg-slate-100 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200",
-            )}
-          >
-            {isGrid ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  {choice.emoji ? <span className="text-base">{choice.emoji}</span> : null}
-                  <span className="font-semibold text-foreground">{choice.label}</span>
+        {choices.map((choice) => {
+          const Icon = choice.action_type === "review_activity" ? reviewActivityIcons[choice.value as keyof typeof reviewActivityIcons] : undefined;
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(choice)}
+              className={cn(
+                "text-left transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2",
+                isGrid
+                  ? "rounded-2xl border border-slate-200 bg-slate-50/90 p-3 hover:border-slate-300 hover:bg-white"
+                  : choice.variant === "primary"
+                    ? "rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
+                    : choice.variant === "outline"
+                      ? "rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      : "rounded-full bg-slate-100 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200",
+              )}
+            >
+              {isGrid ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    {Icon ? <span className="rounded-xl bg-sky-100 p-2 text-sky-700"><Icon className="h-4 w-4" aria-hidden="true" /></span> : choice.emoji ? <span className="text-base">{choice.emoji}</span> : null}
+                    <span className="font-semibold text-foreground">{choice.label}</span>
+                  </div>
+                  {choice.description ? <p className="text-xs leading-5 text-muted-foreground">{choice.description}</p> : null}
                 </div>
-                {choice.description ? <p className="text-xs leading-5 text-muted-foreground">{choice.description}</p> : null}
-              </div>
-            ) : (
-              <span className="inline-flex items-center gap-2">
-                {choice.emoji ? <span>{choice.emoji}</span> : null}
-                <span>{choice.label}</span>
-              </span>
-            )}
-          </button>
-        ))}
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  {choice.emoji ? <span>{choice.emoji}</span> : null}
+                  <span>{choice.label}</span>
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       {helperText ? <p className="text-xs leading-5 text-muted-foreground">{helperText}</p> : null}
     </div>
@@ -551,6 +569,12 @@ const MessageBubble = ({
               : "rounded-bl-lg border border-slate-200/80 bg-white/95 text-card-foreground",
           )}
         >
+          {message.metadata?.review_audio_url && (
+            <div className="mb-3 rounded-2xl bg-sky-50 p-3">
+              <p className="mb-2 text-xs text-slate-600">Ouça o áudio gerado por IA e responda à pergunta abaixo.</p>
+              <AudioPlayer src={absoluteMediaUrl(message.metadata.review_audio_url)} compact />
+            </div>
+          )}
           {message.audio_url ? (
             <div className="space-y-3">
               <div className={cn("rounded-2xl p-3", isUser ? "bg-white/10" : "bg-slate-50")}>
@@ -622,6 +646,7 @@ const AssistenteIA = () => {
   const [isChangingLesson, setIsChangingLesson] = useState(false);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [showRecorder, setShowRecorder] = useState(false);
   const [creatingLessonId, setCreatingLessonId] = useState<string | null>(null);
@@ -677,8 +702,9 @@ const AssistenteIA = () => {
   const activeSession =
     sessionDraft && sessionDraft.id === selectedSessionId ? sessionDraft : sessionDetailQuery.data ?? null;
   const guidedState = activeSession?.guided_state ?? undefined;
+  const reviewCompleted = activeSession?.mode === "review" && activeSession.status === "completed";
   const latestInteractiveAssistantMessage = activeSession?.messages
-    ? [...activeSession.messages].reverse().find((message) => message.role === "assistant" && (message.metadata?.choices?.length ?? 0) > 0)
+    ? [...activeSession.messages].reverse().find((message) => message.role === "assistant")
     : null;
 
   useEffect(() => {
@@ -691,8 +717,14 @@ const AssistenteIA = () => {
   useEffect(() => {
     const el = messageListRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [activeSession?.messages]);
+    const report = el.querySelector('[aria-label="Relatório da revisão"]');
+    if (report && reviewCompleted) {
+      el.scrollTop += report.getBoundingClientRect().top - el.getBoundingClientRect().top - 16;
+      return;
+    }
+    const lastMessage = activeSession?.messages.slice(-1)[0];
+    el.scrollTop = lastMessage?.metadata?.choice_layout === "grid" && activeSession?.messages.length === 1 ? 0 : el.scrollHeight;
+  }, [activeSession?.messages, reviewCompleted]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -767,7 +799,7 @@ const AssistenteIA = () => {
   const hasSavedSessions = (sessionsQuery.data?.length ?? 0) > 0;
   const isPickerVisible = pickerMode !== null || !selectedSessionId;
   const isConversationPage = Boolean(selectedSessionId);
-  const isBusy = isSending || sessionDetailQuery.isFetching;
+  const isBusy = isSending || isFinishing || sessionDetailQuery.isFetching;
   const activeMode: PracticeMode | undefined =
     activeSession?.mode && activeSession.mode !== "listening" ? activeSession.mode : undefined;
   const composerPlaceholder =
@@ -775,7 +807,8 @@ const AssistenteIA = () => {
     guidedState?.input_placeholder ||
     (activeMode ? composerPlaceholderByMode[activeMode] : composerPlaceholderByMode.review);
   const guidedExpectedInput = latestInteractiveAssistantMessage?.metadata?.expected_input || guidedState?.expected_input || "";
-  const canRecordAudio = activeMode === "speaking" && (!guidedState || guidedState.stage === "active");
+  const canRecordAudio = (activeMode === "speaking" && (!guidedState || guidedState.stage === "active")) ||
+    (activeMode === "review" && !reviewCompleted && guidedState?.stage === "awaiting_answer" && guidedState.expected_input === "audio_or_text");
   const canUseAudioInput = canRecordAudio && (!guidedExpectedInput || guidedExpectedInput === "audio_or_text");
 
   useEffect(() => {
@@ -786,6 +819,25 @@ const AssistenteIA = () => {
       }
     }
   }, [canUseAudioInput, recordingState]);
+
+  useEffect(() => {
+    if (!selectedSessionId || activeMode !== "review" || reviewCompleted || !guidedState?.review_activity) return;
+    let lastActivity = Date.now();
+    const markActive = () => { lastActivity = Date.now(); };
+    const heartbeat = () => {
+      const playingAudio = Array.from(document.querySelectorAll("audio")).some((audio) => !audio.paused);
+      if (document.visibilityState !== "visible" || (Date.now() - lastActivity > 60000 && !playingAudio && recordingState !== "recording")) return;
+      void api.post(`/ai-study/sessions/${selectedSessionId}/review/heartbeat/`).catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", markActive);
+    window.addEventListener("keydown", markActive);
+    const timer = window.setInterval(heartbeat, 30000);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pointerdown", markActive);
+      window.removeEventListener("keydown", markActive);
+    };
+  }, [selectedSessionId, activeMode, reviewCompleted, guidedState?.review_activity, recordingState]);
 
   const syncDraft = (nextSession: SessionDetail) => {
     setSessionDraft(nextSession);
@@ -863,6 +915,14 @@ const AssistenteIA = () => {
 
   const handleChangeLesson = async (lessonId: string) => {
     if (!activeSession) return;
+    if (activeSession.mode === "review" && (guidedState?.review_activity || reviewCompleted)) {
+      if (!reviewCompleted) {
+        const saved = await finishReview();
+        if (!saved) return;
+      }
+      await handleCreateSession("review", lessonId);
+      return;
+    }
     setCreatingLessonId(lessonId);
     try {
       const response = await api.post(`/ai-study/sessions/${activeSession.id}/contexts/`, {
@@ -884,6 +944,30 @@ const AssistenteIA = () => {
       });
     } finally {
       setCreatingLessonId(null);
+    }
+  };
+
+  const finishReview = async () => {
+    if (!activeSession || isBusy) return false;
+    setIsFinishing(true);
+    try {
+      const response = await api.post(`/ai-study/sessions/${activeSession.id}/review/finish/`);
+      const data = response.data as MessageResponse;
+      syncDraft({
+        ...mergeSummaryIntoDetail(activeSession, data.session),
+        messages: [...activeSession.messages.filter((message) => message.id !== data.assistant_message?.id),
+          ...(data.assistant_message ? [data.assistant_message] : [])],
+      });
+      await Promise.all([
+        invalidateSessionList(),
+        queryClient.invalidateQueries({ queryKey: ["ai-study-progress-overview"] }),
+      ]);
+      return true;
+    } catch (error) {
+      toast({ title: "Não foi possível finalizar a revisão", description: getReviewError(error, "Tente novamente. Seu progresso continua salvo."), variant: "destructive" });
+      return false;
+    } finally {
+      setIsFinishing(false);
     }
   };
 
@@ -942,7 +1026,7 @@ const AssistenteIA = () => {
     guidedAction?: GuidedActionPayload;
     textType?: string;
   }) => {
-    if (!activeSession || isSending) return;
+    if (!activeSession || isBusy || reviewCompleted) return;
     const trimmedText = text?.trim() || "";
     const displayText = trimmedText || guidedAction?.label || "";
     if (!displayText) return;
@@ -975,6 +1059,7 @@ const AssistenteIA = () => {
         text: trimmedText,
         text_type: textType,
         guided_action: guidedAction,
+        ...(activeSession.mode === "review" ? { review_revision: guidedState?.review_revision ?? 0 } : {}),
       });
       const data = response.data as MessageResponse;
       setSessionDraft((current) => {
@@ -992,7 +1077,7 @@ const AssistenteIA = () => {
         return next;
       });
       await invalidateSessionList();
-    } catch {
+    } catch (error) {
       setSessionDraft((current) => {
         if (!current) return current;
         const next = {
@@ -1004,9 +1089,10 @@ const AssistenteIA = () => {
       });
       toast({
         title: "Mensagem não enviada",
-        description: "Não foi possível conectar com a IA.",
+        description: getReviewError(error, "Não foi possível conectar com a IA. Seu progresso foi mantido."),
         variant: "destructive",
       });
+      if (trimmedText) setInput(trimmedText);
     } finally {
       setIsSending(false);
     }
@@ -1028,7 +1114,7 @@ const AssistenteIA = () => {
   };
 
   const uploadAudio = async (blob: Blob, durationSeconds: number) => {
-    if (!activeSession || activeSession.mode !== "speaking") return;
+    if (!activeSession || !canUseAudioInput || isBusy) return;
     const optimisticId = `audio-${Date.now()}`;
     const optimisticMessage: AIMessage = {
       id: optimisticId,
@@ -1052,10 +1138,12 @@ const AssistenteIA = () => {
     });
 
     try {
+      const recording = activeSession.mode === "review" ? await reviewAudioAsWav(blob) : blob;
       const formData = new FormData();
-      const extension = blob.type.includes("wav") ? "wav" : "webm";
-      formData.append("audio", blob, `speaking-${Date.now()}.${extension}`);
+      const extension = recording.type.includes("wav") ? "wav" : recording.type.includes("mp4") ? "mp4" : "webm";
+      formData.append("audio", recording, `speaking-${Date.now()}.${extension}`);
       formData.append("duration_seconds", String(durationSeconds));
+      if (activeSession.mode === "review") formData.append("review_revision", String(guidedState?.review_revision ?? 0));
       const response = await api.post(`/ai-study/sessions/${activeSession.id}/audio/`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -1077,7 +1165,7 @@ const AssistenteIA = () => {
       setRecordingState("idle");
       setShowRecorder(false);
       await invalidateSessionList();
-    } catch {
+    } catch (error) {
       setSessionDraft((current) => {
         if (!current) return current;
         const next = {
@@ -1090,7 +1178,7 @@ const AssistenteIA = () => {
       setRecordingState("error");
       toast({
         title: "Áudio não processado",
-        description: "Verifique o microfone e tente novamente.",
+        description: getReviewError(error, "Verifique o microfone e tente novamente."),
         variant: "destructive",
       });
     } finally {
@@ -1429,9 +1517,25 @@ const AssistenteIA = () => {
                       {guidedState?.enabled && activeMode && activeMode !== "review" ? (
                         <GuidedSessionOverview state={guidedState} mode={activeMode} />
                       ) : null}
+                      {activeMode === "review" && guidedState?.review_activity && !reviewCompleted && (
+                        <p className="mt-2 text-xs text-slate-600" aria-live="polite">
+                          {guidedState.review_activity_label} · {guidedState.correct_count || 0} acertos · {guidedState.incorrect_count || 0} erros · Dificuldade {guidedState.difficulty || "1"}/5
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      {activeMode === "review" && (reviewCompleted ? (
+                        <button type="button" onClick={() => void handleCreateSession("review", activeSession.lesson || undefined)} disabled={isBusy || Boolean(creatingLessonId)}
+                          className="rounded-full bg-sky-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Nova revisão</button>
+                      ) : (
+                        <>
+                          {guidedState?.review_activity && <button type="button" disabled={isBusy} onClick={() => void handleGuidedChoice({ id: "menu", action_type: "review_control", value: "menu", label: "Escolher prática" })}
+                            className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 disabled:opacity-50">Escolher prática</button>}
+                          <button type="button" disabled={isBusy || recordingState === "recording" || recordingState === "paused"} onClick={() => void finishReview()}
+                            className="rounded-full bg-sky-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{isFinishing ? "Salvando relatório..." : "Finalizar revisão"}</button>
+                        </>
+                      ))}
                       <button
                         type="button"
                         onClick={() =>
@@ -1450,19 +1554,21 @@ const AssistenteIA = () => {
                         <button
                           type="button"
                           onClick={() => setIsRenaming(true)}
-                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                          aria-label="Renomear"
+                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white p-2 sm:px-4 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
                         >
                           <Pencil className="h-4 w-4" />
-                          Renomear
+                          <span className="hidden sm:inline">Renomear</span>
                         </button>
                       ) : null}
                       <button
                         type="button"
                         onClick={() => void handleDelete()}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                        aria-label="Excluir"
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white p-2 sm:px-4 text-sm font-medium text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />
-                        Excluir
+                        <span className="hidden sm:inline">Excluir</span>
                       </button>
                     </div>
                   </div>
@@ -1480,7 +1586,7 @@ const AssistenteIA = () => {
                         <MessageBubble
                           key={message.id}
                           message={message}
-                          isInteractive={message.id === latestInteractiveAssistantMessage?.id}
+                          isInteractive={!reviewCompleted && message.id === latestInteractiveAssistantMessage?.id}
                           onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
                           choiceDisabled={isBusy}
                           onTextSelection={handleTextSelection}
@@ -1494,7 +1600,7 @@ const AssistenteIA = () => {
                           </p>
                           <p className="mt-4 text-xl font-semibold tracking-tight text-foreground md:text-3xl">
                             {activeSession.mode === "review"
-                              ? "O que você quer revisar nesta aula?"
+                              ? "Vamos revisar sua aula? Escolha como você quer praticar hoje:"
                               : activeSession.mode === "speaking"
                                 ? "Envie um áudio para avaliar sua pronúncia"
                                 : "Envie um texto para análise de writing"}
@@ -1509,6 +1615,14 @@ const AssistenteIA = () => {
                         </div>
                       </div>
                     )}
+                    {activeMode === "review" && !guidedState?.enabled && !reviewCompleted && (
+                      <div className="rounded-3xl border border-sky-200 bg-white p-4 sm:p-6">
+                        {activeSession.messages.length > 0 && <p className="font-semibold">Vamos revisar sua aula? Escolha como você quer praticar hoje:</p>}
+                        <GuidedChoices choices={reviewActivityChoices} layout="grid" disabled={isBusy} onSelect={(choice) => void handleGuidedChoice(choice)}
+                          helperText="As atividades usam o conteúdo registrado da aula selecionada. Você também pode escrever uma dúvida abaixo." />
+                      </div>
+                    )}
+                    {activeSession.review_report && <LessonReviewReportCard report={activeSession.review_report} />}
                   </div>
                 </div>
 
@@ -1583,7 +1697,8 @@ const AssistenteIA = () => {
                         state={recordingState}
                         onStateChange={setRecordingState}
                         onRecordingComplete={uploadAudio}
-                        disabled={!activeSession || isBusy}
+                        maxDurationSeconds={activeMode === "review" ? 120 : undefined}
+                        disabled={!activeSession || isBusy || reviewCompleted}
                       />
                     ) : null}
 
@@ -1600,7 +1715,7 @@ const AssistenteIA = () => {
                           <button
                             type="button"
                             onClick={() => setShowRecorder((current) => !current)}
-                            disabled={!activeSession || isBusy}
+                            disabled={!activeSession || isBusy || reviewCompleted}
                             className={cn(
                               "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition disabled:opacity-50",
                               showRecorder || recordingState !== "idle"
@@ -1618,8 +1733,8 @@ const AssistenteIA = () => {
                             value={input}
                             onChange={(event) => setInput(event.target.value)}
                             onKeyDown={handleComposerKeyDown}
-                            placeholder={composerPlaceholder}
-                            disabled={!activeSession || isBusy}
+                            placeholder={reviewCompleted ? "Revisão finalizada. Inicie uma nova revisão para praticar mais." : composerPlaceholder}
+                            disabled={!activeSession || isBusy || reviewCompleted}
                             rows={1}
                             className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
                           />
@@ -1628,7 +1743,7 @@ const AssistenteIA = () => {
                         <button
                           type="button"
                           onClick={() => void sendText()}
-                          disabled={!activeSession || !input.trim() || isBusy}
+                          disabled={!activeSession || !input.trim() || isBusy || reviewCompleted}
                           className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white transition hover:opacity-90 disabled:opacity-50"
                           aria-label="Enviar mensagem"
                         >
