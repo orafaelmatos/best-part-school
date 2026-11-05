@@ -11,6 +11,7 @@ from lessons.models import Attachment, Lesson, LessonSummary, NewWord, Vocabular
 from .guided_tutor import build_default_guided_state
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService, LessonSummaryWorkflowService
 from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback
+from .test_speaking import make_plan
 
 
 class AIStudyAPITests(TestCase):
@@ -142,7 +143,8 @@ class AIStudyAPITests(TestCase):
         self.assertTrue(exercise['tts_unavailable'])
         self.assertIn('audio nao foi gerado agora', response.data['guided_state']['progress_summary'])
 
-    def test_speaking_session_guided_onboarding_advances_scenario_and_level(self):
+    @patch('ai_study.services.AIStudyOpenAIService.plan_speaking_session', side_effect=lambda *_: make_plan())
+    def test_speaking_session_guided_onboarding_advances_scenario_and_level(self, _plan_mock):
         self.client.force_authenticate(user=self.student)
         response = self.client.post('/api/ai-study/sessions/', {'mode': 'speaking'})
         session_id = response.data['id']
@@ -407,44 +409,21 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(response.data['session']['guided_state']['session_status'], 'completed')
         self.assertTrue(response.data['follow_up_message']['metadata']['interpreter_journey_completed'])
 
+    @patch('ai_study.services.AIStudyOpenAIService.plan_speaking_session', side_effect=lambda *_: make_plan())
     @patch('ai_study.services.AIStudyOpenAIService.transcribe', return_value='I go to airport yesterday.')
     @patch('ai_study.services.AIStudyOpenAIService.analyze_speaking')
-    def test_audio_upload_saves_structured_feedback(self, analyze_mock, _transcribe_mock):
-        analyze_mock.return_value = {
-            'transcript': 'I go to airport yesterday.',
-            'overall_score': 74,
-            'estimated_level': 'B1',
-            'pronunciation_score': 72,
-            'fluency_score': 68,
-            'intonation_score': 66,
-            'clarity_score': 71,
-            'corrected_sentence': 'I went to the airport yesterday.',
-            'natural_sentence': 'I went to the airport yesterday.',
-            'ai_feedback': 'Good attempt. Use past tense for yesterday.',
-            'correct_words': ['yesterday'],
-            'problem_words': ['airport'],
-            'pronunciation_mistakes': ['airport stress'],
-            'error_details': [{'word': 'airport', 'issue': 'stress on the first syllable', 'tip': 'Say AIR-port'}],
-            'grammar_explanation': 'Use went for past tense.',
-            'improvement_tips': ['Slow down before the stressed syllable.'],
-            'practice_exercises': ['Repeat: airport, boarding, passport.'],
-            'vocabulary_suggestions': ['departure gate'],
-            'native_alternative_sentence': 'I went to the airport yesterday.',
-            'assistant_response': 'Nice work. What did you do at the airport?',
-        }
+    def test_audio_upload_starts_pedagogical_preparation_for_legacy_session(self, analyze_mock, _transcribe_mock, _plan_mock):
         session = AIStudySession.objects.create(student=self.student, mode='speaking', theme='travel')
         self.activate_guided_session(session)
         self.client.force_authenticate(user=self.student)
         upload = SimpleUploadedFile('speech.webm', b'audio bytes', content_type='audio/webm')
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/audio/', {'audio': upload, 'duration_seconds': '3'}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        feedback = SpeakingFeedback.objects.get(session=session)
-        self.assertEqual(feedback.transcript, 'I go to airport yesterday.')
-        self.assertEqual(feedback.overall_score, 74)
-        self.assertEqual(feedback.estimated_level, 'B1')
-        self.assertEqual(feedback.pronunciation_score, 72)
-        self.assertEqual(feedback.intonation_score, 66)
-        self.assertEqual(feedback.problem_words, ['airport'])
+        self.assertEqual(response.data['user_message']['text'], 'I go to airport yesterday.')
+        self.assertEqual(response.data['session']['guided_state']['speaking']['phase'], 'LEARN')
+        self.assertIsNone(response.data['feedback'])
+        analyze_mock.assert_not_called()
+        self.assertFalse(SpeakingFeedback.objects.filter(session=session).exists())
 
     def test_tts_requires_corrected_or_natural_sentence(self):
         session = AIStudySession.objects.create(student=self.student, mode='speaking', theme='travel')

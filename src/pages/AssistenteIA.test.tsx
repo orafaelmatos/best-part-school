@@ -282,6 +282,79 @@ describe("AssistenteIA routing flow", () => {
     expect(screen.getByRole("button", { name: /Aeroporto/i })).toBeInTheDocument();
   });
 
+  it("connects the vocabulary repetition action to the existing recorder", async () => {
+    const detail = {
+      ...guidedSpeakingSessionDetail,
+      guided_state: { enabled: true, stage: "active", level: "A1", speaking: { phase: "LEARN" } },
+      messages: [{
+        id: "repeat-message", role: "assistant", content_type: "text", text: "Agora tente falar: I train every day.",
+        metadata: {
+          guided: true, expected_input: "audio_or_text", choices: [{
+            id: "hint", label: "Me dê uma dica", action_type: "preparation", value: "hint",
+          }],
+          speaking_activity: {
+            step: "REPEAT", item_index: 0, total_items: 2, completed_count: 0, review_count: 0,
+            item: { expression: "Train", translation: "Treinar", example: "I train every day.", example_translation: "Eu treino todos os dias." },
+            feedback: "", hint: "", task: null, next: "", assessment_source: null,
+            attempts: 0, max_attempts: 3, show_translations: true,
+          },
+        },
+      }],
+    };
+    mockedGet.mockImplementation(async (url) => {
+      if (url === "/ai-study/sessions/") return { data: [sessionSummary] };
+      if (url === "/ai-study/context-lessons/") return { data: [lessonOption] };
+      if (url === "/ai-study/sessions/session-speaking/") return { data: detail };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    renderAssistente(buildSessionPath("session-speaking"));
+    fireEvent.click(await screen.findByRole("button", { name: "Repetir pelo microfone" }));
+    expect(screen.getByText("mic-recorder")).toBeInTheDocument();
+    expect(screen.getByText("Eu treino todos os dias.")).toBeInTheDocument();
+  });
+
+  it("offers all simulation help actions while keeping the pending question after help", async () => {
+    const labels = [
+      ["continue", "Continuar"], ["not_understood", "Não entendi"], ["hint", "Me dê uma dica"],
+      ["translate", "Ver tradução"], ["examples", "Ver exemplos"], ["vocabulary", "Aprender vocabulário"],
+      ["grammar", "Explicar gramática"], ["new_challenge", "Novo desafio"],
+    ];
+    const metadata = {
+      guided: true, expected_input: "audio_or_text", choices: labels.map(([value, label]) => ({
+        id: value, value, label, action_type: "simulation_help",
+      })),
+      speaking_simulation: { question: "What's your name?", situation_id: "meet_teacher", step_index: 0, support_level: "full" },
+    };
+    const detail = {
+      ...guidedSpeakingSessionDetail,
+      guided_state: { enabled: true, stage: "active", level: "A1", speaking: { phase: "SIMULATE" } },
+      messages: [{ id: "simulation-1", role: "assistant", content_type: "text", text: "What's your name?", metadata }],
+    };
+    mockedGet.mockImplementation(async (url) => {
+      if (url === "/ai-study/sessions/") return { data: [sessionSummary] };
+      if (url === "/ai-study/context-lessons/") return { data: [lessonOption] };
+      if (url === "/ai-study/sessions/session-speaking/") return { data: detail };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    mockedPost.mockResolvedValue({ data: {
+      session: { ...detail, messages: undefined },
+      user_message: { id: "help-user", role: "user", content_type: "text", text: "Me dê uma dica" },
+      assistant_message: { id: "help-assistant", role: "assistant", content_type: "text", text: "Comece com My name is...", metadata },
+    } });
+    renderAssistente(buildSessionPath("session-speaking"));
+    await screen.findByText("What's your name?");
+    fireEvent.click(screen.getByText("Ajudas e opções"));
+    for (const [, label] of labels) expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Repetir" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Me dê uma dica" }));
+    expect(await screen.findByText("Comece com My name is...")).toBeInTheDocument();
+    expect(screen.getByText("What's your name?")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled());
+    expect(mockedPost).toHaveBeenCalledWith("/ai-study/sessions/session-speaking/message/", expect.objectContaining({
+      guided_action: { action_type: "simulation_help", value: "hint", label: "Me dê uma dica" },
+    }));
+  });
+
   it("shows a translation popover when selecting assistant text", async () => {
     mockedGet.mockImplementation(async (url) => {
       if (url === "/ai-study/sessions/") {

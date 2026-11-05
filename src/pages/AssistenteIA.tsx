@@ -3,6 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import AudioPlayer from "@/components/AudioPlayer";
+import SpeakingVocabularyActivity from "@/components/SpeakingVocabularyActivity";
+import SpeakingSimulationReplay from "@/components/SpeakingSimulationReplay";
+import SpeakingTurnCard, { SpeakingHelpCard } from "@/components/SpeakingTurnCard";
+import SpeakingSessionOverview from "@/components/SpeakingSessionOverview";
+import SpeakingReportCard from "@/components/SpeakingReportCard";
+import type { SpeakingReport } from "@/lib/aiStudy";
+import { Button } from "@/components/ui/button";
+import { audioRequestError, audioRequestId, recordingExtension, recordingSupportError } from "@/lib/speakingAudio";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
@@ -22,6 +30,10 @@ import {
   modeLabel,
   PracticeMode,
   SessionSummary,
+  SpeakingVocabularyActivity as SpeakingActivity,
+  SpeakingTurnContent,
+  SpeakingHelp,
+  SpeakingPhase,
   unwrapListResponse,
 } from "@/lib/aiStudy";
 import { api } from "@/lib/api";
@@ -91,6 +103,15 @@ type AIMessage = {
     summary_items?: string[];
     supports_streaming?: boolean;
     mode?: AIStudyMode;
+    speaking_activity?: SpeakingActivity;
+    speaking_simulation?: { question: string; situation_id: string; step_index: number; support_level: string };
+    speaking_turn?: SpeakingTurnContent;
+    speaking_help?: SpeakingHelp;
+    pedagogical_phase?: SpeakingPhase;
+    speaking_level?: string;
+    speaking_prompt_id?: string;
+    speaking_report?: SpeakingReport;
+    assessment_source?: "text" | "transcript" | null;
   } | null;
   created_at?: string;
   pending?: boolean;
@@ -107,7 +128,7 @@ type MessageResponse = {
 };
 
 type AudioResponse = {
-  feedback: SpeakingFeedback;
+  feedback: SpeakingFeedback | null;
   user_message?: AIMessage | null;
   assistant_message?: AIMessage | null;
   session: SessionSummary;
@@ -448,20 +469,21 @@ const GuidedChoices = ({
   helperText,
   disabled,
   onSelect,
+  progressive,
 }: {
   choices: GuidedChoice[];
   layout?: string;
   helperText?: string;
   disabled?: boolean;
   onSelect: (choice: GuidedChoice) => void;
+  progressive?: boolean;
 }) => {
   if (!choices.length) return null;
   const isGrid = layout === "grid";
 
-  return (
-    <div className="mt-3 space-y-3">
+  const renderChoices = (items: GuidedChoice[]) => (
       <div className={cn("gap-2", isGrid ? "grid sm:grid-cols-2" : "flex flex-wrap")}>
-        {choices.map((choice) => (
+        {items.map((choice) => (
           <button
             key={choice.id}
             type="button"
@@ -495,17 +517,25 @@ const GuidedChoices = ({
           </button>
         ))}
       </div>
+  );
+  const primary = choices.filter((choice) => ["continue", "resume_simulation"].includes(choice.value));
+  const extra = choices.filter((choice) => !primary.includes(choice));
+  return (
+    <div className="mt-3 space-y-3">
+      {progressive ? <>
+        {renderChoices(primary)}
+        {extra.length ? <details className="rounded-xl border border-border bg-muted/30 p-3">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Ajudas e opções</summary>
+          <div className="mt-3">{renderChoices(extra)}</div>
+        </details> : null}
+      </> : renderChoices(choices)}
       {helperText ? <p className="text-xs leading-5 text-muted-foreground">{helperText}</p> : null}
     </div>
   );
 };
 
 const GuidedSessionOverview = ({ state, mode }: { state: GuidedState; mode: PracticeMode }) => {
-  const learnedWords = state.learned_words || [];
-  const recurringErrors = state.recurring_errors || [];
-  const summaryItems = state.summary_items || [];
-
-  return null;
+  return mode === "speaking" ? <SpeakingSessionOverview state={state} /> : null;
 };
 
 const MessageBubble = ({
@@ -514,12 +544,16 @@ const MessageBubble = ({
   onChoiceSelect,
   choiceDisabled,
   onTextSelection,
+  sessionId,
+  onRecord,
 }: {
   message: AIMessage;
   isInteractive?: boolean;
   onChoiceSelect?: (choice: GuidedChoice) => void;
   choiceDisabled?: boolean;
   onTextSelection?: (container: HTMLDivElement) => void;
+  sessionId: string;
+  onRecord?: () => void;
 }) => {
   const isUser = message.role === "user";
   const audioMeta = message.audio_detail;
@@ -533,7 +567,9 @@ const MessageBubble = ({
           : "Assistente IA";
 
   return (
-    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
+      data-speaking-prompt={message.metadata?.speaking_prompt_id || message.id}
+      data-speaking-current={isInteractive && (message.metadata?.speaking_turn || message.metadata?.speaking_activity || message.metadata?.speaking_help || message.metadata?.speaking_simulation) ? "true" : undefined}>
       <div className={cn("w-full max-w-[min(100%,58rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
         <p
           className={cn(
@@ -575,7 +611,18 @@ const MessageBubble = ({
               onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
               onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
             >
-              <p className="whitespace-pre-line">{message.text}</p>
+              {message.metadata?.speaking_report ? <div className="space-y-4">
+                {message.metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-sm">{message.metadata.speaking_turn.feedback}</p> : null}
+                <SpeakingReportCard report={message.metadata.speaking_report} />
+              </div> : message.metadata?.speaking_activity ? (
+                <SpeakingVocabularyActivity activity={message.metadata.speaking_activity}
+                  sessionId={sessionId} messageId={message.id} instruction={message.text}
+                  interactive={isInteractive} disabled={choiceDisabled} onRecord={onRecord} />
+              ) : message.metadata?.speaking_help ? <SpeakingHelpCard help={message.metadata.speaking_help} />
+                : message.metadata?.speaking_turn ? <SpeakingTurnCard content={message.metadata.speaking_turn}
+                  phase={message.metadata.pedagogical_phase} level={message.metadata.speaking_level}
+                  sessionId={sessionId} messageId={message.id} assessmentSource={message.metadata.assessment_source} />
+                : <p data-speaking-focus={message.metadata?.speaking_simulation ? true : undefined} className="whitespace-pre-line">{message.text}</p>}
             </div>
           )}
           <div
@@ -598,6 +645,10 @@ const MessageBubble = ({
             <PronunciationFeedback feedback={message.feedback_detail} />
           </div>
         ) : null}
+        {isInteractive && message.metadata?.speaking_simulation?.question ? (
+          <SpeakingSimulationReplay key={message.id} sessionId={sessionId} messageId={message.id}
+            question={message.metadata.speaking_simulation.question} />
+        ) : null}
         {isInteractive && message.metadata?.guided && message.metadata?.choices?.length && onChoiceSelect ? (
           <GuidedChoices
             choices={message.metadata.choices}
@@ -605,6 +656,7 @@ const MessageBubble = ({
             helperText={message.metadata.helper_text}
             disabled={choiceDisabled}
             onSelect={onChoiceSelect}
+            progressive={Boolean(message.metadata?.speaking_simulation)}
           />
         ) : null}
       </div>
@@ -623,6 +675,14 @@ const AssistenteIA = () => {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [useText, setUseText] = useState(false);
+  const [audioError, setAudioError] = useState("");
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const recorderContainerRef = useRef<HTMLDivElement | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const audioAttemptRef = useRef<{ blob: Blob; requestId: string } | null>(null);
+  const focusedSpeakingPromptRef = useRef("");
+  useEffect(() => { if (useText) textInputRef.current?.focus(); }, [useText]);
   const [showRecorder, setShowRecorder] = useState(false);
   const [creatingLessonId, setCreatingLessonId] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -677,6 +737,7 @@ const AssistenteIA = () => {
   const activeSession =
     sessionDraft && sessionDraft.id === selectedSessionId ? sessionDraft : sessionDetailQuery.data ?? null;
   const guidedState = activeSession?.guided_state ?? undefined;
+  activeSessionIdRef.current = selectedSessionId;
   const latestInteractiveAssistantMessage = activeSession?.messages
     ? [...activeSession.messages].reverse().find((message) => message.role === "assistant" && (message.metadata?.choices?.length ?? 0) > 0)
     : null;
@@ -691,10 +752,27 @@ const AssistenteIA = () => {
   useEffect(() => {
     const el = messageListRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [activeSession?.messages]);
+    const focus = el.querySelector<HTMLElement>('[data-speaking-current="true"] [data-speaking-focus]');
+    if (focus) {
+      el.scrollTop += focus.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+      const key = `${activeSession?.id}:${focus.closest('[data-speaking-prompt]')?.getAttribute('data-speaking-prompt')}`;
+      if (key !== focusedSpeakingPromptRef.current) {
+        focusedSpeakingPromptRef.current = key;
+        focus.setAttribute('tabindex', '-1');
+        focus.scrollIntoView?.({ block: "nearest" });
+        focus.focus({ preventScroll: true });
+      }
+    }
+    else el.scrollTop = el.scrollHeight;
+  }, [activeSession?.id, activeSession?.messages]);
 
   useEffect(() => {
+    setShowRecorder(false);
+    setRecordingState("idle");
+    setUseText(false);
+    setAudioError("");
+    setIsSending(false);
+    audioAttemptRef.current = null;
     if (!selectedSessionId) {
       setSessionDraft(null);
       setRenameValue("");
@@ -777,6 +855,18 @@ const AssistenteIA = () => {
   const guidedExpectedInput = latestInteractiveAssistantMessage?.metadata?.expected_input || guidedState?.expected_input || "";
   const canRecordAudio = activeMode === "speaking" && (!guidedState || guidedState.stage === "active");
   const canUseAudioInput = canRecordAudio && (!guidedExpectedInput || guidedExpectedInput === "audio_or_text");
+  const isCapturing = ["requesting", "recording", "paused"].includes(recordingState);
+  const oralResponse = canUseAudioInput;
+  const showTextInput = !(activeMode === "speaking" && activeSession?.status === "completed") && (!oralResponse || useText || Boolean(recordingSupportError()));
+  const openTextResponse = () => {
+    setUseText(true);
+    setShowRecorder(false);
+  };
+  const openVoiceResponse = () => {
+    setUseText(false);
+    setShowRecorder(true);
+    recorderContainerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  };
 
   useEffect(() => {
     if (!canUseAudioInput) {
@@ -1028,77 +1118,68 @@ const AssistenteIA = () => {
   };
 
   const uploadAudio = async (blob: Blob, durationSeconds: number) => {
-    if (!activeSession || activeSession.mode !== "speaking") return;
-    const optimisticId = `audio-${Date.now()}`;
-    const optimisticMessage: AIMessage = {
-      id: optimisticId,
-      role: "user",
-      content_type: "audio",
-      text: "Processando sua fala...",
-      pending: true,
-      created_at: new Date().toISOString(),
-    };
-
+    if (!activeSession || activeSession.mode !== "speaking" || isSending) return;
+    const requestSessionId = activeSession.id;
+    if (audioAttemptRef.current?.blob !== blob) audioAttemptRef.current = { blob, requestId: audioRequestId() };
+    const requestId = audioAttemptRef.current.requestId;
+    const optimisticId = `audio-${requestId}`;
+    setAudioError("");
     setRecordingState("uploading");
     setIsSending(true);
     setSessionDraft((current) => {
-      if (!current) return current;
-      const next = {
-        ...current,
-        messages: [...current.messages, optimisticMessage],
-      };
+      if (!current || current.id !== requestSessionId) return current;
+      const next = { ...current, messages: [...current.messages, {
+        id: optimisticId, role: "user" as const, content_type: "audio" as const,
+        text: "Enviando sua gravação...", pending: true, created_at: new Date().toISOString(),
+      }] };
       queryClient.setQueryData(["ai-study-session", next.id], next);
       return next;
     });
-
     try {
       const formData = new FormData();
-      const extension = blob.type.includes("wav") ? "wav" : "webm";
-      formData.append("audio", blob, `speaking-${Date.now()}.${extension}`);
+      formData.append("audio", blob, `speaking-${requestId}.${recordingExtension(blob.type)}`);
       formData.append("duration_seconds", String(durationSeconds));
-      const response = await api.post(`/ai-study/sessions/${activeSession.id}/audio/`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      formData.append("request_id", requestId);
+      if (latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id) {
+        formData.append("prompt_id", latestInteractiveAssistantMessage.metadata.speaking_prompt_id);
+      }
+      const response = await api.post(`/ai-study/sessions/${requestSessionId}/audio/`, formData, {
+        timeout: 120_000,
+        onUploadProgress: (event) => {
+          if (event.total && event.loaded >= event.total && activeSessionIdRef.current === requestSessionId) setRecordingState("processing");
+        },
       });
+      if (activeSessionIdRef.current !== requestSessionId) return;
       const data = response.data as AudioResponse;
       setSessionDraft((current) => {
-        if (!current) return current;
+        if (!current || current.id !== requestSessionId) return current;
         const persistedMessages = current.messages.filter((message) => message.id !== optimisticId);
-        const next: SessionDetail = {
-          ...mergeSummaryIntoDetail(current, data.session),
-          messages: [
-            ...persistedMessages,
-            ...(data.user_message ? [data.user_message] : []),
-            ...(data.assistant_message ? [data.assistant_message] : []),
-          ],
-        };
+        const existingIds = new Set(persistedMessages.map((message) => message.id));
+        const returned = [data.user_message, data.assistant_message].filter((message): message is AIMessage => Boolean(message) && !existingIds.has(message.id));
+        const next: SessionDetail = { ...mergeSummaryIntoDetail(current, data.session), messages: [...persistedMessages, ...returned] };
         queryClient.setQueryData(["ai-study-session", next.id], next);
         return next;
       });
       setRecordingState("idle");
       setShowRecorder(false);
       await invalidateSessionList();
-    } catch {
+    } catch (error) {
+      if (activeSessionIdRef.current !== requestSessionId) return;
       setSessionDraft((current) => {
-        if (!current) return current;
-        const next = {
-          ...current,
-          messages: current.messages.filter((message) => message.id !== optimisticId),
-        };
+        if (!current || current.id !== requestSessionId) return current;
+        const next = { ...current, messages: current.messages.filter((message) => message.id !== optimisticId) };
         queryClient.setQueryData(["ai-study-session", next.id], next);
         return next;
       });
+      setAudioError(audioRequestError(error));
       setRecordingState("error");
-      toast({
-        title: "Áudio não processado",
-        description: "Verifique o microfone e tente novamente.",
-        variant: "destructive",
-      });
     } finally {
-      setIsSending(false);
+      if (activeSessionIdRef.current === requestSessionId) setIsSending(false);
     }
   };
 
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isCapturing || isBusy) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void sendText();
@@ -1198,6 +1279,7 @@ const AssistenteIA = () => {
         className={cn(
           "space-y-6",
           isConversationPage && "h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
+          isConversationPage && activeMode === "speaking" && "min-h-[40rem]",
         )}
       >
         <section
@@ -1431,7 +1513,9 @@ const AssistenteIA = () => {
                       ) : null}
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap gap-2">
+                    <details className="shrink-0" open={activeSession.mode === "speaking" ? undefined : true}>
+                      <summary className={cn("cursor-pointer rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground", activeSession.mode !== "speaking" && "hidden")}>Opções da sessão</summary>
+                      <div className={cn("flex flex-wrap gap-2", activeSession.mode === "speaking" && "mt-2")}>
                       <button
                         type="button"
                         onClick={() =>
@@ -1464,11 +1548,12 @@ const AssistenteIA = () => {
                         <Trash2 className="h-4 w-4" />
                         Excluir
                       </button>
-                    </div>
+                      </div>
+                    </details>
                   </div>
                 </header>
 
-                <div ref={messageListRef} className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+                <div ref={messageListRef} role="log" aria-label="Conversa com o professor" aria-live="polite" aria-relevant="additions text" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
                   <div
                     className={cn(
                       "mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5",
@@ -1480,9 +1565,11 @@ const AssistenteIA = () => {
                         <MessageBubble
                           key={message.id}
                           message={message}
+                          sessionId={activeSession.id}
+                          onRecord={openVoiceResponse}
                           isInteractive={message.id === latestInteractiveAssistantMessage?.id}
                           onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
-                          choiceDisabled={isBusy}
+                          choiceDisabled={isBusy || isCapturing}
                           onTextSelection={handleTextSelection}
                         />
                       ))
@@ -1496,14 +1583,14 @@ const AssistenteIA = () => {
                             {activeSession.mode === "review"
                               ? "O que você quer revisar nesta aula?"
                               : activeSession.mode === "speaking"
-                                ? "Envie um áudio para avaliar sua pronúncia"
+                                ? "Vamos praticar uma conversa em inglês"
                                 : "Envie um texto para análise de writing"}
                           </p>
                           <p className="mt-3 hidden text-sm leading-6 text-muted-foreground md:block">
                             {activeSession.mode === "review"
                               ? "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado."
                               : activeSession.mode === "speaking"
-                                ? "A IA vai analisar pronúncia, fluência, entonação e clareza, além de sugerir exercícios focados nos erros identificados."
+                                ? "Aprenda frases, pratique e converse. Você pode responder por voz ou por texto."
                                 : "A IA vai corrigir seu texto, estimar seu nível CEFR, explicar os erros e gerar reescritas por nível."}
                           </p>
                         </div>
@@ -1578,13 +1665,16 @@ const AssistenteIA = () => {
 
                 <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-3 backdrop-blur">
                   <div className="mx-auto w-full max-w-6xl space-y-3">
-                    {canUseAudioInput && (showRecorder || recordingState !== "idle") ? (
-                      <MicRecorder
+                    {oralResponse && (!useText || showRecorder || recordingState !== "idle") ? (
+                      <div ref={recorderContainerRef}><MicRecorder
+                        key={`${activeSession.id}:${latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id || guidedState?.current_task || "voice"}`}
                         state={recordingState}
                         onStateChange={setRecordingState}
                         onRecordingComplete={uploadAudio}
                         disabled={!activeSession || isBusy}
-                      />
+                        errorMessage={audioError}
+                        onUseText={openTextResponse}
+                      /></div>
                     ) : null}
 
                     {latestInteractiveAssistantMessage?.metadata?.helper_text &&
@@ -1594,32 +1684,21 @@ const AssistenteIA = () => {
                       </div>
                     ) : null}
 
-                    <div className="rounded-[30px] border border-slate-200/80 bg-white/98 p-3 shadow-[0_10px_40px_-24px_rgba(15,23,42,0.4)]">
+                    {showTextInput ? <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+                      {oralResponse ? <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">Resposta por texto</p>
+                        {!recordingSupportError() ? <Button type="button" size="sm" variant="ghost" onClick={openVoiceResponse}>Usar microfone</Button> : null}
+                      </div> : null}
                       <div className="flex items-end gap-3">
-                        {canUseAudioInput ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowRecorder((current) => !current)}
-                            disabled={!activeSession || isBusy}
-                            className={cn(
-                              "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition disabled:opacity-50",
-                              showRecorder || recordingState !== "idle"
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                            )}
-                            aria-label="Abrir microfone"
-                          >
-                            <Mic className="h-5 w-5" />
-                          </button>
-                        ) : null}
-
                         <div className="flex min-h-[52px] flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
                           <textarea
+                            ref={textInputRef}
+                            aria-label="Sua resposta por texto"
                             value={input}
                             onChange={(event) => setInput(event.target.value)}
                             onKeyDown={handleComposerKeyDown}
                             placeholder={composerPlaceholder}
-                            disabled={!activeSession || isBusy}
+                            disabled={!activeSession || isBusy || isCapturing}
                             rows={1}
                             className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
                           />
@@ -1628,14 +1707,14 @@ const AssistenteIA = () => {
                         <button
                           type="button"
                           onClick={() => void sendText()}
-                          disabled={!activeSession || !input.trim() || isBusy}
+                          disabled={!activeSession || !input.trim() || isBusy || isCapturing}
                           className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white transition hover:opacity-90 disabled:opacity-50"
                           aria-label="Enviar mensagem"
                         >
                           {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
                         </button>
                       </div>
-                    </div>
+                    </div> : null}
                   </div>
                 </footer>
               </>

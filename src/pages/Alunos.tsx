@@ -893,7 +893,7 @@ const Alunos = () => {
                           className="w-full rounded-lg border border-border bg-background p-3 text-sm"
                           value={formData.financeNotes}
                           onChange={(e) => setFormData({ ...formData, financeNotes: e.target.value })}
-                        />
+                        />1'
                       </div>
                     </div>
 

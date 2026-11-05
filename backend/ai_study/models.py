@@ -227,3 +227,22 @@ class AIStudyRecommendation(models.Model):
 
     class Meta:
         ordering = ['-updated_at']
+
+
+class SpeakingSessionReport(models.Model):
+    """One durable, evidence-based report per scenario run, including text-only practice."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(AIStudySession, on_delete=models.CASCADE, related_name='speaking_reports')
+    run_id = models.UUIDField()
+    status = models.CharField(max_length=30, default='active', choices=[
+        ('active', 'Active'), ('paused', 'Paused'),
+        ('situation_completed', 'Situation completed'), ('completed', 'Completed'),
+    ])
+    report = models.JSONField(default=dict)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+        constraints = [models.UniqueConstraint(fields=['session', 'run_id'], name='unique_speaking_report_run')]

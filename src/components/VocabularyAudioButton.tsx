@@ -12,6 +12,7 @@ type Props = {
   className?: string;
   label?: string;
   onGenerated?: (audioUrl: string) => void;
+  requestAudio?: () => Promise<string>;
 };
 
 const VocabularyAudioButton = ({
@@ -22,44 +23,64 @@ const VocabularyAudioButton = ({
   className = "",
   label = "Ouvir pronúncia",
   onGenerated,
+  requestAudio,
 }: Props) => {
+  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [generatedAudioUrl, setGeneratedAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const autoplayAfterGenerateRef = useRef(false);
+  const activeRef = useRef(true);
+  const requestVersionRef = useRef(0);
+  const regeneratedRef = useRef(false);
   const resolvedAudioUrl = resolveVocabularyAudioUrl({
     audio_url: generatedAudioUrl || audioUrl,
     audio_file_url: audioFileUrl,
   });
-  const canGenerateAudio = Boolean(cardId && text?.trim());
+  const canGenerateAudio = Boolean((cardId || requestAudio) && text?.trim());
 
   const generateAudio = useCallback(async (force = false) => {
-    if (!cardId) return;
+    if (!cardId && !requestAudio) return;
     setIsLoading(true);
+    setError("");
+    const version = ++requestVersionRef.current;
     try {
-      const response = await api.post(`/vocabulary-cards/${cardId}/audio/`, force ? { force: true } : {});
-      const nextAudioUrl = response.data?.audio_file_url || response.data?.audio_url || "";
+      const nextAudioUrl = requestAudio
+        ? await requestAudio()
+        : await api.post(`/vocabulary-cards/${cardId}/audio/`, force ? { force: true } : {}).then(
+            (response) => response.data?.audio_file_url || response.data?.audio_url || "",
+          );
+      if (!activeRef.current || version !== requestVersionRef.current) return;
       if (nextAudioUrl) {
         setGeneratedAudioUrl(nextAudioUrl);
         onGenerated?.(nextAudioUrl);
       } else {
         setIsLoading(false);
+        setError("Áudio indisponível. Você pode continuar com o exemplo escrito.");
       }
     } catch (error) {
+      if (!activeRef.current || version !== requestVersionRef.current) return;
       console.error("Erro ao gerar áudio do card", error);
       setIsLoading(false);
       setIsPlaying(false);
+      setError("Não foi possível ouvir agora. Você pode continuar com o exemplo escrito.");
     }
-  }, [cardId, onGenerated]);
+  }, [cardId, onGenerated, requestAudio]);
 
   const playAudioElement = useCallback(async (audio: HTMLAudioElement) => {
     setIsLoading(true);
+    setError("");
+    const version = requestVersionRef.current;
     try {
       audio.currentTime = 0;
       await audio.play();
+      if (activeRef.current && version === requestVersionRef.current) setIsLoading(false);
     } catch (error) {
-      if (cardId && !audioFileUrl) {
+      if (!activeRef.current || version !== requestVersionRef.current) return;
+      const errorName = error && typeof error === "object" && "name" in error ? error.name : "";
+      if (cardId && !audioFileUrl && !regeneratedRef.current && errorName !== "NotAllowedError") {
+        regeneratedRef.current = true;
         autoplayAfterGenerateRef.current = true;
         await generateAudio(true);
         return;
@@ -67,15 +88,34 @@ const VocabularyAudioButton = ({
       console.error("Erro ao reproduzir áudio do card", error);
       setIsLoading(false);
       setIsPlaying(false);
+      setError("Não foi possível reproduzir o áudio. Continue pelo texto ou tente novamente.");
     }
   }, [audioFileUrl, cardId, generateAudio]);
+
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; requestVersionRef.current += 1; };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = setTimeout(() => {
+      requestVersionRef.current += 1;
+      autoplayAfterGenerateRef.current = false;
+      audioRef.current?.pause();
+      setIsLoading(false);
+      setIsPlaying(false);
+      setError("O áudio demorou para carregar. Continue pelo texto ou tente novamente.");
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
   useEffect(() => {
     const audio = audioRef.current;
     return () => {
       audio?.pause();
     };
-  }, []);
+  }, [resolvedAudioUrl]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -87,8 +127,13 @@ const VocabularyAudioButton = ({
   }, [resolvedAudioUrl]);
 
   useEffect(() => {
+    requestVersionRef.current += 1;
+    autoplayAfterGenerateRef.current = false;
+    regeneratedRef.current = false;
     setGeneratedAudioUrl(null);
-  }, [audioUrl, audioFileUrl, cardId]);
+    setError("");
+    setIsLoading(false);
+  }, [audioUrl, audioFileUrl, cardId, text, requestAudio]);
 
   useEffect(() => {
     if (!autoplayAfterGenerateRef.current || !resolvedAudioUrl || !audioRef.current) return;
@@ -124,6 +169,8 @@ const VocabularyAudioButton = ({
           src={resolvedAudioUrl}
           preload="none"
           onCanPlay={() => setIsLoading(false)}
+          onWaiting={() => setIsLoading(true)}
+          onStalled={() => setIsLoading(true)}
           onPlaying={() => {
             setIsLoading(false);
             setIsPlaying(true);
@@ -131,6 +178,7 @@ const VocabularyAudioButton = ({
           onError={() => {
             setIsLoading(false);
             setIsPlaying(false);
+            setError("Não foi possível reproduzir o áudio. Continue pelo texto ou tente novamente.");
           }}
           onPause={() => setIsPlaying(false)}
           onEnded={() => setIsPlaying(false)}
@@ -139,6 +187,8 @@ const VocabularyAudioButton = ({
       <button
         type="button"
         onClick={toggleAudio}
+        disabled={isLoading}
+        aria-busy={isLoading}
         className={`inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted ${className}`}
       >
         {isLoading ? (
@@ -151,6 +201,8 @@ const VocabularyAudioButton = ({
         <span>{isPlaying ? "Pausar áudio" : label}</span>
         {!isLoading && !isPlaying && <Play className="h-3.5 w-3.5 text-muted-foreground" />}
       </button>
+      {isLoading ? <span role="status" className="sr-only">Carregando áudio...</span> : null}
+      {error ? <p role="alert" className="text-xs text-muted-foreground">{error}</p> : null}
     </>
   );
 };

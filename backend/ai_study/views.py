@@ -8,8 +8,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from lessons.models import Lesson
-from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback
-from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student
+from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback, SpeakingSessionReport
+from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student, visible_students
 from .serializers import (
     AIConversationMessageSerializer,
     AIStudyRecommendationSerializer,
@@ -22,7 +22,12 @@ from .serializers import (
     RenameConversationSerializer,
     SetContextLessonsSerializer,
     SpeakingAudioUploadSerializer,
+    SpeakingVocabularyAudioSerializer,
+    SpeakingSimulationAudioSerializer,
+    SpeakingUtteranceAudioSerializer,
     SpeakingFeedbackSerializer,
+    SpeakingSessionReportSerializer,
+    SpeakingReportFilterSerializer,
     TextSelectionTranslationSerializer,
     TextMessageSerializer,
 )
@@ -56,7 +61,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             qs = base_qs
         elif user.role == 'teacher':
-            qs = base_qs.filter(student__lessons_attended__teacher=user).distinct()
+            qs = base_qs.filter(student__in=visible_students(user))
         else:
             qs = base_qs.filter(student=user)
 
@@ -169,27 +174,52 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def audio(self, request, pk=None):
         session = self.get_object()
-        guided_state = AIStudyWorkflowService.ensure_guided_state(session) if session.mode == 'speaking' else {}
-        if session.mode == 'speaking' and guided_state.get('stage') != 'active':
-            return Response(
-                {'error': 'Complete o onboarding de cenário e nível antes de enviar áudio.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio disponível apenas para Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = SpeakingAudioUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        feedback = AIStudyWorkflowService.handle_audio_upload(
+        user_message, assistant_message = AIStudyWorkflowService.handle_audio_upload(
             session,
             serializer.validated_data['audio'],
             serializer.validated_data.get('duration_seconds'),
+            request_id=serializer.validated_data.get('request_id'),
+            prompt_id=serializer.validated_data.get('prompt_id'),
         )
-        user_message = session.messages.filter(audio=feedback.audio, role='user').select_related('audio', 'feedback__audio').last()
-        assistant_message = session.messages.filter(feedback=feedback, role='assistant').select_related('feedback__audio').last()
         return Response({
-            'feedback': SpeakingFeedbackSerializer(feedback, context={'request': request}).data,
+            'feedback': None,
             'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data if user_message else None,
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data if assistant_message else None,
             'session': AIStudySessionListSerializer(session, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='vocabulary-audio')
+    def vocabulary_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio de vocabulário disponível apenas no Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingVocabularyAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        audio_url = AIStudyWorkflowService.vocabulary_audio(session, **serializer.validated_data)
+        return Response({'audio_url': audio_url})
+
+    @action(detail=True, methods=['post'], url_path='simulation-audio')
+    def simulation_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Repetição disponível apenas para Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingSimulationAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        audio_url = AIStudyWorkflowService.simulation_audio(session, **serializer.validated_data)
+        return Response({'audio_url': audio_url})
+
+    @action(detail=True, methods=['post'], url_path='utterance-audio')
+    def utterance_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio de estudo disponível apenas no Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingUtteranceAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response({'audio_url': AIStudyWorkflowService.utterance_audio(session, **serializer.validated_data)})
 
     @action(detail=True, methods=['post'])
     def message(self, request, pk=None):
@@ -286,6 +316,23 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         translation = AIStudyOpenAIService.translate_selection(serializer.validated_data['text'])
         return Response({'translation': translation})
+
+
+class SpeakingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = SpeakingSessionReportSerializer
+    permission_classes = [permissions.IsAuthenticated, CanAccessSpeakingFeedback]
+
+    def get_queryset(self):
+        reports = SpeakingSessionReport.objects.filter(session__student__in=visible_students(self.request.user)).select_related('session')
+        filters = SpeakingReportFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        student = filters.validated_data.get('student')
+        if student:
+            reports = reports.filter(session__student_id=student)
+        session = filters.validated_data.get('session')
+        if session:
+            reports = reports.filter(session_id=session)
+        return reports.order_by('-updated_at', '-id')
 
 
 class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
@@ -418,8 +465,13 @@ class AIStudyProgressOverviewAPIView(APIView):
         recommendation = AIStudyRecommendation.objects.filter(student=student).select_related('teacher', 'lesson').first()
         speaking_history = SpeakingFeedback.objects.filter(session__student=student).order_by('-created_at')[:8]
         writing_history = WritingFeedback.objects.filter(student=student).order_by('-created_at')[:8]
+        reports = SpeakingSessionReport.objects.filter(session__student=student).select_related('session')
 
         return Response({
+            'speaking_sessions': {
+                'total': reports.count(), 'completed': reports.filter(status='completed').count(),
+                'recent': SpeakingSessionReportSerializer(reports[:8], many=True).data,
+            },
             'recommendation': AIStudyRecommendationSerializer(recommendation, context={'request': request}).data if recommendation else None,
             'speaking_history': [
                 {

@@ -9,6 +9,7 @@ from .models import (
     PronunciationReview,
     SpeakingAudio,
     SpeakingFeedback,
+    SpeakingSessionReport,
     WritingFeedback,
 )
 
@@ -149,6 +150,18 @@ class AIStudySessionDetailSerializer(AIStudySessionListSerializer):
             'context_lessons', 'messages',
         ]
         read_only_fields = fields
+
+
+class SpeakingSessionReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SpeakingSessionReport
+        fields = ['id', 'session', 'run_id', 'status', 'report', 'completed_at', 'created_at', 'updated_at']
+        read_only_fields = fields
+
+
+class SpeakingReportFilterSerializer(serializers.Serializer):
+    student = serializers.UUIDField(required=False)
+    session = serializers.UUIDField(required=False)
 
 
 class AIStudySessionCreateSerializer(serializers.Serializer):
@@ -359,17 +372,35 @@ class ListeningAnswerSerializer(serializers.Serializer):
         return attrs
 
 
+class SpeakingVocabularyAudioSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField()
+    part = serializers.ChoiceField(choices=['word', 'example'])
+
+
+class SpeakingSimulationAudioSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField()
+
+
+class SpeakingUtteranceAudioSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField()
+    part = serializers.ChoiceField(choices=['question', 'demonstration', 'model_answer'])
+
+
 class SpeakingAudioUploadSerializer(serializers.Serializer):
-    audio = serializers.FileField()
-    duration_seconds = serializers.DecimalField(max_digits=8, decimal_places=2, required=False)
+    request_id = serializers.UUIDField(required=False)
+    prompt_id = serializers.CharField(required=False, max_length=64)
+    audio = serializers.FileField(error_messages={'empty': 'A gravação está vazia. Grave novamente ou responda por texto.'})
+    duration_seconds = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, min_value=0)
 
     def validate_audio(self, value):
-        allowed_types = {'audio/webm', 'audio/wav', 'audio/wave', 'audio/x-wav'}
-        content_type = getattr(value, 'content_type', '')
+        allowed_types = {'audio/webm', 'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/ogg'}
+        content_type = getattr(value, 'content_type', '').split(';')[0].lower().strip()
         if content_type not in allowed_types:
-            raise serializers.ValidationError('Only .webm or .wav audio uploads are supported.')
+            raise serializers.ValidationError('Envie áudio WebM, MP4/M4A, OGG ou WAV, ou responda por texto.')
+        if not value.size:
+            raise serializers.ValidationError('A gravação está vazia. Grave novamente ou responda por texto.')
         if value.size > 25 * 1024 * 1024:
-            raise serializers.ValidationError('Audio file must be 25 MB or smaller.')
+            raise serializers.ValidationError('A gravação pode ter até 25 MB. Grave uma resposta mais curta ou responda por texto.')
         return value
 
 

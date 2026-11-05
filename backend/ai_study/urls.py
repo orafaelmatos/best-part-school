@@ -6,11 +6,13 @@ from .views import (
     AIStudySessionViewSet,
     ContextLessonsAPIView,
     SpeakingFeedbackViewSet,
+    SpeakingSessionReportViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'sessions', AIStudySessionViewSet, basename='ai-study-session')
 router.register(r'feedback', SpeakingFeedbackViewSet, basename='ai-study-feedback')
+router.register(r'speaking-reports', SpeakingSessionReportViewSet, basename='speaking-report')
 
 urlpatterns = [
     path('context-lessons/', ContextLessonsAPIView.as_view(), name='ai-study-context-lessons'),
