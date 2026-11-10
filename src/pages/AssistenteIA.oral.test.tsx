@@ -9,6 +9,7 @@ import * as audio from "@/lib/speakingAudio";
 import { APP_PATHS } from "@/lib/routes";
 import { buildSessionPath } from "@/lib/aiStudy";
 import { speakingReportFixture } from "@/test/speakingReport";
+import { speakingFeedbackFixture } from "@/test/speakingFeedback";
 
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("@/components/AudioPlayer", () => ({ default: () => <div>Áudio gravado</div> }));
@@ -68,6 +69,43 @@ describe("Speaking oral composer integration", () => {
     });
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
+
+  it("sends repetition and chunk targets explicitly, then returns to the pending conversation", async () => {
+    const feedback = speakingFeedbackFixture();
+    const pending = detail("oral", "Anything else?");
+    const initial = { ...pending, messages: [{ ...pending.messages[0], feedback_detail: feedback }] };
+    vi.mocked(api.get).mockImplementation(async (url) => {
+      if (url === "/ai-study/sessions/") return { data: [initial] };
+      if (url === "/ai-study/sessions/oral/") return { data: initial };
+      return { data: [] };
+    });
+    const repeated = { ...feedback, id: "repeated-feedback", transcript: feedback.learning_feedback!.chunks[0], learning_feedback: {
+      ...feedback.learning_feedback!, previous_feedback_id: feedback.id, practice_target: feedback.learning_feedback!.chunks[0],
+      comparison: "Você usou a expressão do exemplo nesta tentativa.",
+    } };
+    vi.mocked(api.post).mockResolvedValue({ data: { session: pending,
+      user_message: { id: "repeated-recording", role: "user", content_type: "audio", text: repeated.transcript, audio_url: "/retry.mp4" },
+      assistant_message: { ...pending.messages[0], id: "repeat-result", feedback_detail: repeated },
+    } });
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Praticar por partes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Repetir trecho 1" }));
+    expect(screen.getByText("Repita o trecho 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enviar gravação" }));
+    const form = vi.mocked(api.post).mock.calls[0][1] as FormData;
+    expect(form.get("retry_feedback_id")).toBe(feedback.id);
+    expect(form.get("chunk_index")).toBe("0");
+    expect(form.get("feedback_language")).toBe("pt-BR");
+    expect(await screen.findByLabelText("Comparação com a tentativa anterior")).toHaveTextContent("Você usou a expressão");
+    expect(screen.queryByText("Repita o trecho 1")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Anything else?").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Continuar conversa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar gravação" }));
+    const next = vi.mocked(api.post).mock.calls[1][1] as FormData;
+    expect(next.has("retry_feedback_id")).toBe(false);
+    expect(next.has("chunk_index")).toBe(false);
+    await act(async () => {});
+  });
 
   it("finalizes into a persisted report and offers a new scenario without another recording", async () => {
     const initial = detail();

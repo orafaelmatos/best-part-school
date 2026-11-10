@@ -18,6 +18,10 @@ from .test_speaking_preparation import guided_task
 
 class SpeakingOralTests(TestCase):
     def setUp(self):
+        from .test_speaking_feedback import feedback_payload
+        analysis_patch = patch.object(AIStudyOpenAIService, 'analyze_speaking', side_effect=feedback_payload)
+        self.feedback_analysis = analysis_patch.start()
+        self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
         self.student = User.objects.create_user(email='oral@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)
@@ -61,8 +65,8 @@ class SpeakingOralTests(TestCase):
         self.assertEqual(message['metadata']['speaking_level'], 'A1')
         self.assertEqual(len(message['metadata']['speaking_prompt_id']), 64)
         self.assertIn('Gabriel', message['text'])
-        self.assertIsNone(response.data['feedback'])
-        self.assertFalse(self.session.speaking_feedbacks.exists())
+        self.assertIsNone(response.data['feedback']['pronunciation_score'])
+        self.assertTrue(self.session.speaking_feedbacks.exists())
         self.assertEqual(self.session.speaking_audios.get().duration_seconds, 5)
 
     def test_written_answer_is_identified_as_written_feedback(self):
@@ -173,3 +177,140 @@ class SpeakingOralTests(TestCase):
         response = self.client.post(f'/api/ai-study/sessions/{self.session.id}/message/', {'text': 'My name is Gabriel.'}, format='json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.state()['speaking']['step_index'], 1)
+
+    def test_feedback_preserves_original_recording_and_repetition_does_not_advance_conversation(self):
+        original = self.upload()
+        feedback = original.data['feedback']
+        before = self.state()
+        report = deepcopy(self.session.speaking_reports.get().report)
+        request_id = uuid.uuid4()
+        data = {'audio': SimpleUploadedFile('retry.webm', b'new recording', content_type='audio/webm'),
+                'retry_feedback_id': feedback['id'], 'request_id': str(request_id)}
+        response = self.client.post(f'/api/ai-study/sessions/{self.session.id}/audio/', data, format='multipart')
+        self.assertEqual(response.status_code, 201)
+        repeated = response.data['feedback']
+        self.assertEqual(self.state(), before)
+        self.turn.assert_called_once()
+        self.assertEqual(self.session.speaking_reports.get().report, report)
+        self.assertEqual(repeated['learning_feedback']['previous_feedback_id'], feedback['id'])
+        self.assertTrue(repeated['learning_feedback']['comparison'])
+        self.assertIsNone(repeated['pronunciation_score'])
+        self.assertEqual(response.data['assistant_message']['metadata']['speaking_turn']['question'], 'Is this your first class?')
+        old = self.session.speaking_feedbacks.get(pk=feedback['id'])
+        new = self.session.speaking_feedbacks.get(pk=repeated['id'])
+        with old.audio.audio.open('rb') as stream:
+            self.assertEqual(stream.read(), b'voice')
+        with new.audio.audio.open('rb') as stream:
+            self.assertEqual(stream.read(), b'new recording')
+        data['audio'] = SimpleUploadedFile('retry.webm', b'new recording', content_type='audio/webm')
+        duplicate = self.client.post(f'/api/ai-study/sessions/{self.session.id}/audio/', data, format='multipart')
+        self.assertEqual(duplicate.data['feedback']['id'], repeated['id'])
+        self.assertEqual(self.session.speaking_feedbacks.count(), 2)
+        self.assertEqual(self.transcribe.call_count, 2)
+
+    def test_chunk_practice_keeps_the_full_phrase_for_the_final_repetition(self):
+        full = 'My name is Gabriel. Nice to meet you.'
+        self.transcribe.return_value = full
+        original = self.upload().data['feedback']
+        self.assertEqual(' '.join(original['learning_feedback']['chunks']), full)
+        before = self.state()
+        self.transcribe.return_value = 'My name is Gabriel.'
+        response = self.client.post(f'/api/ai-study/sessions/{self.session.id}/audio/', {
+            'audio': SimpleUploadedFile('part.webm', b'part', content_type='audio/webm'),
+            'retry_feedback_id': original['id'], 'chunk_index': 0,
+        }, format='multipart')
+        self.assertEqual(response.status_code, 201)
+        feedback = response.data['feedback']
+        self.assertEqual(self.state(), before)
+        self.assertEqual(feedback['learning_feedback']['full_sentence'], full)
+        self.assertEqual(feedback['learning_feedback']['practice_target'], 'My name is Gabriel.')
+        self.assertEqual(' '.join(feedback['learning_feedback']['chunks']), full)
+        self.assertEqual(self.feedback_analysis.call_args.kwargs['target'], 'My name is Gabriel.')
+        url = f"/api/ai-study/feedback/{feedback['id']}/tts/"
+        for options, expected in [({'chunk_index': 1}, 'Nice to meet you.'), ({'full_sentence': True}, full), ({}, 'My name is Gabriel.')]:
+            tts = self.client.post(url, options, format='json')
+            self.assertEqual(tts.status_code, 200)
+            self.assertEqual(tts.data['text'], expected)
+            self.assertEqual(self.tts.call_args.args[0], expected)
+        self.assertEqual(self.client.post(url, {'chunk_index': 80}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'chunk_index': -1}, format='json').status_code, 400)
+
+    def test_legacy_tts_cache_is_discarded_and_uses_the_displayed_natural_sentence(self):
+        from .models import SpeakingFeedback
+        from .serializers import SpeakingFeedbackSerializer
+        self.upload()
+        feedback = self.session.speaking_feedbacks.get()
+        feedback.raw_response = {}
+        feedback.natural_sentence = "I'd like a coffee with milk, but no sugar, please."
+        feedback.corrected_sentence = 'I would like a coffee, please, with no sugar, with milk.'
+        feedback.tts_audio_url = '/old-wrong-audio.mp3'
+        feedback.save()
+        self.assertIsNone(SpeakingFeedbackSerializer(feedback).data['tts_audio_url'])
+        for _ in range(2):
+            response = self.client.post(f'/api/ai-study/feedback/{feedback.id}/tts/', {'text': 'arbitrary client text'}, format='json')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data['text'], feedback.natural_sentence)
+        self.tts.assert_called_once_with(feedback.natural_sentence)
+        feedback.refresh_from_db()
+        self.assertEqual(feedback.raw_response['tts_text'], feedback.natural_sentence)
+        self.assertEqual(feedback.audio.audio.read(), b'voice')
+
+    def test_ambiguous_response_asks_for_clarification_without_advancing(self):
+        from .test_speaking_feedback import feedback_payload
+        result = feedback_payload()
+        result.update(needs_clarification=True, clarification_question='Você quis dizer o seu nome ou o nome do professor?')
+        from .speaking_feedback import validate
+        self.feedback_analysis.side_effect = None
+        self.feedback_analysis.return_value = validate(result, 'My name is Gabriel.')
+        AIStudyWorkflowService.ensure_guided_state(self.session, persist=True)
+        before = self.state()
+        response = self.upload()
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.state(), before)
+        self.turn.assert_not_called()
+        self.assertTrue(response.data['assistant_message']['metadata']['speaking_clarification'])
+        feedback = response.data['feedback']
+        self.assertEqual(feedback['learning_feedback']['suggested_sentence'], '')
+        self.assertEqual(self.client.post(f"/api/ai-study/feedback/{feedback['id']}/tts/").status_code, 400)
+
+    def test_failed_analysis_keeps_the_recording_and_conversation_usable(self):
+        from .services import SpeakingContentUnavailable
+        self.feedback_analysis.side_effect = SpeakingContentUnavailable()
+        response = self.upload()
+        self.assertEqual(response.status_code, 201)
+        details = response.data['feedback']['learning_feedback']
+        self.assertTrue(details['analysis_unavailable'])
+        self.assertEqual(details['grammar']['status'], 'not_assessed')
+        self.assertEqual(details['pronunciation']['status'], 'not_assessed')
+        self.assertEqual(details['suggested_sentence'], 'My name is Gabriel.')
+        self.assertEqual(self.state()['speaking']['step_index'], 1)
+
+    def test_only_advanced_learners_can_opt_into_english_feedback(self):
+        def upload_language(language):
+            return self.client.post(f'/api/ai-study/sessions/{self.session.id}/audio/', {
+                'audio': SimpleUploadedFile('voice.webm', b'voice', content_type='audio/webm'),
+                'feedback_language': language,
+            }, format='multipart')
+        self.assertEqual(upload_language('en').data['feedback']['learning_feedback']['feedback_language'], 'pt-BR')
+        self.session.guided_state = self.state()
+        self.session.guided_state['level'] = 'B2'
+        self.session.guided_state['speaking'] = pending_engine()
+        self.session.save()
+        response = upload_language('en')
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.feedback_analysis.call_args.kwargs['language'], 'en')
+        self.assertEqual(response.data['feedback']['learning_feedback']['feedback_language'], 'en')
+
+    def test_stale_or_foreign_repetition_is_rejected_before_transcription(self):
+        original = self.upload().data['feedback']
+        state = self.state()
+        state['speaking']['last_question'] = 'A different pending question?'
+        self.session.guided_state = state
+        self.session.save()
+        for reference in [original['id'], str(uuid.uuid4())]:
+            response = self.client.post(f'/api/ai-study/sessions/{self.session.id}/audio/', {
+                'audio': SimpleUploadedFile('retry.webm', b'voice', content_type='audio/webm'),
+                'retry_feedback_id': reference,
+            }, format='multipart')
+            self.assertEqual(response.status_code, 400)
+        self.transcribe.assert_called_once()

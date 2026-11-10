@@ -185,6 +185,10 @@ class SpeakingEngineTests(SimpleTestCase):
 
 class SpeakingIntegrationTests(TestCase):
     def setUp(self):
+        from .test_speaking_feedback import feedback_payload
+        analysis_patch = patch.object(AIStudyOpenAIService, 'analyze_speaking', side_effect=feedback_payload)
+        self.feedback_analysis = analysis_patch.start()
+        self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
         self.student = User.objects.create_user(email='speaking@test.com', password='123', role='student', level='A1')
         self.client.force_authenticate(self.student)
@@ -356,11 +360,11 @@ class SpeakingIntegrationTests(TestCase):
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/audio/',
                                     {'audio': SimpleUploadedFile('voice.webm', b'audio', content_type='audio/webm')}, format='multipart')
         self.assertEqual(response.status_code, 201)
-        self.assertIsNone(response.data['feedback'])
+        self.assertIsNone(response.data['feedback']['pronunciation_score'])
         self.assertEqual(response.data['user_message']['content_type'], 'audio')
         self.assertEqual(response.data['user_message']['text'], 'My name is Gabriel.')
         self.assertEqual(response.data['session']['guided_state']['speaking']['phase'], 'PRACTICE')
-        self.assertFalse(SpeakingFeedback.objects.filter(session=session).exists())
+        self.assertTrue(SpeakingFeedback.objects.filter(session=session).exists())
         self.assertEqual(session.speaking_audios.get().status, 'transcribed')
 
     @patch.object(AIStudyOpenAIService, 'transcribe', return_value='')

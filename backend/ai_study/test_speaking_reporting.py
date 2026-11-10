@@ -21,6 +21,10 @@ from .test_speaking_simulation import pending_engine, follow_up, help_response, 
 
 class SpeakingReportingTests(TestCase):
     def setUp(self):
+        from .test_speaking_feedback import feedback_payload
+        analysis_patch = patch.object(AIStudyOpenAIService, 'analyze_speaking', side_effect=feedback_payload)
+        self.feedback_analysis = analysis_patch.start()
+        self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
         self.student = User.objects.create_user(email='reports@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)

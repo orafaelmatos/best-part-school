@@ -111,6 +111,7 @@ type AIMessage = {
     speaking_level?: string;
     speaking_prompt_id?: string;
     speaking_report?: SpeakingReport;
+    speaking_clarification?: boolean;
     assessment_source?: "text" | "transcript" | null;
   } | null;
   created_at?: string;
@@ -546,6 +547,8 @@ const MessageBubble = ({
   onTextSelection,
   sessionId,
   onRecord,
+  onRepeat,
+  onContinue,
 }: {
   message: AIMessage;
   isInteractive?: boolean;
@@ -554,6 +557,8 @@ const MessageBubble = ({
   onTextSelection?: (container: HTMLDivElement) => void;
   sessionId: string;
   onRecord?: () => void;
+  onRepeat?: (feedback: SpeakingFeedback, chunkIndex?: number) => void;
+  onContinue?: () => void;
 }) => {
   const isUser = message.role === "user";
   const audioMeta = message.audio_detail;
@@ -569,7 +574,7 @@ const MessageBubble = ({
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
       data-speaking-prompt={message.metadata?.speaking_prompt_id || message.id}
-      data-speaking-current={isInteractive && (message.metadata?.speaking_turn || message.metadata?.speaking_activity || message.metadata?.speaking_help || message.metadata?.speaking_simulation) ? "true" : undefined}>
+      data-speaking-current={isInteractive && (message.feedback_detail || message.metadata?.speaking_turn || message.metadata?.speaking_activity || message.metadata?.speaking_help || message.metadata?.speaking_simulation) ? "true" : undefined}>
       <div className={cn("w-full max-w-[min(100%,58rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
         <p
           className={cn(
@@ -579,6 +584,10 @@ const MessageBubble = ({
         >
           {speakerLabel}
         </p>
+        {message.feedback_detail ? <PronunciationFeedback feedback={message.feedback_detail}
+          disabled={choiceDisabled} onRepeat={isInteractive ? onRepeat : undefined} onContinue={isInteractive ? onContinue : undefined}
+          onNextSituation={isInteractive && onChoiceSelect && message.metadata?.choices?.some((choice) => choice.value === "new_challenge")
+            ? () => onChoiceSelect(message.metadata!.choices!.find((choice) => choice.value === "new_challenge")!) : undefined} /> : null}
         <div
           className={cn(
             "rounded-[28px] px-4 py-3.5 text-sm leading-6 shadow-sm",
@@ -612,14 +621,16 @@ const MessageBubble = ({
               onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
             >
               {message.metadata?.speaking_report ? <div className="space-y-4">
-                {message.metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-sm">{message.metadata.speaking_turn.feedback}</p> : null}
-                <SpeakingReportCard report={message.metadata.speaking_report} />
+                {!message.feedback_detail && message.metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-sm">{message.metadata.speaking_turn.feedback}</p> : null}
+                {message.feedback_detail ? <details><summary className="cursor-pointer text-sm text-muted-foreground">Ver resumo da situação</summary>
+                  <div className="mt-3"><SpeakingReportCard report={message.metadata.speaking_report} /></div></details>
+                  : <SpeakingReportCard report={message.metadata.speaking_report} />}
               </div> : message.metadata?.speaking_activity ? (
                 <SpeakingVocabularyActivity activity={message.metadata.speaking_activity}
                   sessionId={sessionId} messageId={message.id} instruction={message.text}
                   interactive={isInteractive} disabled={choiceDisabled} onRecord={onRecord} />
               ) : message.metadata?.speaking_help ? <SpeakingHelpCard help={message.metadata.speaking_help} />
-                : message.metadata?.speaking_turn ? <SpeakingTurnCard content={message.metadata.speaking_turn}
+                : message.metadata?.speaking_turn ? <SpeakingTurnCard content={message.feedback_detail ? { ...message.metadata.speaking_turn, feedback: "" } : message.metadata.speaking_turn}
                   phase={message.metadata.pedagogical_phase} level={message.metadata.speaking_level}
                   sessionId={sessionId} messageId={message.id} assessmentSource={message.metadata.assessment_source} />
                 : <p data-speaking-focus={message.metadata?.speaking_simulation ? true : undefined} className="whitespace-pre-line">{message.text}</p>}
@@ -640,11 +651,6 @@ const MessageBubble = ({
           <p className="px-1 text-[11px] text-muted-foreground">Áudio enviado em {formatDateTime(audioMeta.created_at)}</p>
         ) : null}
 
-        {message.feedback_detail ? (
-          <div className="rounded-[28px] border border-slate-200/80 bg-white/95 p-1 shadow-sm">
-            <PronunciationFeedback feedback={message.feedback_detail} />
-          </div>
-        ) : null}
         {isInteractive && message.metadata?.speaking_simulation?.question ? (
           <SpeakingSimulationReplay key={message.id} sessionId={sessionId} messageId={message.id}
             question={message.metadata.speaking_simulation.question} />
@@ -677,6 +683,8 @@ const AssistenteIA = () => {
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [useText, setUseText] = useState(false);
   const [audioError, setAudioError] = useState("");
+  const [retryPractice, setRetryPractice] = useState<{ feedbackId: string; chunkIndex?: number; target: string } | null>(null);
+  const [feedbackLanguage, setFeedbackLanguage] = useState("pt-BR");
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const recorderContainerRef = useRef<HTMLDivElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
@@ -739,7 +747,7 @@ const AssistenteIA = () => {
   const guidedState = activeSession?.guided_state ?? undefined;
   activeSessionIdRef.current = selectedSessionId;
   const latestInteractiveAssistantMessage = activeSession?.messages
-    ? [...activeSession.messages].reverse().find((message) => message.role === "assistant" && (message.metadata?.choices?.length ?? 0) > 0)
+    ? [...activeSession.messages].reverse().find((message) => message.role === "assistant" && ((message.metadata?.choices?.length ?? 0) > 0 || message.feedback_detail || message.metadata?.speaking_clarification))
     : null;
 
   useEffect(() => {
@@ -771,6 +779,8 @@ const AssistenteIA = () => {
     setRecordingState("idle");
     setUseText(false);
     setAudioError("");
+    setRetryPractice(null);
+    setFeedbackLanguage("pt-BR");
     setIsSending(false);
     audioAttemptRef.current = null;
     if (!selectedSessionId) {
@@ -854,15 +864,29 @@ const AssistenteIA = () => {
     (activeMode ? composerPlaceholderByMode[activeMode] : composerPlaceholderByMode.review);
   const guidedExpectedInput = latestInteractiveAssistantMessage?.metadata?.expected_input || guidedState?.expected_input || "";
   const canRecordAudio = activeMode === "speaking" && (!guidedState || guidedState.stage === "active");
-  const canUseAudioInput = canRecordAudio && (!guidedExpectedInput || guidedExpectedInput === "audio_or_text");
+  const canUseAudioInput = canRecordAudio && (Boolean(retryPractice) || !guidedExpectedInput || guidedExpectedInput === "audio_or_text");
   const isCapturing = ["requesting", "recording", "paused"].includes(recordingState);
   const oralResponse = canUseAudioInput;
   const showTextInput = !(activeMode === "speaking" && activeSession?.status === "completed") && (!oralResponse || useText || Boolean(recordingSupportError()));
   const openTextResponse = () => {
+    setRetryPractice(null);
     setUseText(true);
     setShowRecorder(false);
   };
   const openVoiceResponse = () => {
+    setRetryPractice(null);
+    setUseText(false);
+    setShowRecorder(true);
+    recorderContainerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+  };
+  const repeatSpeaking = (feedback: SpeakingFeedback, chunkIndex?: number) => {
+    const details = feedback.learning_feedback;
+    const target = chunkIndex === undefined ? details?.full_sentence || details?.suggested_sentence : details?.chunks[chunkIndex];
+    if (!target) return;
+    audioAttemptRef.current = null;
+    setAudioError("");
+    setRecordingState("idle");
+    setRetryPractice({ feedbackId: feedback.id, chunkIndex, target });
     setUseText(false);
     setShowRecorder(true);
     recorderContainerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
@@ -1140,6 +1164,11 @@ const AssistenteIA = () => {
       formData.append("audio", blob, `speaking-${requestId}.${recordingExtension(blob.type)}`);
       formData.append("duration_seconds", String(durationSeconds));
       formData.append("request_id", requestId);
+      formData.append("feedback_language", feedbackLanguage);
+      if (retryPractice) {
+        formData.append("retry_feedback_id", retryPractice.feedbackId);
+        if (retryPractice.chunkIndex !== undefined) formData.append("chunk_index", String(retryPractice.chunkIndex));
+      }
       if (latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id) {
         formData.append("prompt_id", latestInteractiveAssistantMessage.metadata.speaking_prompt_id);
       }
@@ -1161,6 +1190,7 @@ const AssistenteIA = () => {
         return next;
       });
       setRecordingState("idle");
+      setRetryPractice(null);
       setShowRecorder(false);
       await invalidateSessionList();
     } catch (error) {
@@ -1567,6 +1597,8 @@ const AssistenteIA = () => {
                           message={message}
                           sessionId={activeSession.id}
                           onRecord={openVoiceResponse}
+                          onRepeat={repeatSpeaking}
+                          onContinue={openVoiceResponse}
                           isInteractive={message.id === latestInteractiveAssistantMessage?.id}
                           onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
                           choiceDisabled={isBusy || isCapturing}
@@ -1665,9 +1697,20 @@ const AssistenteIA = () => {
 
                 <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-3 backdrop-blur">
                   <div className="mx-auto w-full max-w-6xl space-y-3">
+                    {activeMode === "speaking" && ["B2", "C1", "C2"].includes(guidedState?.level || "") ? <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      Idioma do feedback
+                      <select aria-label="Idioma do feedback" value={feedbackLanguage} onChange={(event) => setFeedbackLanguage(event.target.value)} className="rounded-lg border border-border bg-background p-2">
+                        <option value="pt-BR">Português</option><option value="en">English</option>
+                      </select>
+                    </label> : null}
+                    {retryPractice ? <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                      <p className="text-xs font-semibold">{retryPractice.chunkIndex === undefined ? "Repita a frase" : `Repita o trecho ${retryPractice.chunkIndex + 1}`}</p>
+                      <p lang="en" className="mt-1 break-words text-sm">{retryPractice.target}</p>
+                      <Button type="button" size="sm" variant="ghost" disabled={isBusy || isCapturing} onClick={openVoiceResponse}>Voltar à conversa</Button>
+                    </div> : null}
                     {oralResponse && (!useText || showRecorder || recordingState !== "idle") ? (
                       <div ref={recorderContainerRef}><MicRecorder
-                        key={`${activeSession.id}:${latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id || guidedState?.current_task || "voice"}`}
+                        key={`${activeSession.id}:${latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id || guidedState?.current_task || "voice"}:${retryPractice?.feedbackId || "conversation"}:${retryPractice?.chunkIndex ?? "full"}`}
                         state={recordingState}
                         onStateChange={setRecordingState}
                         onRecordingComplete={uploadAudio}

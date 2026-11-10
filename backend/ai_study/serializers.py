@@ -71,6 +71,25 @@ class PronunciationReviewSerializer(serializers.ModelSerializer):
 class SpeakingFeedbackSerializer(serializers.ModelSerializer):
     reviews = PronunciationReviewSerializer(many=True, read_only=True)
     audio_url = serializers.FileField(source='audio.audio', read_only=True)
+    learning_feedback = serializers.SerializerMethodField()
+
+    def get_learning_feedback(self, obj):
+        from .speaking_feedback import public_details
+        return public_details(obj)
+
+    def to_representation(self, instance):
+        from .speaking_feedback import sentence
+        data = super().to_representation(instance)
+        # Historical scores were inferred from transcripts, not audio evidence.
+        for field in ['overall_score', 'pronunciation_score', 'fluency_score', 'intonation_score', 'clarity_score', 'grammar_score', 'vocabulary_score']:
+            data[field] = None
+        data['pronunciation_mistakes'] = []
+        data['correct_words'] = []
+        data['problem_words'] = []
+        data['error_details'] = []
+        if (instance.raw_response or {}).get('tts_text') != sentence(instance):
+            data['tts_audio_url'] = None
+        return data
 
     class Meta:
         model = SpeakingFeedback
@@ -81,7 +100,7 @@ class SpeakingFeedbackSerializer(serializers.ModelSerializer):
             'corrected_sentence', 'natural_sentence', 'correct_words', 'problem_words',
             'pronunciation_mistakes', 'error_details', 'grammar_explanation',
             'improvement_tips', 'practice_exercises', 'vocabulary_suggestions',
-            'native_alternative_sentence', 'tts_audio_url', 'raw_response', 'reviews', 'created_at'
+            'native_alternative_sentence', 'tts_audio_url', 'raw_response', 'reviews', 'created_at', 'learning_feedback'
         ]
         read_only_fields = fields
 
@@ -389,6 +408,9 @@ class SpeakingUtteranceAudioSerializer(serializers.Serializer):
 class SpeakingAudioUploadSerializer(serializers.Serializer):
     request_id = serializers.UUIDField(required=False)
     prompt_id = serializers.CharField(required=False, max_length=64)
+    retry_feedback_id = serializers.UUIDField(required=False)
+    chunk_index = serializers.IntegerField(required=False, min_value=0, max_value=100)
+    feedback_language = serializers.ChoiceField(choices=['pt-BR', 'en'], default='pt-BR')
     audio = serializers.FileField(error_messages={'empty': 'A gravação está vazia. Grave novamente ou responda por texto.'})
     duration_seconds = serializers.DecimalField(max_digits=8, decimal_places=2, required=False, min_value=0)
 
@@ -402,6 +424,11 @@ class SpeakingAudioUploadSerializer(serializers.Serializer):
         if value.size > 25 * 1024 * 1024:
             raise serializers.ValidationError('A gravação pode ter até 25 MB. Grave uma resposta mais curta ou responda por texto.')
         return value
+
+
+class SpeakingFeedbackAudioSerializer(serializers.Serializer):
+    chunk_index = serializers.IntegerField(required=False, min_value=0, max_value=100)
+    full_sentence = serializers.BooleanField(default=False)
 
 
 class AIStudyRecommendationSerializer(serializers.ModelSerializer):

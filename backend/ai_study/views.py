@@ -26,6 +26,7 @@ from .serializers import (
     SpeakingSimulationAudioSerializer,
     SpeakingUtteranceAudioSerializer,
     SpeakingFeedbackSerializer,
+    SpeakingFeedbackAudioSerializer,
     SpeakingSessionReportSerializer,
     SpeakingReportFilterSerializer,
     TextSelectionTranslationSerializer,
@@ -184,9 +185,12 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             serializer.validated_data.get('duration_seconds'),
             request_id=serializer.validated_data.get('request_id'),
             prompt_id=serializer.validated_data.get('prompt_id'),
+            retry_feedback_id=serializer.validated_data.get('retry_feedback_id'),
+            chunk_index=serializer.validated_data.get('chunk_index'),
+            feedback_language=serializer.validated_data['feedback_language'],
         )
         return Response({
-            'feedback': None,
+            'feedback': SpeakingFeedbackSerializer(assistant_message.feedback, context={'request': request}).data if assistant_message.feedback_id else None,
             'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data if user_message else None,
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data if assistant_message else None,
             'session': AIStudySessionListSerializer(session, context={'request': request}).data,
@@ -350,15 +354,30 @@ class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def tts(self, request, pk=None):
+        from . import speaking_feedback
         feedback = self.get_object()
-        if feedback.tts_audio_url:
-            return Response({'audio_url': feedback.tts_audio_url})
-        text = feedback.corrected_sentence or feedback.natural_sentence or feedback.native_alternative_sentence
+        serializer = SpeakingFeedbackAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        options = serializer.validated_data
+        raw = feedback.raw_response or {}
+        text = speaking_feedback.sentence(feedback)
+        full_text = raw.get('full_sentence') or text
+        if 'chunk_index' in options:
+            parts = speaking_feedback.chunks(full_text)
+            if options['chunk_index'] >= len(parts):
+                return Response({'error': 'Trecho de prática inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+            text = parts[options['chunk_index']]
+        elif options['full_sentence']:
+            text = full_text
         if not text:
-            return Response({'error': 'No corrected or natural sentence available for TTS.'}, status=status.HTTP_400_BAD_REQUEST)
-        feedback.tts_audio_url = AIStudyOpenAIService.generate_tts(text)
-        feedback.save(update_fields=['tts_audio_url'])
-        return Response({'audio_url': feedback.tts_audio_url})
+            return Response({'error': 'Nenhuma frase sugerida disponível.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Cache identity includes the actual saved text. Old, unbound URLs are discarded.
+        audio_url = AIStudyWorkflowService._cached_speaking_audio(text)
+        if text == speaking_feedback.sentence(feedback):
+            feedback.tts_audio_url = audio_url
+            feedback.raw_response = {**raw, 'tts_text': text}
+            feedback.save(update_fields=['tts_audio_url', 'raw_response'])
+        return Response({'audio_url': audio_url, 'text': text})
 
 
 class ContextLessonsAPIView(APIView):
