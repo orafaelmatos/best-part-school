@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Sparkles } from "lucide-react";
@@ -44,6 +44,9 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [rewritingId, setRewritingId] = useState<number | null>(null);
+  const [resolvedLevel, setResolvedLevel] = useState(level);
+  const operationRef = useRef(false);
 
   const seen = new Set<string>();
   const words = input.split(/[\n,;]+/).map((word) => word.trim()).filter((word) => {
@@ -53,24 +56,27 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     return true;
   });
   const selected = drafts.filter((draft) => draft.selected);
-  const busy = generating || saving;
+  const busy = generating || saving || rewritingId !== null;
   const invalidWords = words.length > BATCH_LIMIT || words.some((word) => word.length > 100);
   const invalidDrafts = selected.some((draft) => !draft.sentence.trim() || !draft.translation.trim());
 
   const generate = async () => {
-    if (busy || !words.length || invalidWords) return;
+    if (operationRef.current || busy || !words.length || invalidWords) return;
+    operationRef.current = true;
     setGenerating(true);
     setError("");
     try {
       if (await onBeforePersist?.() === false) return;
-      const { data } = await api.post<{ items: Omit<SentenceDraft, "selected" | "id">[] }>(
+      const { data } = await api.post<{ items: Omit<SentenceDraft, "selected" | "id">[]; level?: string }>(
         `/lessons/${lessonId}/generate-word-sentences/`,
         { words },
       );
       setDrafts(data.items.map((item, id) => ({ ...item, selected: !item.review_warning, id })));
+      setResolvedLevel(data.level || level);
     } catch (error) {
       setError(errorMessage(error, "Não foi possível gerar as frases. Sua lista foi mantida para tentar novamente."));
     } finally {
+      operationRef.current = false;
       setGenerating(false);
     }
   };
@@ -79,8 +85,24 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     setDrafts((current) => current.map((draft) => draft.id === id ? { ...draft, ...update } : draft));
   };
 
+  const rewrite = async (draft: SentenceDraft, adjustment: "easier" | "harder") => {
+    if (operationRef.current || busy || !draft.sentence.trim()) return;
+    operationRef.current = true; setRewritingId(draft.id); setError("");
+    try {
+      if (await onBeforePersist?.() === false) return;
+      const { data } = await api.post<{ item: Pick<SentenceDraft, "source_word" | "sentence" | "translation">; level?: string }>(
+        `/lessons/${lessonId}/rewrite-word-sentence/`,
+        { source_word: draft.source_word, previous_sentence: draft.sentence, adjustment },
+      );
+      updateDraft(draft.id, { sentence: data.item.sentence, translation: data.item.translation, review_warning: undefined });
+      setResolvedLevel(data.level || resolvedLevel);
+    } catch (cause) { setError(errorMessage(cause, "Não foi possível refazer a frase. Sua sugestão anterior foi mantida para tentar novamente.")); }
+    finally { operationRef.current = false; setRewritingId(null); }
+  };
+
   const approve = async () => {
-    if (busy || !selected.length || invalidDrafts) return;
+    if (operationRef.current || busy || !selected.length || invalidDrafts) return;
+    operationRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -108,6 +130,7 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     } catch (error) {
       setError(errorMessage(error, "Não foi possível salvar as frases. Suas correções foram mantidas para tentar novamente."));
     } finally {
+      operationRef.current = false;
       setSaving(false);
     }
   };
@@ -117,7 +140,7 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h5 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Frases com IA</h5>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Transforme uma lista de palavras em cards. Revise e aprove antes de enviar ao aluno.</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Digite uma palavra ou uma lista. A IA cria frases no nível do aluno. Ajuste a dificuldade, revise e salve para ele praticar.</p>
         </div>
         {!expanded && <Button type="button" size="sm" variant="outline" onClick={() => setExpanded(true)}>Gerar frases com IA</Button>}
       </div>
@@ -138,7 +161,7 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
               />
               <div id={`${inputId}-help`} className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                 <span>Separe por linha, vírgula ou ponto e vírgula. Até {BATCH_LIMIT} palavras por lote.</span>
-                <span>{words.length}/{BATCH_LIMIT} palavras · Nível {level}</span>
+                <span>{words.length}/{BATCH_LIMIT} palavras · Frases no nível do aluno</span>
               </div>
               {invalidWords && <p role="alert" className="text-sm text-destructive">Use até {BATCH_LIMIT} palavras, com no máximo 100 caracteres por palavra ou expressão.</p>}
               <div className="flex flex-wrap gap-2">
@@ -165,7 +188,7 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
               </div>
               <div className="max-h-[600px] space-y-3 overflow-y-auto pr-1">
                 {drafts.map((draft) => (
-                  <div key={draft.id} className={`rounded-lg border p-3 space-y-3 ${draft.selected ? "border-border" : "border-dashed border-border bg-muted/40"}`}>
+                  <div key={draft.id} role="group" aria-label={`Sugestão com ${draft.source_word}`} className={`rounded-lg border p-3 space-y-3 ${draft.selected ? "border-border" : "border-dashed border-border bg-muted/40"}`}>
                     <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm font-semibold">
                       <Checkbox checked={draft.selected} disabled={busy} onCheckedChange={(checked) => updateDraft(draft.id, { selected: checked === true })} aria-label={`Incluir ${draft.source_word}`} />
                       <span className="min-w-0 break-words">{draft.source_word}</span>
@@ -185,6 +208,9 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
                         <Textarea id={`${inputId}-${draft.id}-translation`} value={draft.translation} disabled={busy} maxLength={2000} rows={3} onChange={(event) => updateDraft(draft.id, { translation: event.target.value })} />
                       </div>
                     </div>
+                    <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={busy || !draft.sentence.trim()} onClick={() => void rewrite(draft, "easier")}>Refazer mais fácil</Button><Button type="button" size="sm" variant="outline" disabled={busy || !draft.sentence.trim()} onClick={() => void rewrite(draft, "harder")}>Refazer mais difícil</Button></div>
+                    <p className="text-xs text-muted-foreground">Mantém “{draft.source_word}” e ajusta só esta frase. Nível de referência: {resolvedLevel}. O nível cadastrado do aluno não muda.</p>
+                    {rewritingId === draft.id ? <p role="status" className="text-xs text-muted-foreground">Refazendo a frase e a tradução...</p> : null}
                   </div>
                 ))}
               </div>

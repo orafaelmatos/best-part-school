@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import ReviewQueue from "@/components/ReviewQueue";
+import WordSentenceComposer from "@/components/WordSentenceComposer";
 
 type VocabularyStats = {
   due_today: number;
@@ -113,16 +114,17 @@ const VocabularyDashboard = () => {
 
   return (
     <div className="space-y-6">
+      <WordSentenceComposer />
       <section className="rounded-[26px] border border-border bg-card p-5 shadow-sm sm:p-6">
         <div className="grid gap-3 md:grid-cols-2">
           <Button
             size="lg"
-            className="h-auto min-h-[88px] justify-start rounded-2xl px-5 py-5 text-left text-base shadow-sm"
+            className="h-auto min-h-[88px] w-full min-w-0 justify-start whitespace-normal rounded-2xl px-5 py-5 text-left text-base shadow-sm"
             onClick={() => setReviewMode(true)}
             disabled={!stats?.total_learned_words}
           >
             <Brain className="mr-3 h-6 w-6 shrink-0" />
-            <span>
+            <span className="min-w-0 flex-1">
               <span className="block text-lg font-semibold">Revisar palavras agora</span>
               <span className="mt-1 block text-sm font-normal opacity-85">
                 {stats?.total_learned_words
@@ -134,11 +136,11 @@ const VocabularyDashboard = () => {
           <Button
             size="lg"
             variant="outline"
-            className="h-auto min-h-[88px] justify-start rounded-2xl px-5 py-5 text-left text-base"
+            className="h-auto min-h-[88px] w-full min-w-0 justify-start whitespace-normal rounded-2xl px-5 py-5 text-left text-base"
             onClick={() => setIsCreateDialogOpen(true)}
           >
             <Plus className="mr-3 h-6 w-6 shrink-0" />
-            <span>
+            <span className="min-w-0 flex-1">
               <span className="block text-lg font-semibold">Adicionar nova palavra</span>
               <span className="mt-1 block text-sm font-normal text-muted-foreground">Crie uma palavra para estudar depois.</span>
             </span>

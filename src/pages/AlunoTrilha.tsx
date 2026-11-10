@@ -21,6 +21,7 @@ import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import StatusBadge from "@/components/StatusBadge";
 import SpeakingStudentProgress from "@/components/SpeakingStudentProgress";
 import InterpreterStudentProgress from "@/components/InterpreterStudentProgress";
+import WordSentenceComposer from "@/components/WordSentenceComposer";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -393,6 +394,7 @@ const AlunoTrilha = () => {
             <MetricCard title="Revisoes" value={reviewPendingCount} description="Pontos que pedem reforco" icon={Target} tone={reviewPendingCount > 0 ? "warning" : "success"} />
           </div>
 
+          <div className="mt-6"><WordSentenceComposer studentId={studentId} /></div>
           <div className="mt-6"><SpeakingStudentProgress key={studentId} studentId={studentId} /></div>
           <div className="mt-6"><InterpreterStudentProgress key={studentId} studentId={studentId} /></div>
 

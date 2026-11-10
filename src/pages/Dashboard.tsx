@@ -19,6 +19,7 @@ import {
 
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
+import WordSentenceComposer from "@/components/WordSentenceComposer";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { buildNewModePath } from "@/lib/aiStudy";
@@ -236,6 +237,7 @@ const StudentDashboard = () => {
           </section>
         </div>
       </div>
+      <div className="mt-6"><WordSentenceComposer /></div>
     </DashboardLayout>
   );
 };
