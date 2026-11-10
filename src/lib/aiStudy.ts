@@ -209,6 +209,7 @@ export type SpeakingPedagogicalState = {
 };
 
 export type GuidedState = {
+  interpreter?: import("./interpreter").InterpreterState;
   enabled?: boolean;
   stage?: string;
   scenario_key?: string;
@@ -237,6 +238,7 @@ export type GuidedState = {
 
 export type SessionSummary = {
   id: string;
+  student?: string;
   mode: AIStudyMode;
   title: string;
   title_source: "auto" | "manual";

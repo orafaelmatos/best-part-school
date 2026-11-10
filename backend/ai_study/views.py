@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -18,6 +19,9 @@ from .serializers import (
     AIStudySessionListSerializer,
     LessonContextOptionSerializer,
     ListeningAnswerSerializer,
+    InterpreterAnswerSerializer,
+    InterpreterRetrySerializer,
+    InterpreterAudioSerializer,
     PinConversationSerializer,
     RenameConversationSerializer,
     SetContextLessonsSerializer,
@@ -33,6 +37,7 @@ from .serializers import (
     TextMessageSerializer,
 )
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService
+from . import interpreter
 
 
 class AIStudySessionViewSet(viewsets.ModelViewSet):
@@ -62,7 +67,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             qs = base_qs
         elif user.role == 'teacher':
-            qs = base_qs.filter(student__in=visible_students(user))
+            qs = base_qs.filter(Q(student__in=visible_students(user)) | Q(student=user, mode='listening', guided_state__interpreter__version=1))
         else:
             qs = base_qs.filter(student=user)
 
@@ -82,6 +87,11 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         ])
         if modes:
             qs = qs.filter(mode__in=list(dict.fromkeys(modes)))
+        student_id = self.request.query_params.get('student')
+        if student_id:
+            from rest_framework import serializers
+            student_id = serializers.UUIDField().run_validation(student_id)
+            qs = qs.filter(student_id=student_id)
         return qs.order_by('-is_pinned', '-last_interaction_at', '-created_at')
 
     def get_serializer_class(self):
@@ -91,6 +101,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             return AIStudySessionCreateSerializer
         return AIStudySessionDetailSerializer
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -113,7 +124,10 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         )
         if lesson:
             AIStudyContextService.sync_session_lesson(session, lesson)
-        if mode == 'listening':
+        if mode == 'listening' and 'interpreter_settings' in serializer.validated_data:
+            interpreter.initialize(session, serializer.validated_data)
+            session.refresh_from_db()
+        elif mode == 'listening':
             AIStudyWorkflowService.prepare_listening_session(
                 session,
                 serializer.validated_data.get('scenario_key'),
@@ -275,6 +289,8 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         if session.mode != 'listening':
             return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (session.guided_state or {}).get('interpreter'):
+            return Response({'error': 'Use as ações do simulador de interpretação.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             assistant_message = AIStudyWorkflowService.create_listening_challenge(session)
         except ValueError as exc:
@@ -290,6 +306,8 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         if session.mode != 'listening':
             return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (session.guided_state or {}).get('interpreter'):
+            return Response({'error': 'Use as ações do simulador de interpretação.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = ListeningAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -312,6 +330,45 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             ),
             'session': AIStudySessionListSerializer(refreshed_session, context={'request': request}).data,
         })
+
+    def interpreter_detail(self, session):
+        session = AIStudySession.objects.get(pk=session.pk)
+        return Response(AIStudySessionDetailSerializer(session, context={'request': self.request}).data)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/next')
+    def interpreter_next(self, request, pk=None):
+        session = self.get_object()
+        interpreter.next_turn(session)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/answer')
+    def interpreter_answer(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        interpreter.answer(session, serializer.validated_data)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/finish')
+    def interpreter_finish(self, request, pk=None):
+        session = self.get_object()
+        interpreter.finish(session)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/retry')
+    def interpreter_retry(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterRetrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        interpreter.retry(session, serializer.validated_data['message_id'])
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/audio')
+    def interpreter_audio(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response({'audio_url': interpreter.audio(session, serializer.validated_data)})
 
     @action(detail=True, methods=['post'], url_path='translate-selection')
     def translate_selection(self, request, pk=None):

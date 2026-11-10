@@ -12,9 +12,13 @@ type Props = {
   disabled?: boolean;
   errorMessage?: string;
   onUseText?: () => void;
+  recordLabel?: string;
+  completedLabel?: string;
+  description?: string;
+  stopLabel?: string;
 };
 
-const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, errorMessage, onUseText }: Props) => {
+const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, errorMessage, onUseText, recordLabel, completedLabel, description, stopLabel }: Props) => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -169,7 +173,7 @@ const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, erro
   const status = {
     idle: "Sua vez de falar", requesting: "Aguardando acesso ao microfone...", recording: "Gravando sua resposta...",
     paused: "Gravação pausada", uploading: "Enviando sua gravação...", processing: "Transcrevendo e preparando o retorno...",
-    completed: "Resposta enviada", error: "Você pode tentar novamente ou usar texto",
+    completed: completedLabel || "Resposta enviada", error: "Você pode tentar novamente ou usar texto",
   }[state];
 
   return (
@@ -186,7 +190,7 @@ const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, erro
       {unsupported || error || errorMessage ? <p role="alert" className="text-sm text-destructive">{unsupported || errorMessage || error}</p> : null}
       <div className="flex flex-wrap gap-2">
         {(["idle", "completed", "error"] as RecordingState[]).includes(state) && !unsupported ? (
-          <Button type="button" onClick={() => void start()} disabled={disabled}><Mic className="h-4 w-4" />{state === "error" ? "Gravar novamente" : "Gravar resposta"}</Button>
+          <Button type="button" onClick={() => void start()} disabled={disabled}><Mic className="h-4 w-4" />{state === "error" ? "Gravar novamente" : recordLabel || "Gravar resposta"}</Button>
         ) : null}
         {state === "error" && lastRecordingRef.current ? (
           <Button type="button" variant="outline" disabled={disabled} onClick={() => {
@@ -196,11 +200,11 @@ const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, erro
         ) : null}
         {state === "recording" ? <Button type="button" variant="outline" onClick={pause}><Pause />Pausar</Button> : null}
         {state === "paused" ? <Button type="button" variant="outline" onClick={resume}><Play />Continuar gravação</Button> : null}
-        {state === "recording" || state === "paused" ? <Button type="button" onClick={() => recorderRef.current?.stop()}><Square />Enviar áudio</Button> : null}
+        {state === "recording" || state === "paused" ? <Button type="button" onClick={() => recorderRef.current?.stop()}><Square />{stopLabel || "Enviar áudio"}</Button> : null}
         {state === "recording" || state === "paused" || state === "requesting" ? <Button type="button" variant="ghost" onClick={cancel}><Trash2 />Cancelar gravação</Button> : null}
         {onUseText ? <Button type="button" variant="ghost" aria-label="Responder por texto" onClick={() => { if (!busy || state === "requesting") cancel(); onUseText(); }}><span className="sm:hidden">Usar texto</span><span className="hidden sm:inline">Responder por texto</span></Button> : null}
       </div>
-      <p className="text-xs text-muted-foreground">Feedback sobre a transcrição; pronúncia não avaliada.</p>
+      <p className="text-xs text-muted-foreground">{description || "Feedback sobre a transcrição; pronúncia não avaliada."}</p>
     </section>
   );
 };

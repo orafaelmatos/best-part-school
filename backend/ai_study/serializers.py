@@ -183,16 +183,47 @@ class SpeakingReportFilterSerializer(serializers.Serializer):
     session = serializers.UUIDField(required=False)
 
 
+class InterpreterPlaybackRateField(serializers.FloatField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if value not in [0.6, 0.75, 0.8, 0.9, 1, 1.25]:
+            raise serializers.ValidationError('Escolha uma velocidade disponível entre 0,6x e 1,25x.')
+        return value
+
+
+class InterpreterSettingsSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(choices=['en_pt', 'pt_en', 'alternating'], default='en_pt')
+    interpretation_mode = serializers.ChoiceField(choices=['consecutive', 'guided', 'simultaneous'], default='consecutive')
+    session_style = serializers.ChoiceField(choices=['journey', 'free'], default='journey')
+    duration_minutes = serializers.IntegerField(min_value=2, max_value=15, default=5)
+    prepare_vocabulary = serializers.BooleanField(default=False)
+    realistic = serializers.BooleanField(default=False)
+    segment_duration_seconds = serializers.ChoiceField(choices=[30, 60, 90, 120], required=False)
+    playback_speed = InterpreterPlaybackRateField(required=False)
+
+    def validate(self, attrs):
+        if attrs['interpretation_mode'] == 'simultaneous':
+            attrs.setdefault('segment_duration_seconds', 60)
+            attrs.setdefault('playback_speed', 1.0)
+        else:
+            attrs.pop('segment_duration_seconds', None)
+            attrs.pop('playback_speed', None)
+        return attrs
+
+
 class AIStudySessionCreateSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=['review', 'speaking', 'writing', 'listening'], default='review', required=False)
     lesson_id = serializers.UUIDField(required=False, allow_null=True)
     scenario_key = serializers.CharField(required=False, allow_blank=True, max_length=120)
     scenario_label = serializers.CharField(required=False, allow_blank=True, max_length=120)
     level = serializers.ChoiceField(choices=['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], required=False)
+    interpreter_settings = InterpreterSettingsSerializer(required=False)
 
     def validate(self, attrs):
         mode = attrs.get('mode') or 'review'
         lesson_id = attrs.get('lesson_id')
+        if 'interpreter_settings' in attrs and mode != 'listening':
+            raise serializers.ValidationError({'interpreter_settings': 'Estas configurações são exclusivas do Intérprete IA.'})
         if mode == 'review' and not lesson_id:
             raise serializers.ValidationError({'lesson_id': 'lesson_id is required for review mode.'})
         if mode == 'listening':
@@ -424,6 +455,92 @@ class SpeakingAudioUploadSerializer(serializers.Serializer):
         if value.size > 25 * 1024 * 1024:
             raise serializers.ValidationError('A gravação pode ter até 25 MB. Grave uma resposta mais curta ou responda por texto.')
         return value
+
+
+class SimultaneousSegmentSerializer(serializers.Serializer):
+    recording_start_seconds = serializers.FloatField(min_value=0, max_value=1200)
+    recording_end_seconds = serializers.FloatField(min_value=0, max_value=1200)
+    source_start_seconds = serializers.FloatField(min_value=0, max_value=600)
+    source_end_seconds = serializers.FloatField(min_value=0, max_value=600)
+    playback_rate = InterpreterPlaybackRateField()
+
+
+class SimultaneousTimingSerializer(serializers.Serializer):
+    version = serializers.ChoiceField(choices=[1])
+    source_duration_seconds = serializers.FloatField(min_value=0.001, max_value=600)
+    recording_duration_seconds = serializers.FloatField(min_value=0.001, max_value=1200)
+    source_completed = serializers.BooleanField()
+    segments = SimultaneousSegmentSerializer(many=True, allow_empty=False, max_length=200)
+
+    def validate(self, attrs):
+        import math
+        values = [attrs['source_duration_seconds'], attrs['recording_duration_seconds']]
+        for segment in attrs['segments']:
+            values.extend(segment.values())
+        if not all(math.isfinite(value) for value in values):
+            raise serializers.ValidationError('Os tempos da gravação precisam ser números finitos.')
+        if not attrs['source_completed']:
+            raise serializers.ValidationError('Ouça a fala completa durante a gravação antes de enviar.')
+        previous_source_end = previous_recording_end = 0
+        for segment in attrs['segments']:
+            start, end = segment['source_start_seconds'], segment['source_end_seconds']
+            recording_start, recording_end = segment['recording_start_seconds'], segment['recording_end_seconds']
+            if (abs(start - previous_source_end) > 0.25 or end <= start
+                    or recording_start < previous_recording_end - 0.05 or recording_end <= recording_start
+                    or end > attrs['source_duration_seconds'] + 0.25
+                    or recording_end > attrs['recording_duration_seconds'] + 0.25):
+                raise serializers.ValidationError('A linha do tempo da interpretação está inconsistente. Grave novamente.')
+            expected_seconds = (end - start) / segment['playback_rate']
+            if abs(recording_end - recording_start - expected_seconds) > max(0.75, expected_seconds * 0.1):
+                raise serializers.ValidationError('A velocidade e os tempos de reprodução não correspondem.')
+            previous_source_end, previous_recording_end = end, recording_end
+        if abs(previous_source_end - attrs['source_duration_seconds']) > 0.25:
+            raise serializers.ValidationError('A gravação precisa acompanhar a fala original até o fim.')
+        return attrs
+
+
+class InterpreterAnswerSerializer(SpeakingAudioUploadSerializer):
+    request_id = serializers.UUIDField()
+    message_id = serializers.UUIDField()
+    response_mode = serializers.ChoiceField(choices=['voice', 'text', 'multiple_choice'])
+    audio = serializers.FileField(required=False)
+    answer_text = serializers.CharField(required=False, max_length=12000)
+    selected_option_index = serializers.IntegerField(required=False, min_value=0, max_value=3)
+    simultaneous_timing = serializers.JSONField(required=False)
+
+    def validate_simultaneous_timing(self, value):
+        if isinstance(value, str):
+            import json
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                raise serializers.ValidationError('Não foi possível ler os tempos da gravação.')
+        serializer = SimultaneousTimingSerializer(data=value)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
+    def validate(self, attrs):
+        mode = attrs['response_mode']
+        field = {'voice': 'audio', 'text': 'answer_text', 'multiple_choice': 'selected_option_index'}[mode]
+        if field not in attrs:
+            raise serializers.ValidationError({field: 'Envie sua interpretação antes de continuar.'})
+        return attrs
+
+
+class InterpreterRetrySerializer(serializers.Serializer):
+    message_id = serializers.UUIDField()
+
+
+class InterpreterAudioSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField(required=False)
+    part = serializers.ChoiceField(choices=['original', 'suggested', 'vocabulary', 'example'])
+    vocabulary_index = serializers.IntegerField(required=False, min_value=0, max_value=7)
+
+    def validate(self, attrs):
+        key = 'message_id' if attrs['part'] in ['original', 'suggested'] else 'vocabulary_index'
+        if key not in attrs:
+            raise serializers.ValidationError({key: 'Selecione o trecho ou a expressão.'})
+        return attrs
 
 
 class SpeakingFeedbackAudioSerializer(serializers.Serializer):
