@@ -47,7 +47,6 @@ import "react-quill/dist/quill.snow.css";
 import { FlashcardEditor } from "@/components/FlashcardEditor";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
 import PastLessonSummary from "@/components/PastLessonSummary";
-import LessonSummarySection from "@/components/LessonSummarySection";
 import { Slider } from "@/components/ui/slider";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -1013,7 +1012,7 @@ const AnotarAula = () => {
             <div>
               <h2 className="text-sm font-semibold">Anotações da Aula</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Use texto, links e imagens de slides ou do quadro para registrar o contexto que a IA vai reutilizar.
+                Use este espaço como uma lousa para escrever palavras, frases, explicações e exercícios. As alterações são salvas automaticamente.
               </p>
             </div>
             <Button type="button" variant="outline" onClick={openImagePicker} disabled={isUploadingImages}>
@@ -1021,7 +1020,7 @@ const AnotarAula = () => {
               {isUploadingImages ? "Enviando imagens..." : "Adicionar imagens"}
             </Button>
           </div>
-          <div className="lesson-notes-editor bg-background rounded-md overflow-hidden border border-border h-80">
+          <div className="lesson-notes-editor h-[75vh] min-h-[520px] resize-y overflow-hidden rounded-md border border-border bg-background md:h-[80vh] md:min-h-[760px]">
             <ReactQuill 
               ref={quillRef}
               theme="snow" 
@@ -1178,8 +1177,6 @@ const AnotarAula = () => {
         </div>
 
         <HomeworkPanel lesson={lesson} />
-
-        <LessonSummarySection lesson={lesson} notes={notes} />
 
         {/* Lesson Link */}
         <div className="bg-card p-5 border border-border rounded-xl">
