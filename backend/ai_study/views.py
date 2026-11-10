@@ -8,7 +8,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from lessons.models import Lesson
-from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback, SpeakingSessionReport
+from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback, SpeakingSessionReport, WritingSessionReport
 from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student, visible_students
 from .serializers import (
     AIConversationMessageSerializer,
@@ -28,6 +28,7 @@ from .serializers import (
     SpeakingFeedbackSerializer,
     SpeakingSessionReportSerializer,
     SpeakingReportFilterSerializer,
+    WritingSessionReportSerializer,
     TextSelectionTranslationSerializer,
     TextMessageSerializer,
 )
@@ -335,6 +336,21 @@ class SpeakingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
         return reports.order_by('-updated_at', '-id')
 
 
+class WritingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = WritingSessionReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        reports = WritingSessionReport.objects.filter(session__student__in=visible_students(self.request.user))
+        filters = SpeakingReportFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        if filters.validated_data.get('student'):
+            reports = reports.filter(session__student_id=filters.validated_data['student'])
+        if filters.validated_data.get('session'):
+            reports = reports.filter(session_id=filters.validated_data['session'])
+        return reports.order_by('-updated_at', '-id')
+
+
 class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SpeakingFeedbackSerializer
     permission_classes = [permissions.IsAuthenticated, CanAccessSpeakingFeedback]
@@ -466,8 +482,13 @@ class AIStudyProgressOverviewAPIView(APIView):
         speaking_history = SpeakingFeedback.objects.filter(session__student=student).order_by('-created_at')[:8]
         writing_history = WritingFeedback.objects.filter(student=student).order_by('-created_at')[:8]
         reports = SpeakingSessionReport.objects.filter(session__student=student).select_related('session')
+        writing_reports = WritingSessionReport.objects.filter(session__student=student)
 
         return Response({
+            'writing_sessions': {
+                'total': writing_reports.count(), 'completed': writing_reports.filter(status='completed').count(),
+                'recent': WritingSessionReportSerializer(writing_reports[:8], many=True).data,
+            },
             'speaking_sessions': {
                 'total': reports.count(), 'completed': reports.filter(status='completed').count(),
                 'recent': SpeakingSessionReportSerializer(reports[:8], many=True).data,

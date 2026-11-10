@@ -8,6 +8,9 @@ import SpeakingSimulationReplay from "@/components/SpeakingSimulationReplay";
 import SpeakingTurnCard, { SpeakingHelpCard } from "@/components/SpeakingTurnCard";
 import SpeakingSessionOverview from "@/components/SpeakingSessionOverview";
 import SpeakingReportCard from "@/components/SpeakingReportCard";
+import { WritingActivityCard, WritingCorrectionCard, WritingHelpCard } from "@/components/WritingActivityCard";
+import WritingReportCard from "@/components/WritingReportCard";
+import type { WritingActivity, WritingCorrection, WritingHelp, WritingReport } from "@/lib/writing";
 import type { SpeakingReport } from "@/lib/aiStudy";
 import { Button } from "@/components/ui/button";
 import { audioRequestError, audioRequestId, recordingExtension, recordingSupportError } from "@/lib/speakingAudio";
@@ -111,6 +114,10 @@ type AIMessage = {
     speaking_level?: string;
     speaking_prompt_id?: string;
     speaking_report?: SpeakingReport;
+    writing_activity?: WritingActivity;
+    writing_correction?: WritingCorrection;
+    writing_help?: WritingHelp;
+    writing_report?: WritingReport;
     assessment_source?: "text" | "transcript" | null;
   } | null;
   created_at?: string;
@@ -248,7 +255,7 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
 const modeDescription: Record<PracticeMode, string> = {
   review: "Revise o que você já estudou.",
   speaking: "Pratique sua fala em inglês.",
-  writing: "Pratique sua escrita em inglês.",
+  writing: "Aprenda a construir frases e evolua sua escrita com uma aula guiada.",
 };
 
 const composerPlaceholderByMode: Record<PracticeMode, string> = {
@@ -291,7 +298,7 @@ const modeCardMeta: Record<
   },
   writing: {
     icon: Pencil,
-    eyebrow: "Correção orientada",
+    eyebrow: "Escrita passo a passo",
     accent: "text-emerald-700",
     surface:
       "border-emerald-200/80 bg-[linear-gradient(145deg,rgba(236,253,245,0.98),rgba(255,255,255,0.96)_38%,rgba(220,252,231,0.88))] shadow-[0_28px_65px_-45px_rgba(5,150,105,0.32)]",
@@ -569,6 +576,7 @@ const MessageBubble = ({
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
       data-speaking-prompt={message.metadata?.speaking_prompt_id || message.id}
+      data-writing-current={isInteractive && (message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report) ? "true" : undefined}
       data-speaking-current={isInteractive && (message.metadata?.speaking_turn || message.metadata?.speaking_activity || message.metadata?.speaking_help || message.metadata?.speaking_simulation) ? "true" : undefined}>
       <div className={cn("w-full max-w-[min(100%,58rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
         <p
@@ -607,11 +615,18 @@ const MessageBubble = ({
             </div>
           ) : (
             <div
+              data-writing-focus={message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report ? true : undefined}
+              className={message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report ? "outline-none" : undefined}
               data-translatable-message={!isUser || undefined}
               onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
               onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
             >
-              {message.metadata?.speaking_report ? <div className="space-y-4">
+              {message.metadata?.writing_report ? <WritingReportCard report={message.metadata.writing_report} />
+                : message.metadata?.writing_activity || message.metadata?.writing_correction ? <div className="space-y-5">
+                  {message.metadata.writing_correction ? <WritingCorrectionCard correction={message.metadata.writing_correction} /> : null}
+                  {message.metadata.writing_help ? <WritingHelpCard help={message.metadata.writing_help} /> : null}
+                  {message.metadata.writing_activity ? <WritingActivityCard activity={message.metadata.writing_activity} /> : <p className="whitespace-pre-line">{message.text}</p>}
+                </div> : message.metadata?.speaking_report ? <div className="space-y-4">
                 {message.metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-sm">{message.metadata.speaking_turn.feedback}</p> : null}
                 <SpeakingReportCard report={message.metadata.speaking_report} />
               </div> : message.metadata?.speaking_activity ? (
@@ -752,7 +767,7 @@ const AssistenteIA = () => {
   useEffect(() => {
     const el = messageListRef.current;
     if (!el) return;
-    const focus = el.querySelector<HTMLElement>('[data-speaking-current="true"] [data-speaking-focus]');
+    const focus = el.querySelector<HTMLElement>('[data-speaking-current="true"] [data-speaking-focus], [data-writing-current="true"] [data-writing-focus]');
     if (focus) {
       el.scrollTop += focus.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
       const key = `${activeSession?.id}:${focus.closest('[data-speaking-prompt]')?.getAttribute('data-speaking-prompt')}`;
@@ -857,7 +872,7 @@ const AssistenteIA = () => {
   const canUseAudioInput = canRecordAudio && (!guidedExpectedInput || guidedExpectedInput === "audio_or_text");
   const isCapturing = ["requesting", "recording", "paused"].includes(recordingState);
   const oralResponse = canUseAudioInput;
-  const showTextInput = !(activeMode === "speaking" && activeSession?.status === "completed") && (!oralResponse || useText || Boolean(recordingSupportError()));
+  const showTextInput = !((activeMode === "speaking" || activeMode === "writing") && activeSession?.status === "completed") && (!oralResponse || useText || Boolean(recordingSupportError()));
   const openTextResponse = () => {
     setUseText(true);
     setShowRecorder(false);
@@ -1033,6 +1048,7 @@ const AssistenteIA = () => {
     textType?: string;
   }) => {
     if (!activeSession || isSending) return;
+    const requestSessionId = activeSession.id;
     const trimmedText = text?.trim() || "";
     const displayText = trimmedText || guidedAction?.label || "";
     if (!displayText) return;
@@ -1068,7 +1084,7 @@ const AssistenteIA = () => {
       });
       const data = response.data as MessageResponse;
       setSessionDraft((current) => {
-        if (!current) return current;
+        if (!current || current.id !== requestSessionId) return current;
         const persistedMessages = current.messages.filter((message) => message.id !== optimisticId);
         const next: SessionDetail = {
           ...mergeSummaryIntoDetail(current, data.session),
@@ -1083,8 +1099,11 @@ const AssistenteIA = () => {
       });
       await invalidateSessionList();
     } catch {
+      if (activeSessionIdRef.current === requestSessionId && trimmedText) {
+        setInput((current) => current || trimmedText);
+      }
       setSessionDraft((current) => {
-        if (!current) return current;
+        if (!current || current.id !== requestSessionId) return current;
         const next = {
           ...current,
           messages: current.messages.filter((message) => message.id !== optimisticId),
@@ -1513,9 +1532,9 @@ const AssistenteIA = () => {
                       ) : null}
                     </div>
 
-                    <details className="shrink-0" open={activeSession.mode === "speaking" ? undefined : true}>
-                      <summary className={cn("cursor-pointer rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground", activeSession.mode !== "speaking" && "hidden")}>Opções da sessão</summary>
-                      <div className={cn("flex flex-wrap gap-2", activeSession.mode === "speaking" && "mt-2")}>
+                    <details className="shrink-0" open={activeSession.mode === "review" ? true : undefined}>
+                      <summary className={cn("cursor-pointer rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground", activeSession.mode === "review" && "hidden")}>Opções da sessão</summary>
+                      <div className={cn("flex flex-wrap gap-2", activeSession.mode !== "review" && "mt-2")}>
                       <button
                         type="button"
                         onClick={() =>
@@ -1584,14 +1603,14 @@ const AssistenteIA = () => {
                               ? "O que você quer revisar nesta aula?"
                               : activeSession.mode === "speaking"
                                 ? "Vamos praticar uma conversa em inglês"
-                                : "Envie um texto para análise de writing"}
+                                : "Vamos construir sua escrita em inglês"}
                           </p>
                           <p className="mt-3 hidden text-sm leading-6 text-muted-foreground md:block">
                             {activeSession.mode === "review"
                               ? "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado."
                               : activeSession.mode === "speaking"
                                 ? "Aprenda frases, pratique e converse. Você pode responder por voz ou por texto."
-                                : "A IA vai corrigir seu texto, estimar seu nível CEFR, explicar os erros e gerar reescritas por nível."}
+                                : "Escolha um cenário, seu nível e como quer praticar. Aprenda uma estrutura, veja um exemplo e escreva uma resposta por vez."}
                           </p>
                         </div>
                       </div>

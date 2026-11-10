@@ -120,26 +120,6 @@ SUMMARY_ACTIONS = [
     build_choice("finalize_session", "Encerrar", "finalize_session", "session_control", variant="outline"),
 ]
 
-WRITING_SCENARIO_TASKS = {
-    "restaurant": "Escreva em ingles uma mensagem curta fazendo um pedido e pedindo uma recomendacao do cardapio.",
-    "hotel": "Escreva em ingles um pedido curto para o hotel, como late check-out ou toalhas extras.",
-    "airport": "Escreva em ingles uma pergunta curta para a equipe do aeroporto sobre embarque ou bagagem.",
-    "taxi": "Escreva em ingles uma mensagem curta explicando seu destino e um pedido para o motorista.",
-    "hospital": "Escreva em ingles 3 frases descrevendo seus sintomas e pedindo orientacao.",
-    "job_interview": "Escreva em ingles uma mini resposta para Tell me about yourself.",
-    "work": "Escreva em ingles uma mensagem profissional curta atualizando uma tarefa.",
-    "university": "Escreva em ingles um e-mail curto para um professor pedindo ajuda ou prazo extra.",
-    "cafeteria": "Escreva em ingles um pedido curto com bebida, comida e preferencia.",
-    "friends": "Escreva em ingles uma mensagem casual convidando um amigo para sair.",
-    "date": "Escreva em ingles uma mensagem educada para combinar um encontro.",
-    "phone_call": "Escreva em ingles o roteiro curto do que voce diria em um telefonema.",
-    "bank": "Escreva em ingles uma mensagem curta explicando um problema com cartao ou conta.",
-    "emergency": "Escreva em ingles uma mensagem curta pedindo ajuda urgente.",
-    "cinema": "Escreva em ingles uma mensagem curta perguntando sobre ingressos ou horarios.",
-    "tourism": "Escreva em ingles uma pergunta curta sobre um passeio ou direcao.",
-    "free_conversation": "Escreva em ingles 4 ou 5 frases sobre sua rotina, opiniao ou um plano futuro.",
-}
-
 LISTENING_SCENARIO_TASKS = {
     "restaurant": "Ouça o audio e transcreva exatamente o pedido feito no restaurante.",
     "hotel": "Ouça o audio e transcreva a fala relacionada ao check-in ou ao quarto.",
@@ -429,10 +409,7 @@ def scenario_task_for_mode(mode, scenario_key, scenario_label):
             scenario_key,
             f"Ouça o audio em ingles sobre o cenario {scenario_label} e transcreva o que entender.",
         )
-    return WRITING_SCENARIO_TASKS.get(
-        scenario_key,
-        f"Escreva em ingles uma resposta curta relacionada ao cenario {scenario_label}.",
-    )
+    return "Vamos aprender uma estrutura e ver um exemplo antes de escrever."
 
 
 def placeholder_for_expected_input(mode, expected_input, current_task=""):
@@ -537,6 +514,9 @@ def level_assessment_message(question, current_index, total):
 
 
 def kickoff_message(mode, state):
+    if mode == 'writing':
+        from .writing_workflow import mode_prompt
+        return mode_prompt()
     if mode == 'speaking' and state.get('speaking'):
         engine = state['speaking']
         choices = [MODE_ACTION_LIBRARY['speaking']['continue']]

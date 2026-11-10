@@ -29,7 +29,7 @@ def can_access_student(user, student):
 
 class CanAccessAIStudySession(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
-        if obj.mode == 'speaking' and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:
+        if obj.mode in {'speaking', 'writing'} and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:
             return False
         return can_access_student(request.user, obj.student)
 
