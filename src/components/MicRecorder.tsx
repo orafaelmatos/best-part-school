@@ -10,6 +10,7 @@ type Props = {
   onStateChange: (state: RecordingState) => void;
   onRecordingComplete: (blob: Blob, durationSeconds: number) => void | Promise<void>;
   disabled?: boolean;
+  maxDurationSeconds?: number;
   errorMessage?: string;
   onUseText?: () => void;
   recordLabel?: string;
@@ -18,7 +19,7 @@ type Props = {
   stopLabel?: string;
 };
 
-const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, errorMessage, onUseText, recordLabel, completedLabel, description, stopLabel }: Props) => {
+const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, maxDurationSeconds, errorMessage, onUseText, recordLabel, completedLabel, description, stopLabel }: Props) => {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -31,6 +32,11 @@ const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, erro
   const callbacksRef = useRef({ onStateChange, onRecordingComplete });
   callbacksRef.current = { onStateChange, onRecordingComplete };
   const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (maxDurationSeconds && elapsed >= maxDurationSeconds && recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
+  }, [elapsed, maxDurationSeconds]);
   const [error, setError] = useState("");
   const unsupported = recordingSupportError();
 

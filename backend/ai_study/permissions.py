@@ -29,6 +29,8 @@ def can_access_student(user, student):
 
 class CanAccessAIStudySession(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
+        if obj.mode == 'review' and request.method not in permissions.SAFE_METHODS:
+            return request.user.id == obj.student_id
         if (obj.guided_state or {}).get('interpreter') and obj.student_id == request.user.id:
             return True
         if obj.mode in {'speaking', 'writing'} and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:

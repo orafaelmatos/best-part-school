@@ -29,9 +29,9 @@ class FakeRecorder {
   }
 }
 
-const Harness = ({ done, onText = vi.fn() }: { done: (blob: Blob, seconds: number) => void | Promise<void>; onText?: () => void }) => {
+const Harness = ({ done, onText = vi.fn(), maxDurationSeconds }: { done: (blob: Blob, seconds: number) => void | Promise<void>; onText?: () => void; maxDurationSeconds?: number }) => {
   const [state, setState] = useState<RecordingState>("idle");
-  return <MicRecorder state={state} onStateChange={setState} onUseText={onText}
+  return <MicRecorder state={state} onStateChange={setState} onUseText={onText} maxDurationSeconds={maxDurationSeconds}
     onRecordingComplete={async (blob, seconds) => { await done(blob, seconds); setState("completed"); }} />;
 };
 
@@ -86,6 +86,21 @@ describe("Speaking microphone lifecycle", () => {
     await start();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar áudio" })); });
     expect(done.mock.calls[0][0].type).toBe("audio/mp4");
+  });
+
+  it("submits automatically at the review limit while excluding paused time", async () => {
+    const done = vi.fn();
+    render(<Harness done={done} maxDurationSeconds={120} />);
+    await start();
+    act(() => vi.advanceTimersByTime(60000));
+    fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
+    act(() => vi.advanceTimersByTime(180000));
+    expect(done).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar gravação" }));
+    await act(async () => { vi.advanceTimersByTime(60000); });
+    expect(done).toHaveBeenCalledOnce();
+    expect(done.mock.calls[0][1]).toBe(120);
+    expect(stopTrack).toHaveBeenCalledOnce();
   });
 
   it.each([['NotAllowedError', 'não foi permitido'], ['NotFoundError', 'Nenhum microfone'], ['NotReadableError', 'ocupado']])(
