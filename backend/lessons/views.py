@@ -816,7 +816,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['teacher', 'status', 'level', 'is_template', 'is_extra']
+    filterset_fields = ['teacher', 'group', 'status', 'level', 'is_template', 'is_extra']
     ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
 

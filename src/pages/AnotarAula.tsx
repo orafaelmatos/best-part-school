@@ -231,11 +231,16 @@ const AnotarAula = () => {
   const cameFromCalendarPlanning = searchParams.get("from_calendar") === "1";
   const lockedCalendarFlow = searchParams.get("from") === "calendar" || lesson?.status === "in_progress" || lesson?.status === "completed";
   const expectedStudentId = searchParams.get("student") || "";
+  const expectedGroupId = searchParams.get("group") || "";
   const mainLessonId = searchParams.get("main_lesson") || id || "";
   const lessonStudentId = lesson?.student ? String(lesson.student) : "";
+  const lessonGroupId = lesson?.group ? String(lesson.group) : "";
+  const contextGroupId = lessonGroupId || expectedGroupId;
   const contextStudentId = lessonStudentId || studentId || expectedStudentId;
   const studentContextMismatch = Boolean(expectedStudentId && lessonStudentId && expectedStudentId !== lessonStudentId);
-  const isStudentContextLocked = Boolean(lessonStudentId);
+  const groupContextMismatch = Boolean(lesson && expectedGroupId && expectedGroupId !== lessonGroupId);
+  const annotationContextMismatch = studentContextMismatch || groupContextMismatch;
+  const isStudentContextLocked = Boolean(lessonStudentId || lessonGroupId);
   const contextStudent = students.find((student: any) => String(student.id) === String(contextStudentId));
   const currentStudentName =
     lesson?.student_name ||
@@ -244,19 +249,20 @@ const AnotarAula = () => {
     "Aluno";
 
   const { data: studentLessons = [], isLoading: studentLessonsLoading } = useQuery({
-    queryKey: ["annotation-student-lessons", contextStudentId],
+    queryKey: contextGroupId ? ["annotation-group-lessons", contextGroupId] : ["annotation-student-lessons", contextStudentId],
     queryFn: async () => {
       const res = await api.get("/lessons/", {
         params: {
           all: true,
-          student: contextStudentId,
+          ...(contextGroupId ? { group: contextGroupId } : { student: contextStudentId }),
           is_template: false,
           ordering: "order",
         },
       });
-      return normalizeList(res.data) as LessonHistoryLesson[];
+      const lessons = normalizeList(res.data) as LessonHistoryLesson[];
+      return contextGroupId ? lessons.filter((item) => String(item.group || "") === contextGroupId) : lessons;
     },
-    enabled: Boolean(contextStudentId),
+    enabled: Boolean(contextGroupId || contextStudentId) && !annotationContextMismatch,
   });
 
   const pastAnnotatedLessons = useMemo(
@@ -299,12 +305,12 @@ const AnotarAula = () => {
   const pickerTitle = lessonPickerMode === "past" ? "Anotações aulas passadas" : "Planejar aula futura";
   const pickerDescription =
     lessonPickerMode === "past"
-      ? `Histórico de aulas anotadas de ${currentStudentName}.`
-      : `Aulas futuras de ${currentStudentName} para preparar com antecedência.`;
+      ? `Histórico de aulas anotadas ${contextGroupId ? "da turma" : "de"} ${currentStudentName}.`
+      : `Aulas futuras ${contextGroupId ? "da turma" : "de"} ${currentStudentName} para preparar com antecedência.`;
   const pickerEmptyMessage =
     lessonPickerMode === "past"
-      ? "Nenhuma aula passada com anotações foi encontrada para este aluno."
-      : "Nenhuma aula futura foi encontrada para este aluno.";
+      ? `Nenhuma aula passada com anotações foi encontrada para ${contextGroupId ? "esta turma" : "este aluno"}.`
+      : `Nenhuma aula futura foi encontrada para ${contextGroupId ? "esta turma" : "este aluno"}.`;
   const autosaveLabel =
     autosaveStatus === "pending"
       ? "Salvando em instantes..."
@@ -399,6 +405,7 @@ const AnotarAula = () => {
     queryClient.invalidateQueries({ queryKey: ["lessons"] });
     queryClient.invalidateQueries({ queryKey: ["lesson", id] });
     queryClient.invalidateQueries({ queryKey: ["annotation-student-lessons", contextStudentId] });
+    if (contextGroupId) queryClient.invalidateQueries({ queryKey: ["annotation-group-lessons", contextGroupId] });
     queryClient.invalidateQueries({ queryKey: ["calendar"] });
     queryClient.invalidateQueries({ queryKey: ["student-lesson-feed", lesson?.student] });
     queryClient.invalidateQueries({ queryKey: ["student-lesson-summaries-feed", lesson?.student] });
@@ -408,10 +415,10 @@ const AnotarAula = () => {
     queryClient.invalidateQueries({ queryKey: ["dashboard-student-homework", lesson?.student] });
     queryClient.invalidateQueries({ queryKey: ["student-vocabulary-dashboard"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-student-vocabulary"] });
-  }, [contextStudentId, id, lesson?.student, queryClient]);
+  }, [contextStudentId, contextGroupId, id, lesson?.student, queryClient]);
 
   const saveDraftNow = useCallback(async (options?: { notesOverride?: string; snapshot?: string; showErrorToast?: boolean }) => {
-    if (!id || !lesson || studentContextMismatch) {
+    if (!id || !lesson || annotationContextMismatch) {
       return false;
     }
     const snapshot = options?.snapshot ?? currentDraftSnapshot;
@@ -447,7 +454,7 @@ const AnotarAula = () => {
     id,
     invalidateAnnotationQueries,
     lesson,
-    studentContextMismatch,
+    annotationContextMismatch,
     toast,
   ]);
 
@@ -459,7 +466,7 @@ const AnotarAula = () => {
       return;
     }
 
-    if (!lesson?.id || studentContextMismatch || lastSavedSnapshotRef.current === currentDraftSnapshot) {
+    if (!lesson?.id || annotationContextMismatch || lastSavedSnapshotRef.current === currentDraftSnapshot) {
       return;
     }
 
@@ -475,7 +482,7 @@ const AnotarAula = () => {
         autosaveTimerRef.current = null;
       }
     };
-  }, [currentDraftSnapshot, lesson?.id, saveDraftNow, studentContextMismatch]);
+  }, [currentDraftSnapshot, lesson?.id, saveDraftNow, annotationContextMismatch]);
 
   const quillModules = useMemo(() => ({
     toolbar: {
@@ -728,10 +735,10 @@ const AnotarAula = () => {
   });
 
   const handleSave = (status: LessonSaveStatus, stayOnPage = false) => {
-    if (studentContextMismatch) {
+    if (annotationContextMismatch) {
       toast({
-        title: "Aula fora do contexto do aluno",
-        description: "Abra uma aula vinculada a este aluno antes de salvar anotações.",
+        title: groupContextMismatch ? "Aula fora do contexto da turma" : "Aula fora do contexto do aluno",
+        description: "Abra uma aula vinculada a este aluno ou turma antes de salvar anotações.",
         variant: "destructive",
       });
       return;
@@ -764,7 +771,9 @@ const AnotarAula = () => {
 
   const buildAnnotationPath = (lessonId: string, keepMainLesson = true) => {
     const params = new URLSearchParams();
-    if (contextStudentId) {
+    if (contextGroupId) {
+      params.set("group", contextGroupId);
+    } else if (contextStudentId) {
       params.set("student", contextStudentId);
     }
     if (keepMainLesson && mainLessonId && lessonId !== mainLessonId) {
@@ -802,7 +811,7 @@ const AnotarAula = () => {
       setIsSwitchingLesson(false);
       return;
     }
-    if (!contextStudentId) {
+    if (!contextStudentId && !contextGroupId) {
       navigate(APP_PATHS.annotateLesson(mainLessonId));
       setIsSwitchingLesson(false);
       return;
@@ -832,23 +841,23 @@ const AnotarAula = () => {
 
   if (isLoading) return <DashboardLayout><p>Carregando...</p></DashboardLayout>;
   if (!lesson) return <DashboardLayout><p>Aula não encontrada.</p></DashboardLayout>;
-  if (studentContextMismatch) {
+  if (annotationContextMismatch) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
             <div>
-              <h1 className="font-semibold">Aula fora do contexto do aluno</h1>
+              <h1 className="font-semibold">{groupContextMismatch ? "Aula fora do contexto da turma" : "Aula fora do contexto do aluno"}</h1>
               <p className="mt-1 text-sm">
-                Esta aula pertence a outro aluno. Volte para a lista correta antes de fazer anotações.
+                Esta aula pertence a outro aluno ou turma. Volte para a lista correta antes de fazer anotações.
               </p>
               <Button
                 type="button"
                 className="mt-4"
-                onClick={() => navigate(APP_PATHS.studentLessons(expectedStudentId))}
+                onClick={() => navigate(groupContextMismatch ? APP_PATHS.calendar : APP_PATHS.studentLessons(expectedStudentId))}
               >
-                Voltar para aulas do aluno
+                {groupContextMismatch ? "Voltar ao calendário" : "Voltar para aulas do aluno"}
               </Button>
             </div>
           </div>

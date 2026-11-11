@@ -122,6 +122,30 @@ class GroupLessonBehaviorTests(TestCase):
         self.assertEqual(group_lesson['student_name'], 'Group A')
         self.assertEqual(set(group_lesson['group_student_ids']), {str(self.student1.id), str(self.student2.id)})
 
+    def test_group_history_filter_excludes_other_groups_and_individual_lessons(self):
+        self.client.force_authenticate(user=self.teacher)
+        past = Lesson.objects.create(title='Anotações anteriores da turma', level='B1', group=self.group,
+            teacher=self.teacher, status='completed', date=timezone.now() - datetime.timedelta(days=7), notes='<p>Conteúdo da turma.</p>')
+        other_group = StudentGroup.objects.create(name='Outra turma', teacher=self.teacher)
+        other_group.students.add(self.student1)
+        Lesson.objects.create(title='Outra turma', level='B1', group=other_group, teacher=self.teacher)
+        Lesson.objects.create(title='Aula individual', level='B1', student=self.student1, teacher=self.teacher)
+        response = self.client.get('/api/lessons/', {'all': 'true', 'group': str(self.group.pk), 'is_template': 'false'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({item['id'] for item in response.data}, {str(self.lesson.pk), str(past.pk)})
+
+    def test_group_history_filter_preserves_teacher_and_student_permissions(self):
+        other_teacher = User.objects.create_user(email='other-group-history@test.com', role='teacher', name='Other')
+        outsider = User.objects.create_user(email='outside-group-history@test.com', role='student', name='Outsider')
+        for user in [other_teacher, outsider]:
+            self.client.force_authenticate(user=user)
+            response = self.client.get('/api/lessons/', {'all': 'true', 'group': str(self.group.pk), 'is_template': 'false'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, [])
+        self.client.force_authenticate(user=self.student1)
+        response = self.client.get('/api/lessons/', {'all': 'true', 'group': str(self.group.pk), 'is_template': 'false'})
+        self.assertEqual({item['id'] for item in response.data}, {str(self.lesson.pk)})
+
     @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/group-word.mp3')
     def test_group_lesson_new_word_creates_cards_for_all_students(self, generate_tts_mock):
         self.client.force_authenticate(user=self.teacher)
