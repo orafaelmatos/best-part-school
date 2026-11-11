@@ -11,6 +11,7 @@ from .models import (
     SpeakingFeedback,
     SpeakingSessionReport,
     WritingFeedback,
+    WritingSessionReport,
 )
 
 
@@ -209,6 +210,13 @@ class InterpreterSettingsSerializer(serializers.Serializer):
             attrs.pop('segment_duration_seconds', None)
             attrs.pop('playback_speed', None)
         return attrs
+
+
+class WritingSessionReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WritingSessionReport
+        fields = ['id', 'session', 'run_id', 'status', 'report', 'completed_at', 'created_at', 'updated_at']
+        read_only_fields = fields
 
 
 class AIStudySessionCreateSerializer(serializers.Serializer):

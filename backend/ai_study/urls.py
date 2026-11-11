@@ -7,12 +7,14 @@ from .views import (
     ContextLessonsAPIView,
     SpeakingFeedbackViewSet,
     SpeakingSessionReportViewSet,
+    WritingSessionReportViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'sessions', AIStudySessionViewSet, basename='ai-study-session')
 router.register(r'feedback', SpeakingFeedbackViewSet, basename='ai-study-feedback')
 router.register(r'speaking-reports', SpeakingSessionReportViewSet, basename='speaking-report')
+router.register(r'writing-reports', WritingSessionReportViewSet, basename='writing-report')
 
 urlpatterns = [
     path('context-lessons/', ContextLessonsAPIView.as_view(), name='ai-study-context-lessons'),

@@ -60,7 +60,8 @@ from .guided_tutor import (
     SUMMARY_ACTIONS,
     unique_items,
 )
-from . import speaking, speaking_preparation, speaking_simulation, speaking_reporting, speaking_feedback
+from . import speaking, speaking_preparation, speaking_simulation, speaking_reporting, speaking_feedback, writing
+from .writing_workflow import WritingWorkflow
 
 client = OpenAI()
 
@@ -1124,6 +1125,42 @@ class AIStudyOpenAIService:
                     raise SpeakingContentUnavailable('Não consegui analisar esta tentativa agora.') from exc
             except OpenAIError as exc:
                 raise SpeakingContentUnavailable('Não consegui analisar esta tentativa agora.') from exc
+
+    @staticmethod
+    def generate_writing_activity(session, state, kind, validation_error=''):
+        engine = state['writing']
+        response = client.chat.completions.create(
+            model='gpt-4o',
+            messages=[
+                {'role': 'system', 'content': writing.ACTIVITY_PROMPT},
+                {'role': 'user', 'content': json.dumps({
+                    'scenario': state['scenario_label'], 'scenario_key': state['scenario_key'],
+                    'level': state['level'], 'level_guidance': writing.LEVEL_GUIDANCE[state['level']],
+                    'kind': kind, 'practice_mode': engine['practice_mode'],
+                    'focus_structure': engine['focus_structure'], 'support': engine['support'],
+                    'previous_activity': engine['activity'], 'last_feedback': engine['last_feedback'],
+                    'activity_number': engine['activity_index'] + 1, 'validation_error': validation_error,
+                }, ensure_ascii=False)},
+            ],
+            response_format={'type': 'json_schema', 'json_schema': writing.ACTIVITY_SCHEMA},
+        )
+        return json.loads(response.choices[0].message.content)
+
+    @staticmethod
+    def evaluate_writing_activity(session, state, text, validation_error=''):
+        response = client.chat.completions.create(
+            model='gpt-4o',
+            messages=[
+                {'role': 'system', 'content': writing.EVALUATION_PROMPT},
+                {'role': 'user', 'content': json.dumps({
+                    'scenario': state['scenario_label'], 'level': state['level'],
+                    'activity': state['writing']['activity'], 'answer': text,
+                    'validation_error': validation_error,
+                }, ensure_ascii=False)},
+            ],
+            response_format={'type': 'json_schema', 'json_schema': writing.EVALUATION_SCHEMA},
+        )
+        return json.loads(response.choices[0].message.content)
 
     @staticmethod
     def analyze_writing(session, text, text_type='free'):
@@ -2580,6 +2617,10 @@ class AIStudyWorkflowService:
             state['progress_summary'] = progress_summary
         if session.mode == 'speaking':
             AIStudyWorkflowService._start_speaking(session, state)
+        elif session.mode == 'writing':
+            state.pop('writing', None)
+            state.update(stage='choose_writing_mode', current_task='', expected_input='choice',
+                         input_placeholder='Escolha uma forma de praticar Writing.')
         AIStudyWorkflowService.persist_guided_state(
             session,
             state,
@@ -3244,7 +3285,7 @@ class AIStudyWorkflowService:
     @staticmethod
     @transaction.atomic
     def handle_guided_message(session, text='', text_type='free', guided_action=None):
-        if session.mode == 'speaking':
+        if session.mode in {'speaking', 'writing'}:
             session.__class__.objects.select_for_update().get(pk=session.pk)
             session.refresh_from_db()
         state = AIStudyWorkflowService.ensure_guided_state(session, persist=True)
@@ -3277,6 +3318,9 @@ class AIStudyWorkflowService:
             )
             AIStudyContextService.touch_session(session)
             return user_message, assistant_message
+
+        if session.mode == 'writing':
+            return user_message, WritingWorkflow(session, state).handle(normalized_text, guided_action)
 
         if guided_action:
             action_value = str(guided_action.get('value') or '').strip()

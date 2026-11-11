@@ -31,7 +31,7 @@ class CanAccessAIStudySession(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if (obj.guided_state or {}).get('interpreter') and obj.student_id == request.user.id:
             return True
-        if obj.mode == 'speaking' and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:
+        if obj.mode in {'speaking', 'writing'} and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:
             return False
         if (obj.guided_state or {}).get('interpreter') and request.user.role == 'teacher' and request.method not in permissions.SAFE_METHODS:
             return view.action == 'interpreter_audio' and can_access_student(request.user, obj.student)

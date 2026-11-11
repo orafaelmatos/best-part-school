@@ -22,6 +22,7 @@ import StatusBadge from "@/components/StatusBadge";
 import SpeakingStudentProgress from "@/components/SpeakingStudentProgress";
 import InterpreterStudentProgress from "@/components/InterpreterStudentProgress";
 import WordSentenceComposer from "@/components/WordSentenceComposer";
+import WritingStudentProgress from "@/components/WritingStudentProgress";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -397,6 +398,7 @@ const AlunoTrilha = () => {
           <div className="mt-6"><WordSentenceComposer studentId={studentId} /></div>
           <div className="mt-6"><SpeakingStudentProgress key={studentId} studentId={studentId} /></div>
           <div className="mt-6"><InterpreterStudentProgress key={studentId} studentId={studentId} /></div>
+          <div className="mt-6"><WritingStudentProgress key={studentId} studentId={studentId} /></div>
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
