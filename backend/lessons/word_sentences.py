@@ -159,6 +159,11 @@ class WordSentenceService:
         return [by_index[index] for index in range(len(words))]
 
     @classmethod
+    def generate_vocabulary(cls, words, *, level):
+        context = SimpleNamespace(level=level, title='Situações do cotidiano')
+        return cls.generate(context, words, level=level)
+
+    @classmethod
     def generate_single(cls, word, *, level, topic='', adjustment='standard', previous_sentence=''):
         context = SimpleNamespace(level=level, title=topic or 'Situações do cotidiano')
         for attempt in range(2):

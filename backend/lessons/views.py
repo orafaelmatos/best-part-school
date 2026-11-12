@@ -6,6 +6,7 @@ from django.db import transaction
 from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkQuestion, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .serializers import GenerateWordSentencesSerializer, ApproveWordSentencesSerializer, GenerateSingleWordSentenceSerializer, SaveWordSentenceSerializer
+from .serializers import GenerateVocabularySentencesSerializer, SaveVocabularySentencesSerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -138,27 +139,42 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
     ordering_fields = ['next_review_at', 'last_reviewed_at', 'created_at', 'word', 'confidence_level', 'failure_count']
     ordering = ['next_review_at']
 
-    def _sentence_student(self, student_id=None):
+    def _sentence_owner(self, student_id=None, *, personal=False):
         from django.contrib.auth import get_user_model
         from ai_study.permissions import can_access_student
         user = self.request.user
-        if user.role == 'student':
-            if student_id and student_id != user.pk:
-                raise exceptions.PermissionDenied('Você só pode criar frases para o seu próprio vocabulário.')
+        if not student_id or student_id == user.pk:
             return user
-        if not student_id:
-            raise exceptions.ValidationError({'student_id': 'Escolha o aluno para usar o nível de inglês dele.'})
+        if personal or user.role == 'student':
+            raise exceptions.PermissionDenied('Você só pode criar frases para o seu próprio vocabulário.')
         student = get_user_model().objects.filter(pk=student_id, role='student').first()
         if not student or not can_access_student(user, student):
             raise exceptions.PermissionDenied('Você não tem acesso ao vocabulário deste aluno.')
         return student
+
+    @action(detail=False, methods=['post'], url_path='generate-word-sentences')
+    def generate_word_sentences(self, request):
+        serializer = GenerateVocabularySentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'), personal=True)
+        level = sentence_level(student.level)
+        try:
+            items = WordSentenceService.generate_vocabulary(data['words'], level=level)
+        except (OpenAIError, SentenceGenerationError):
+            logger.warning('Could not generate vocabulary sentences for student %s', student.pk, exc_info=True)
+            return Response(
+                {'detail': 'Não foi possível gerar todas as frases agora. Sua lista foi mantida; tente novamente.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({'items': items, 'level': level})
 
     @action(detail=False, methods=['post'], url_path='generate-word-sentence')
     def generate_word_sentence(self, request):
         serializer = GenerateSingleWordSentenceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        student = self._sentence_student(data.get('student_id'))
+        student = self._sentence_owner(data.get('student_id'))
         level = sentence_level(student.level)
         try:
             item = WordSentenceService.generate_single(data['source_word'], level=level,
@@ -170,26 +186,47 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='save-word-sentence')
     def save_word_sentence(self, request):
-        from django.contrib.auth import get_user_model
-        from .vocabulary import default_vocabulary_category
         serializer = SaveWordSentenceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        student = self._sentence_student(data.get('student_id'))
-        teacher = request.user if request.user.role in ['teacher', 'admin'] else None
+        student = self._sentence_owner(data.get('student_id'))
+        cards, created_count = self._save_sentence_items(student, [data])
+        return Response({'created': bool(created_count), 'card': self.get_serializer(cards[0]).data},
+                        status=status.HTTP_201_CREATED if created_count else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='save-word-sentences')
+    def save_word_sentences(self, request):
+        serializer = SaveVocabularySentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'), personal=True)
+        cards, created_count = self._save_sentence_items(student, data['items'])
+        return Response({
+            'created_count': created_count,
+            'skipped_count': len(cards) - created_count,
+            'cards': self.get_serializer(cards, many=True).data,
+        }, status=status.HTTP_201_CREATED if created_count else status.HTTP_200_OK)
+
+    def _save_sentence_items(self, student, items):
+        from django.contrib.auth import get_user_model
+        from .vocabulary import default_vocabulary_category
+        teacher = self.request.user if student.pk != self.request.user.pk else None
         source_type = 'teacher' if teacher else 'student'
+        cards = []
+        created_count = 0
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=student.pk)
-            card = VocabularyCard.objects.filter(student=student, teacher=teacher, source_type=source_type,
-                                                  word__iexact=data['sentence']).first()
-            created = card is None
-            if created:
-                card = VocabularyCard.objects.create(student=student, teacher=teacher, source_type=source_type,
-                    word=data['sentence'], translation=data['translation'], example_sentence=data['sentence'],
-                    explanation=f"Palavra praticada: {data['source_word']}", tags=['Frase com IA', data['source_word']],
-                    category=default_vocabulary_category(), next_review_at=timezone.now())
-        return Response({'created': created, 'card': self.get_serializer(card).data},
-                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+            for item in items:
+                card = VocabularyCard.objects.filter(student=student, teacher=teacher, source_type=source_type,
+                                                      word__iexact=item['sentence']).first()
+                if card is None:
+                    card = VocabularyCard.objects.create(student=student, teacher=teacher, source_type=source_type,
+                        word=item['sentence'], translation=item['translation'], example_sentence=item['sentence'],
+                        explanation=f"Palavra praticada: {item['source_word']}", tags=['Frase com IA', item['source_word']],
+                        category=default_vocabulary_category(), next_review_at=timezone.now())
+                    created_count += 1
+                cards.append(card)
+        return cards, created_count
 
     def get_queryset(self):
         user = self.request.user
@@ -197,7 +234,7 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             return qs
         if user.role == 'teacher':
-            return qs.filter(Q(teacher=user) | Q(lesson__teacher=user))
+            return qs.filter(Q(student=user) | Q(teacher=user) | Q(lesson__teacher=user))
         return qs.filter(student=user)
 
     def perform_create(self, serializer):
@@ -205,8 +242,9 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         student = serializer.validated_data.get('student') or user
         teacher = serializer.validated_data.get('teacher')
         source_type = serializer.validated_data.get('source_type')
-        if user.role == 'student':
+        if user.role == 'student' or student.pk == user.pk:
             student = user
+            teacher = None
             source_type = 'student'
         elif user.role == 'teacher':
             teacher = teacher or user

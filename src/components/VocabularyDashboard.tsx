@@ -12,8 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/contexts/AuthContext";
 import ReviewQueue from "@/components/ReviewQueue";
-import WordSentenceComposer from "@/components/WordSentenceComposer";
+import GenerateWordSentences from "@/components/GenerateWordSentences";
 
 type VocabularyStats = {
   due_today: number;
@@ -68,10 +70,12 @@ const normalizeList = <T,>(data: unknown): T[] => {
 };
 
 const VocabularyDashboard = () => {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [reviewMode, setReviewMode] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [form, setForm] = useState<CardForm>(emptyForm);
+  const [createMode, setCreateMode] = useState("manual");
 
   const { data: stats } = useQuery({
     queryKey: ["vocabulary-dashboard"],
@@ -114,7 +118,6 @@ const VocabularyDashboard = () => {
 
   return (
     <div className="space-y-6">
-      <WordSentenceComposer />
       <section className="rounded-[26px] border border-border bg-card p-5 shadow-sm sm:p-6">
         <div className="grid gap-3 md:grid-cols-2">
           <Button
@@ -137,17 +140,17 @@ const VocabularyDashboard = () => {
             size="lg"
             variant="outline"
             className="h-auto min-h-[88px] w-full min-w-0 justify-start whitespace-normal rounded-2xl px-5 py-5 text-left text-base"
-            onClick={() => setIsCreateDialogOpen(true)}
+            onClick={() => { setCreateMode("manual"); setIsCreateDialogOpen(true); }}
           >
             <Plus className="mr-3 h-6 w-6 shrink-0" />
             <span className="min-w-0 flex-1">
               <span className="block text-lg font-semibold">Adicionar nova palavra</span>
-              <span className="mt-1 block text-sm font-normal text-muted-foreground">Crie uma palavra para estudar depois.</span>
+              <span className="mt-1 block text-sm font-normal text-muted-foreground">Cadastre uma palavra ou gere frases com IA para estudar.</span>
             </span>
           </Button>
         </div>
         <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          As palavras aparecem dentro da revisão. Fora dela, a tela fica focada no que o aluno precisa fazer agora.
+          As palavras e frases que você salvar ficam disponíveis na sua revisão.
         </p>
       </section>
 
@@ -161,35 +164,49 @@ const VocabularyDashboard = () => {
         open={isCreateDialogOpen}
         onOpenChange={(open) => {
           setIsCreateDialogOpen(open);
-          if (!open && !createMutation.isPending) setForm(emptyForm);
+          if (!open && !createMutation.isPending) {
+            setForm(emptyForm);
+            createMutation.reset();
+          }
         }}
       >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Adicionar nova palavra</DialogTitle>
             <DialogDescription>
-              Cadastre a palavra e a resposta. O áudio de pronúncia é gerado automaticamente na revisão.
+              Adicione ao seu vocabulário: cadastre uma palavra ou peça à IA frases com as palavras que você quer praticar.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={submitCard} className="grid gap-4 md:grid-cols-2">
-            <input required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-            <input required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-            <Textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Explicação" />
-            <Textarea value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Frase de exemplo" />
-            <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-            <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-              <option value="">Categoria padrão</option>
-              {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <input value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Categoria customizada" className="rounded-lg border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
-            <DialogFooter className="md:col-span-2">
-              <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Criando..." : "Criar palavra"}
-              </Button>
-            </DialogFooter>
-          </form>
+          <Tabs value={createMode} onValueChange={setCreateMode} className="min-w-0 space-y-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="manual" className="h-auto min-h-10 whitespace-normal px-2 text-center leading-5">Cadastrar palavra</TabsTrigger>
+              <TabsTrigger value="ai" className="h-auto min-h-10 whitespace-normal px-2 text-center leading-5">Gerar frases com IA</TabsTrigger>
+            </TabsList>
+            <TabsContent value="manual">
+              <form onSubmit={submitCard} className="grid gap-4 md:grid-cols-2">
+                <input required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                <input required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                <Textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Explicação" />
+                <Textarea value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Frase de exemplo" />
+                <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+                <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                  <option value="">Categoria padrão</option>
+                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <input value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Categoria customizada" className="rounded-lg border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
+                <DialogFooter className="md:col-span-2">
+                  <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancelar</Button>
+                  <Button type="submit" disabled={createMutation.isPending}>
+                    {createMutation.isPending ? "Criando..." : "Criar palavra"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </TabsContent>
+            <TabsContent value="ai">
+              <GenerateWordSentences key={user?.user_id} vocabulary initiallyExpanded initialInput={form.word} />
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </div>

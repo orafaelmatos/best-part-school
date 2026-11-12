@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Sparkles } from "lucide-react";
@@ -19,11 +19,13 @@ type SentenceDraft = {
 };
 
 type Props = {
-  lessonId: string;
-  level: string;
-  refetch: () => void;
+  level?: string;
+  refetch?: () => void;
   onBeforePersist?: () => Promise<boolean> | boolean;
-};
+  initiallyExpanded?: boolean;
+  initialInput?: string;
+} & ({ lessonId: string; vocabulary?: never }
+  | { lessonId?: never; vocabulary: true });
 
 const BATCH_LIMIT = 50;
 
@@ -34,12 +36,12 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Props) => {
+const GenerateWordSentences = ({ lessonId, level = "", refetch, onBeforePersist, initiallyExpanded = false, initialInput = "" }: Props) => {
   const inputId = useId();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [expanded, setExpanded] = useState(false);
-  const [input, setInput] = useState("");
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [input, setInput] = useState(initialInput);
   const [drafts, setDrafts] = useState<SentenceDraft[]>([]);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,6 +49,14 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
   const [rewritingId, setRewritingId] = useState<number | null>(null);
   const [resolvedLevel, setResolvedLevel] = useState(level);
   const operationRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const forStudent = Boolean(lessonId);
+  const basePath = lessonId ? `/lessons/${lessonId}` : "/vocabulary-cards";
+  const Heading = lessonId ? "h5" : "h2";
 
   const seen = new Set<string>();
   const words = input.split(/[\n,;]+/).map((word) => word.trim()).filter((word) => {
@@ -67,17 +77,19 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     setError("");
     try {
       if (await onBeforePersist?.() === false) return;
+      if (!mounted.current) return;
       const { data } = await api.post<{ items: Omit<SentenceDraft, "selected" | "id">[]; level?: string }>(
-        `/lessons/${lessonId}/generate-word-sentences/`,
+        `${basePath}/generate-word-sentences/`,
         { words },
       );
+      if (!mounted.current) return;
       setDrafts(data.items.map((item, id) => ({ ...item, selected: !item.review_warning, id })));
       setResolvedLevel(data.level || level);
     } catch (error) {
-      setError(errorMessage(error, "Não foi possível gerar as frases. Sua lista foi mantida para tentar novamente."));
+      if (mounted.current) setError(errorMessage(error, "Não foi possível gerar as frases. Sua lista foi mantida para tentar novamente."));
     } finally {
       operationRef.current = false;
-      setGenerating(false);
+      if (mounted.current) setGenerating(false);
     }
   };
 
@@ -90,14 +102,16 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     operationRef.current = true; setRewritingId(draft.id); setError("");
     try {
       if (await onBeforePersist?.() === false) return;
+      if (!mounted.current) return;
       const { data } = await api.post<{ item: Pick<SentenceDraft, "source_word" | "sentence" | "translation">; level?: string }>(
-        `/lessons/${lessonId}/rewrite-word-sentence/`,
+        `${basePath}/${lessonId ? "rewrite-word-sentence" : "generate-word-sentence"}/`,
         { source_word: draft.source_word, previous_sentence: draft.sentence, adjustment },
       );
+      if (!mounted.current) return;
       updateDraft(draft.id, { sentence: data.item.sentence, translation: data.item.translation, review_warning: undefined });
       setResolvedLevel(data.level || resolvedLevel);
-    } catch (cause) { setError(errorMessage(cause, "Não foi possível refazer a frase. Sua sugestão anterior foi mantida para tentar novamente.")); }
-    finally { operationRef.current = false; setRewritingId(null); }
+    } catch (cause) { if (mounted.current) setError(errorMessage(cause, "Não foi possível refazer a frase. Sua sugestão anterior foi mantida para tentar novamente.")); }
+    finally { operationRef.current = false; if (mounted.current) setRewritingId(null); }
   };
 
   const approve = async () => {
@@ -107,40 +121,42 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
     setError("");
     try {
       if (await onBeforePersist?.() === false) return;
+      if (!mounted.current) return;
       const { data } = await api.post<{ created_count: number; skipped_count: number }>(
-        `/lessons/${lessonId}/approve-word-sentences/`,
+        `${basePath}/${lessonId ? "approve-word-sentences" : "save-word-sentences"}/`,
         { items: selected.map(({ source_word, sentence, translation }) => ({
           source_word,
           sentence: sentence.trim(),
           translation: translation.trim(),
         })) },
       );
+      void queryClient.invalidateQueries({ queryKey: ["vocabulary-cards"] });
+      void queryClient.invalidateQueries({ queryKey: ["vocabulary-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      if (!mounted.current) return;
       setDrafts((current) => current.filter((draft) => !draft.selected));
       if (selected.length === drafts.length) setInput("");
       toast({
         title: data.created_count === 1 ? "1 frase salva para praticar" : `${data.created_count} frases salvas para praticar`,
         description: data.skipped_count
           ? `${data.skipped_count} já estavam na lista e não foram duplicadas.`
-          : "Os cards aprovados já estão disponíveis para o aluno.",
+          : forStudent ? "Os cards aprovados já estão disponíveis para o aluno." : "As frases já estão disponíveis para você revisar.",
       });
-      refetch();
-      void queryClient.invalidateQueries({ queryKey: ["vocabulary-cards"] });
-      void queryClient.invalidateQueries({ queryKey: ["vocabulary-dashboard"] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      refetch?.();
     } catch (error) {
-      setError(errorMessage(error, "Não foi possível salvar as frases. Suas correções foram mantidas para tentar novamente."));
+      if (mounted.current) setError(errorMessage(error, "Não foi possível salvar as frases. Suas correções foram mantidas para tentar novamente."));
     } finally {
       operationRef.current = false;
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
   return (
-    <section className="rounded-xl border border-primary/20 bg-background p-4 space-y-4" aria-label="Frases com IA">
+    <section className={`space-y-4 border border-primary/20 ${lessonId ? "rounded-xl bg-background p-4" : "rounded-3xl bg-card p-4 shadow-sm sm:p-6"}`} aria-label="Frases com IA">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h5 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-primary" /> Frases com IA</h5>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Digite uma palavra ou uma lista. A IA cria frases no nível do aluno. Ajuste a dificuldade, revise e salve para ele praticar.</p>
+          <Heading className={`flex items-center gap-2 font-semibold ${lessonId ? "text-sm" : "text-lg"}`}><Sparkles className="h-5 w-5 shrink-0 text-primary" /> Frases com IA</Heading>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">Digite uma palavra ou uma lista. A IA cria uma frase em inglês e uma tradução para cada palavra, {forStudent ? "no nível do aluno" : "no seu nível de inglês"}. Ajuste a dificuldade, revise e salve {forStudent ? "para ele praticar" : "para praticar"}.</p>
         </div>
         {!expanded && <Button type="button" size="sm" variant="outline" onClick={() => setExpanded(true)}>Gerar frases com IA</Button>}
       </div>
@@ -161,7 +177,7 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
               />
               <div id={`${inputId}-help`} className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
                 <span>Separe por linha, vírgula ou ponto e vírgula. Até {BATCH_LIMIT} palavras por lote.</span>
-                <span>{words.length}/{BATCH_LIMIT} palavras · Frases no nível do aluno</span>
+                <span>{words.length}/{BATCH_LIMIT} palavras · Frases {forStudent ? "no nível do aluno" : "no seu nível"}</span>
               </div>
               {invalidWords && <p role="alert" className="text-sm text-destructive">Use até {BATCH_LIMIT} palavras, com no máximo 100 caracteres por palavra ou expressão.</p>}
               <div className="flex flex-wrap gap-2">
@@ -209,17 +225,17 @@ const GenerateWordSentences = ({ lessonId, level, refetch, onBeforePersist }: Pr
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" disabled={busy || !draft.sentence.trim()} onClick={() => void rewrite(draft, "easier")}>Refazer mais fácil</Button><Button type="button" size="sm" variant="outline" disabled={busy || !draft.sentence.trim()} onClick={() => void rewrite(draft, "harder")}>Refazer mais difícil</Button></div>
-                    <p className="text-xs text-muted-foreground">Mantém “{draft.source_word}” e ajusta só esta frase. Nível de referência: {resolvedLevel}. O nível cadastrado do aluno não muda.</p>
+                    <p className="text-xs text-muted-foreground">Mantém “{draft.source_word}” e ajusta só esta frase. Nível de referência: {resolvedLevel}. {forStudent ? "O nível cadastrado do aluno não muda." : "Seu nível cadastrado não muda."}</p>
                     {rewritingId === draft.id ? <p role="status" className="text-xs text-muted-foreground">Refazendo a frase e a tradução...</p> : null}
                   </div>
                 ))}
               </div>
               {invalidDrafts && <p role="alert" className="text-sm text-destructive">Preencha a frase e a tradução de todos os cards selecionados.</p>}
-              <p className="text-xs text-muted-foreground">As sugestões só ficam disponíveis para o aluno depois da sua aprovação.</p>
+              <p className="text-xs text-muted-foreground">{forStudent ? "As sugestões só ficam disponíveis para o aluno depois da sua aprovação." : "As sugestões só entram na sua revisão depois que você escolher e salvar as frases."}</p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" className="h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto" onClick={approve} disabled={busy || !selected.length || invalidDrafts}>
                   {saving ? <Loader2 className="animate-spin" /> : <Check />}
-                  {saving ? "Salvando frases..." : `Aprovar e salvar ${selected.length} ${selected.length === 1 ? "frase" : "frases"}`}
+                  {saving ? "Salvando frases..." : `${forStudent ? "Aprovar e salvar" : "Salvar"} ${selected.length} ${selected.length === 1 ? "frase" : "frases"}`}
                 </Button>
                 <Button type="button" variant="outline" disabled={busy} onClick={() => { setDrafts([]); setError(""); }}>Descartar sugestões</Button>
               </div>

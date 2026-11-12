@@ -121,6 +121,10 @@ class GenerateWordSentencesSerializer(serializers.Serializer):
         return unique_words
 
 
+class GenerateVocabularySentencesSerializer(GenerateWordSentencesSerializer):
+    student_id = serializers.UUIDField(required=False)
+
+
 class WordSentenceDraftSerializer(serializers.Serializer):
     source_word = serializers.CharField(max_length=100)
     sentence = serializers.CharField(max_length=255)
@@ -151,6 +155,10 @@ class SaveWordSentenceSerializer(WordSentenceDraftSerializer):
 
 class ApproveWordSentencesSerializer(serializers.Serializer):
     items = WordSentenceDraftSerializer(many=True, min_length=1, max_length=WORD_SENTENCE_BATCH_LIMIT)
+
+
+class SaveVocabularySentencesSerializer(ApproveWordSentencesSerializer):
+    student_id = serializers.UUIDField(required=False)
 
 
 class VocabularyCategorySerializer(serializers.ModelSerializer):
