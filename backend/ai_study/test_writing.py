@@ -51,9 +51,9 @@ def evaluation(outcome='correct'):
 
 class WritingLessonTests(TestCase):
     def setUp(self):
-        self.student = User.objects.create_user(email='writer@test.com', role='student', level='A1')
-        self.teacher = User.objects.create_user(email='writing-teacher@test.com', role='teacher')
-        self.other = User.objects.create_user(email='another-writer@test.com', role='student')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='writer@test.com', role='student', level='A1')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='writing-teacher@test.com', role='teacher')
+        self.other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='another-writer@test.com', role='student')
         Lesson.objects.create(student=self.student, teacher=self.teacher, title='Writing', date=timezone.now())
         self.client = APIClient()
         self.client.force_authenticate(self.student)
@@ -247,7 +247,7 @@ class WritingLessonTests(TestCase):
         self.client.force_authenticate(self.other)
         self.assertEqual(self.client.get(f'/api/ai-study/writing-reports/{record.id}/').status_code, 404)
         self.assertEqual(self.client.get(f'/api/ai-study/writing-reports/?student={self.student.id}').data['count'], 0)
-        unrelated_teacher = User.objects.create_user(email='unrelated-writing@test.com', role='teacher')
+        unrelated_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='unrelated-writing@test.com', role='teacher')
         self.client.force_authenticate(unrelated_teacher)
         self.assertEqual(self.client.get(f'/api/ai-study/writing-reports/{record.id}/').status_code, 404)
 

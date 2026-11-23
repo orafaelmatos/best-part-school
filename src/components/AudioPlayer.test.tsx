@@ -1,4 +1,6 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { act, cleanup, fireEvent, render as testingRender, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AudioPlayer from "@/components/AudioPlayer";
 
@@ -10,6 +12,10 @@ const player = () => {
   return { events, on: vi.fn((name: string, callback: () => void) => { events[name] = callback; }),
     getDuration: vi.fn(() => 4), setPlaybackRate: vi.fn(), playPause: vi.fn().mockResolvedValue(undefined), destroy: vi.fn() };
 };
+
+function render(element: ReactElement) {
+  return testingRender(element, { wrapper: ({ children }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider> });
+}
 
 describe("Audio player states and fallbacks", () => {
   let current: ReturnType<typeof player>;

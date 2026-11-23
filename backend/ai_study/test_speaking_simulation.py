@@ -1,3 +1,4 @@
+from django.utils import timezone
 from copy import deepcopy
 import json
 import tempfile
@@ -165,7 +166,7 @@ class SimulationFlowTests(TestCase):
         self.feedback_analysis = analysis_patch.start()
         self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
-        self.student = User.objects.create_user(email='simulation@test.com', role='student', level='A1')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='simulation@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)
         self.session = AIStudySession.objects.create(student=self.student, mode='speaking', title='Aula de Jiu-Jitsu')
         state = {'enabled': True, 'stage': 'active', 'level': 'A1', 'scenario_key': 'custom',
@@ -380,7 +381,7 @@ class SimulationFlowTests(TestCase):
 
     def test_repeat_cannot_access_another_students_pending_question(self):
         message_id = self.message(action='continue').data['assistant_message']['id']
-        other = User.objects.create_user(email='other-simulation@test.com', role='student')
+        other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-simulation@test.com', role='student')
         self.client.force_authenticate(other)
         response = self.client.post(f'/api/ai-study/sessions/{self.session.id}/simulation-audio/', {'message_id': message_id}, format='json')
         self.assertEqual(response.status_code, 404)

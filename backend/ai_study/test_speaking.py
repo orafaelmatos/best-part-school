@@ -1,3 +1,4 @@
+from django.utils import timezone
 from copy import deepcopy
 import json
 import tempfile
@@ -190,7 +191,7 @@ class SpeakingIntegrationTests(TestCase):
         self.feedback_analysis = analysis_patch.start()
         self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
-        self.student = User.objects.create_user(email='speaking@test.com', password='123', role='student', level='A1')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='speaking@test.com', password='123', role='student', level='A1')
         self.client.force_authenticate(self.student)
         self.plan_patch = patch.object(AIStudyOpenAIService, 'plan_speaking_session', return_value=make_plan())
         self.plan_mock = self.plan_patch.start()
@@ -416,10 +417,10 @@ class SpeakingIntegrationTests(TestCase):
 
     def test_persisted_pedagogy_uses_existing_session_access_rules(self):
         session = self.create_session()
-        other = User.objects.create_user(email='other-speaking@test.com', password='123', role='student')
+        other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-speaking@test.com', password='123', role='student')
         self.client.force_authenticate(other)
         self.assertEqual(self.client.get(f'/api/ai-study/sessions/{session.id}/').status_code, 404)
-        teacher = User.objects.create_user(email='speaking-teacher@test.com', password='123', role='teacher')
+        teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='speaking-teacher@test.com', password='123', role='teacher')
         Lesson.objects.create(title='English', student=self.student, teacher=teacher, level='A1')
         self.client.force_authenticate(teacher)
         response = self.client.get(f'/api/ai-study/sessions/{session.id}/')

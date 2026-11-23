@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from bps_core.media import signed_media_url, refresh_embedded_images
 import mimetypes
 from .models import (
     Lesson,
@@ -21,6 +22,41 @@ from .models import (
 )
 from .scheduling import lesson_end_time, lesson_start_times_overlap
 from .word_sentences import WORD_SENTENCE_BATCH_LIMIT
+from accounts.access import is_admin, managed_students
+
+
+def validate_managed_targets(attrs, user):
+    if is_admin(user):
+        return
+    teacher = attrs.get('teacher')
+    student = attrs.get('student')
+    group = attrs.get('group')
+    lesson = attrs.get('lesson')
+    if teacher and teacher.pk != user.pk:
+        raise serializers.ValidationError({'teacher': 'Use seu próprio vínculo de professor.'})
+    if student and not managed_students(user).filter(pk=student.pk).exists():
+        raise serializers.ValidationError({'student': 'Aluno fora do seu vínculo.'})
+    if group and group.teacher_id != user.pk:
+        raise serializers.ValidationError({'group': 'Grupo fora do seu vínculo.'})
+    if lesson and lesson.teacher_id != user.pk:
+        raise serializers.ValidationError({'lesson': 'Aula fora do seu vínculo.'})
+
+
+def can_reuse_material_path(user, path, kind):
+    if not path or not isinstance(path, str) or not path.startswith(f'homework/questions/{"images" if kind == "image" else "audio"}/'):
+        return False
+    questions = HomeworkQuestion.objects.filter(**{kind: path})
+    if not is_admin(user):
+        questions = questions.filter(homework__teacher=user)
+    if questions.exists():
+        return True
+    templates = HomeworkTemplate.objects.all()
+    if not is_admin(user):
+        templates = templates.filter(teacher=user)
+    return any(
+        any(question.get(f'{kind}_path') == path for question in (items or []) if isinstance(question, dict))
+        for items in templates.values_list('questions', flat=True)
+    )
 
 class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.name', read_only=True)
@@ -36,6 +72,11 @@ class StudentRecurringScheduleSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         validated = super().validate(attrs)
+        request = self.context.get('request')
+        if request:
+            if not is_admin(request.user) and request.user.role != 'teacher':
+                raise serializers.ValidationError('Somente a escola pode alterar agendas.')
+            validate_managed_targets(validated, request.user)
         teacher = validated.get('teacher', getattr(self.instance, 'teacher', None))
         student = validated.get('student', getattr(self.instance, 'student', None))
         group = validated.get('group', getattr(self.instance, 'group', None))
@@ -96,6 +137,7 @@ class TeacherBlockedDateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherBlockedDate
         fields = ['id', 'teacher', 'date', 'reason']
+        read_only_fields = ['teacher']
 
 class NewWordSerializer(serializers.ModelSerializer):
     class Meta:
@@ -173,6 +215,11 @@ class VocabularyCardSerializer(serializers.ModelSerializer):
     lesson_title = serializers.CharField(source='lesson.title', read_only=True)
     audio_file_url = serializers.FileField(source='audio', read_only=True)
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['audio_url'] = signed_media_url(data['audio_url'])
+        return data
+
     class Meta:
         model = VocabularyCard
         fields = [
@@ -188,7 +235,7 @@ class VocabularyCardSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'easiness_factor', 'interval_days', 'repetition_count', 'failure_count',
             'confidence_level', 'difficulty_level', 'last_reviewed_at',
-            'next_review_at', 'mastered', 'created_at', 'updated_at',
+            'next_review_at', 'mastered', 'created_at', 'updated_at', 'audio_url',
         ]
         extra_kwargs = {
             'student': {'required': False},
@@ -200,6 +247,35 @@ class VocabularyCardSerializer(serializers.ModelSerializer):
         if isinstance(value, str):
             return [tag.strip() for tag in value.split(',') if tag.strip()]
         return value or []
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get('request')
+        if not request or is_admin(request.user):
+            return attrs
+        user = request.user
+        if user.role == 'student':
+            if attrs.get('student') and attrs['student'].pk != user.pk:
+                raise serializers.ValidationError({'student': 'Use sua própria conta.'})
+            if attrs.get('teacher'):
+                raise serializers.ValidationError({'teacher': 'Este vínculo é gerenciado pela escola.'})
+            if self.instance and any(key in attrs for key in ['source_new_word', 'source_type', 'lesson']):
+                raise serializers.ValidationError('Os vínculos do card não podem ser alterados.')
+        elif user.role == 'teacher':
+            validate_managed_targets(attrs, user)
+        if attrs.get('lesson'):
+            from .permissions import visible_lessons
+            if not visible_lessons(user).filter(pk=attrs['lesson'].pk).exists():
+                raise serializers.ValidationError({'lesson': 'Aula fora do seu vínculo.'})
+        if attrs.get('source_new_word'):
+            from .permissions import visible_lessons
+            if not visible_lessons(user).filter(pk=attrs['source_new_word'].lesson_id).exists():
+                raise serializers.ValidationError({'source_new_word': 'Palavra fora do seu vínculo.'})
+        category = attrs.get('category')
+        owner_ids = {user.pk, getattr(attrs.get('student'), 'pk', None)}
+        if category and not category.is_default and category.owner_id not in owner_ids:
+            raise serializers.ValidationError({'category': 'Categoria fora do seu vínculo.'})
+        return attrs
 
 class VocabularyReviewLogSerializer(serializers.ModelSerializer):
     word = serializers.CharField(source='card.word', read_only=True)
@@ -242,6 +318,13 @@ class LessonSummarySerializer(serializers.ModelSerializer):
     lesson_date = serializers.DateTimeField(source='lesson.date', read_only=True)
     student_name = serializers.CharField(source='student.name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        files = [attachment.file for attachment in instance.lesson.attachments.all()]
+        for field in ['summary', 'homework', 'observations']:
+            data[field] = refresh_embedded_images(data[field], files, self.context.get('request'))
+        return data
 
     class Meta:
         model = LessonSummary
@@ -313,6 +396,14 @@ class LessonSerializer(serializers.ModelSerializer):
     group_student_ids = serializers.SerializerMethodField()
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     template_title = serializers.CharField(source='template.title', read_only=True)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['notes'] = refresh_embedded_images(
+            data['notes'], [attachment.file for attachment in instance.attachments.all()],
+            self.context.get('request'),
+        )
+        return data
 
     def get_student_name(self, obj):
         if obj.student_id:
@@ -398,6 +489,8 @@ class HomeworkQuestionSerializer(serializers.ModelSerializer):
             }
         if self._is_teacher_context():
             data['reserve_question'] = reserve_question
+            data['image_path'] = instance.image.name if instance.image else ''
+            data['audio_path'] = instance.audio.name if instance.audio else ''
             return data
 
         data.pop('correct_option_index', None)
@@ -409,6 +502,11 @@ class HomeworkQuestionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        request = self.context.get('request')
+        for kind in ['image', 'audio']:
+            path = attrs.get(f'{kind}_path')
+            if path and (not request or not can_reuse_material_path(request.user, path, kind)):
+                raise serializers.ValidationError({f'{kind}_path': 'Envie o arquivo ou escolha um material da sua própria homework.'})
         return attrs
 
     def validate_image(self, value):
@@ -518,6 +616,16 @@ class HomeworkSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        request = self.context.get('request')
+        if request:
+            if not is_admin(request.user) and request.user.role != 'teacher':
+                raise serializers.ValidationError('Somente a escola pode criar ou alterar uma homework.')
+            validate_managed_targets(attrs, request.user)
+        if any(question.get('audio') for question in attrs.get('questions', []) if isinstance(question, dict)):
+            from accounts.privacy import has_ai_consent
+            if request and not has_ai_consent(request.user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('Autorize o envio de áudio à OpenAI.', code='ai_consent_required')
         status = attrs.get('status', getattr(self.instance, 'status', 'draft'))
         if status == 'draft':
             return attrs
@@ -665,6 +773,35 @@ class HomeworkSerializer(serializers.ModelSerializer):
         return instance
 
 class HomeworkTemplateSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        from copy import deepcopy
+        from django.core.files.storage import default_storage
+        data = super().to_representation(instance)
+        data['questions'] = deepcopy(data.get('questions', []))
+        request = self.context.get('request')
+        for question in data.get('questions', []):
+            if not isinstance(question, dict):
+                continue
+            for kind in ['image', 'audio']:
+                path = question.get(f'{kind}_path')
+                if request and path and can_reuse_material_path(request.user, path, kind):
+                    question[f'{kind}_url'] = request.build_absolute_uri(default_storage.url(path))
+        return data
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if request:
+            validate_managed_targets(attrs, request.user)
+            source = attrs.get('source_homework')
+            if source and not is_admin(request.user) and source.teacher_id != request.user.pk:
+                raise serializers.ValidationError({'source_homework': 'Homework fora do seu vínculo.'})
+            for item in attrs.get('questions', []):
+                for kind in ['image', 'audio']:
+                    path = item.get(f'{kind}_path')
+                    if path and not can_reuse_material_path(request.user, path, kind):
+                        raise serializers.ValidationError({'questions': 'Material fora do seu vínculo.'})
+        return attrs
+
     class Meta:
         model = HomeworkTemplate
         fields = [

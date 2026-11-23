@@ -39,6 +39,8 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
     level = models.CharField(max_length=10, choices=LEVEL_CHOICES, blank=True, null=True)
     photo = models.ImageField(upload_to='students/photos/', blank=True, null=True, max_length=768)
+    ai_consent_version = models.CharField(max_length=32, blank=True)
+    ai_consent_at = models.DateTimeField(null=True, blank=True)
     planned_lessons_count = models.PositiveIntegerField(default=0)
     completed_lessons_count = models.PositiveIntegerField(default=0)
     contract_start_date = models.DateField(blank=True, null=True)
@@ -62,6 +64,13 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.email} - {self.role}"
 
+
+class AIConsentRecord(models.Model):
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='ai_consent_records')
+    version = models.CharField(max_length=32)
+    accepted = models.BooleanField()
+    provider = models.CharField(max_length=80, default='OpenAI')
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class StudentGroup(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

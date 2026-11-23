@@ -1,3 +1,4 @@
+import type { SchoolUser, SchoolLesson, LessonSelectOption, AvailabilitySlot } from "@/lib/schoolTypes";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -14,8 +15,8 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
   const { data: students = [] } = useQuery({
     queryKey: ["students"],
     queryFn: async () => {
-      const usersData = await fetchAllPages<any>("/accounts/users/");
-      return usersData.filter((u: any) => u.role === "student");
+      const usersData = await fetchAllPages<SchoolUser>("/accounts/users/");
+      return usersData.filter((u: SchoolUser) => u.role === "student");
     }
   });
 
@@ -27,7 +28,7 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
     }
   });
 
-  const studentLessons = allLessons.filter((l: any) => l.student === studentId && l.status === "scheduled");
+  const studentLessons = allLessons.filter((l: SchoolLesson) => l.student === studentId && l.status === "scheduled");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -42,7 +43,7 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
               onChange={(e) => { setStudentId(e.target.value); setLessonId(""); }}
             >
               <option value="">Selecione um aluno...</option>
-              {students.map((student: any) => (
+              {students.map((student: SchoolUser) => (
                 <option key={student.id} value={student.id}>
                   {student.name || student.email}
                 </option>
@@ -59,7 +60,7 @@ export const IniciarAulaModal = ({ onClose }: { onClose: () => void }) => {
                 onChange={(e) => setLessonId(e.target.value)}
               >
                 <option value="">Selecione uma aula...</option>
-                {studentLessons.map((l: any) => (
+                {studentLessons.map((l: SchoolLesson) => (
                   <option key={l.id} value={l.id}>
                     {l.title} (Nível {l.level})
                   </option>

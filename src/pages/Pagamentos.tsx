@@ -1,3 +1,7 @@
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import type { PaymentRecord, FinanceTimelineEntry } from "@/lib/schoolTypes";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -45,7 +49,7 @@ const pixKeyTypeLabel = (value?: string | null) => {
   return "E-mail";
 };
 
-const FinanceCard = ({ label, value, icon: Icon, tone = "default" }: any) => (
+const FinanceCard = ({ label, value, icon: Icon, tone = "default" }: { label: string; value: ReactNode; icon: LucideIcon; tone?: string }) => (
   <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
     <div className="mb-4 flex items-center justify-between">
       <p className="text-sm text-muted-foreground">{label}</p>
@@ -57,7 +61,7 @@ const FinanceCard = ({ label, value, icon: Icon, tone = "default" }: any) => (
   </div>
 );
 
-const SectionList = ({ title, description, items, onOpenDetails, actions }: any) => (
+const SectionList = ({ title, description, items, onOpenDetails, actions }: { title: string; description: string; items: PaymentRecord[]; onOpenDetails: (payment: PaymentRecord) => void; actions?: (payment: PaymentRecord) => ReactNode }) => (
   <section className="rounded-2xl border border-border bg-card shadow-sm">
     <div className="flex items-center justify-between border-b border-border px-5 py-4">
       <div>
@@ -70,7 +74,7 @@ const SectionList = ({ title, description, items, onOpenDetails, actions }: any)
       {items.length === 0 && (
         <div className="px-5 py-10 text-center text-sm text-muted-foreground">Nada por aqui.</div>
       )}
-      {items.map((item: any) => (
+      {items.map((item: PaymentRecord) => (
         <div key={item.id} className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -97,7 +101,7 @@ const Pagamentos = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
@@ -158,10 +162,10 @@ const Pagamentos = () => {
         toast({ title: "Financeiro atualizado" });
       }
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: "Erro financeiro",
-        description: err.response?.data?.error || "Nao foi possivel concluir a acao.",
+        description: apiErrorMessage(err, 'Nao foi possivel concluir a acao.'),
         variant: "destructive",
       });
     },
@@ -183,10 +187,10 @@ const Pagamentos = () => {
       queryClient.invalidateQueries({ queryKey: ["my-finance"] });
       toast({ title: "Contrato anexado", description: "O aluno ja pode abrir o contrato pelo financeiro." });
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: "Erro ao anexar contrato",
-        description: err.response?.data?.contract_file?.[0] || err.response?.data?.error || "Nao foi possivel enviar o contrato.",
+        description: apiErrorMessage(err, 'Nao foi possivel enviar o contrato.'),
         variant: "destructive",
       });
     },
@@ -222,7 +226,7 @@ const Pagamentos = () => {
     setContractFile(null);
   }, [selectedStudentId]);
 
-  const teacherActions = (item: any) => (
+  const teacherActions = (item: PaymentRecord) => (
     <>
       <Button size="sm" onClick={() => paymentActionMutation.mutate({ paymentId: item.id, action: "charge" })}>
         <MessageCircleMore className="mr-2 h-4 w-4" />
@@ -279,9 +283,9 @@ const Pagamentos = () => {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <SectionList title="Pagamentos pendentes" description="Cobrar rapido e abrir detalhes do aluno." items={teacherDashboard?.pending_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
-            <SectionList title="Proximos do vencimento" description="Aulas e cobrancas que merecem atencao agora." items={teacherDashboard?.due_soon_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
-            <SectionList title="Vencidos" description="Mensalidades em atraso." items={teacherDashboard?.overdue_items || []} onOpenDetails={(item: any) => setSelectedStudentId(item.student)} actions={teacherActions} />
+            <SectionList title="Pagamentos pendentes" description="Cobrar rapido e abrir detalhes do aluno." items={teacherDashboard?.pending_items || []} onOpenDetails={(item: PaymentRecord) => setSelectedStudentId(item.student)} actions={teacherActions} />
+            <SectionList title="Proximos do vencimento" description="Aulas e cobrancas que merecem atencao agora." items={teacherDashboard?.due_soon_items || []} onOpenDetails={(item: PaymentRecord) => setSelectedStudentId(item.student)} actions={teacherActions} />
+            <SectionList title="Vencidos" description="Mensalidades em atraso." items={teacherDashboard?.overdue_items || []} onOpenDetails={(item: PaymentRecord) => setSelectedStudentId(item.student)} actions={teacherActions} />
           </div>
         </div>
       ) : (
@@ -473,7 +477,7 @@ const Pagamentos = () => {
                 <div className="rounded-xl border border-border bg-card p-4">
                   <p className="text-sm font-semibold">Historico</p>
                   <div className="mt-3 space-y-3">
-                    {studentDetailQuery.data.history.map((payment: any) => (
+                    {studentDetailQuery.data.history.map((payment: PaymentRecord) => (
                       <div key={payment.id} className="rounded-lg border border-border p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -489,7 +493,7 @@ const Pagamentos = () => {
                 <div className="rounded-xl border border-border bg-card p-4">
                   <p className="text-sm font-semibold">Timeline financeira</p>
                   <div className="mt-3 space-y-3">
-                    {studentDetailQuery.data.timeline.map((entry: any) => (
+                    {studentDetailQuery.data.timeline.map((entry: FinanceTimelineEntry) => (
                       <div key={entry.id} className="border-l-2 border-primary/20 pl-4">
                         <p className="text-sm font-medium">{entry.title}</p>
                         <p className="text-xs text-muted-foreground">{entry.description || dateLabel(entry.created_at)}</p>

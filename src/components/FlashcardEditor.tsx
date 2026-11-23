@@ -1,10 +1,12 @@
+import type { SchoolLesson } from "@/lib/schoolTypes";
+import type { LessonWord } from "@/lib/studentLessonHistory";
 import React, { useState } from "react";
 import { Book, Edit2, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import GenerateWordSentences from "@/components/GenerateWordSentences";
 
-export const FlashcardItem = ({ nw, isTeacher, isStudent, onEdit, onDelete, onStatusUpdate }: any) => {
+export const FlashcardItem = ({ nw, isTeacher, isStudent, onEdit, onDelete, onStatusUpdate }: { nw: LessonWord; isTeacher?: boolean; isStudent?: boolean; onEdit?: (word: LessonWord) => void; onDelete?: (id: string) => void; onStatusUpdate?: (id: string, status: NonNullable<LessonWord["status"]>) => void }) => {
   const [flipped, setFlipped] = useState(false);
 
   const statusColors: Record<string, string> = {
@@ -84,7 +86,7 @@ export const FlashcardEditor = ({
   refetch,
   onBeforePersist,
 }: {
-  lesson: any;
+  lesson: Pick<SchoolLesson, "id" | "level" | "new_words">;
   refetch: () => void;
   onBeforePersist?: () => Promise<boolean> | boolean;
 }) => {
@@ -122,7 +124,7 @@ export const FlashcardEditor = ({
     }
   };
 
-  const handleEditClick = (nw: any) => {
+  const handleEditClick = (nw: LessonWord) => {
     setWord(nw.word);
     setMeaning(nw.meaning);
     setEditingId(nw.id);
@@ -183,7 +185,7 @@ export const FlashcardEditor = ({
 
       {lesson?.new_words?.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {lesson.new_words.map((nw: any) => (
+          {lesson.new_words.map((nw: LessonWord) => (
             <FlashcardItem
               key={nw.id}
               nw={nw}

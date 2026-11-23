@@ -227,7 +227,7 @@ const AIConversationSidebar = () => {
   };
 
   const handleSelectSession = (targetSessionId: string) => {
-    startTransition(() => navigate(buildWorkspaceSessionPath(activeWorkspace.id, targetSessionId)));
+    startTransition(() => { void navigate(buildWorkspaceSessionPath(activeWorkspace.id, targetSessionId)); });
   };
 
   const handleStartRename = (session: SessionSummary) => {
@@ -286,7 +286,7 @@ const AIConversationSidebar = () => {
 
       if (session.id === sessionId) {
         if (remainingSessions.length) {
-          startTransition(() => navigate(buildWorkspaceSessionPath(activeWorkspace.id, remainingSessions[0].id)));
+          startTransition(() => { void navigate(buildWorkspaceSessionPath(activeWorkspace.id, remainingSessions[0].id)); });
         } else {
           navigate(activeWorkspace.newPath);
         }
@@ -304,7 +304,7 @@ const AIConversationSidebar = () => {
     <section className="rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.95)]">
       <div className="mb-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-          Workspace IA
+          Suas práticas
         </p>
       </div>
 
@@ -319,7 +319,7 @@ const AIConversationSidebar = () => {
                 type="button"
                 onClick={() => {
                   if (!isActive) {
-                    startTransition(() => navigate(workspace.basePath));
+                    startTransition(() => { void navigate(workspace.basePath); });
                   }
                 }}
                 className={cn(

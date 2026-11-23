@@ -23,7 +23,7 @@ describe("Teacher Writing follow-up", () => {
 
   it("loads persisted corrections for the selected student and paginates", async () => {
     vi.mocked(api.get).mockImplementation(async (_url, config) => {
-      const second = config?.params?.page === 2;
+      const second = (config?.params as { page?: number; group?: string })?.page === 2;
       return { data: { count: 11, next: second ? null : "next", previous: second ? "previous" : null,
         results: [{ id: second ? "report2" : "report1", updated_at: "2026-11-05T15:00:00Z", status: "completed",
           report: { ...writingReportFixture(), scenario: second ? "Hotel" : "Turismo" } }] } };

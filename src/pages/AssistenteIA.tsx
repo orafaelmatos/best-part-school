@@ -1,3 +1,4 @@
+import AIContentReportButton from "@/components/AIContentReportButton";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
@@ -21,7 +22,7 @@ import { reviewAudioAsWav } from "@/lib/reviewAudio";
 import MicRecorder, { RecordingState } from "@/components/MicRecorder";
 import PronunciationFeedback, { SpeakingFeedback } from "@/components/PronunciationFeedback";
 import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
-import type { WritingFeedback } from "@/components/WritingFeedbackCard";
+import WritingFeedbackCard, { type WritingFeedback } from "@/components/WritingFeedbackCard";
 import { useToast } from "@/hooks/use-toast";
 import {
   AIStudyMode,
@@ -686,6 +687,7 @@ const MessageBubble = ({
           </div>
         </div>
 
+        {!isUser && !message.pending && <AIContentReportButton messageId={message.id} />}
         {message.audio_url && audioMeta?.created_at ? (
           <p className="px-1 text-[11px] text-muted-foreground">Áudio enviado em {formatDateTime(audioMeta.created_at)}</p>
         ) : null}
@@ -694,6 +696,7 @@ const MessageBubble = ({
           <SpeakingSimulationReplay key={message.id} sessionId={sessionId} messageId={message.id}
             question={message.metadata.speaking_simulation.question} />
         ) : null}
+        {message.writing_feedback_detail ? <WritingFeedbackCard feedback={message.writing_feedback_detail} /> : null}
         {isInteractive && message.metadata?.guided && message.metadata?.choices?.length && onChoiceSelect ? (
           <GuidedChoices
             choices={message.metadata.choices}
@@ -1018,7 +1021,7 @@ const AssistenteIA = () => {
   const handleSelectSession = (sessionId: string) => {
     setIsChangingLesson(false);
     setIsRenaming(false);
-    startTransition(() => navigate(buildSessionPath(sessionId)));
+    startTransition(() => { void navigate(buildSessionPath(sessionId)); });
   };
 
   const handleCreateSession = async (mode: PracticeMode, lessonId?: string) => {
@@ -1031,7 +1034,7 @@ const AssistenteIA = () => {
       syncDraft(createdSession);
       setRenameValue(createdSession.title || "");
       setIsChangingLesson(false);
-      startTransition(() => navigate(buildSessionPath(createdSession.id)));
+      startTransition(() => { void navigate(buildSessionPath(createdSession.id)); });
       await invalidateSessionList();
     } catch {
       toast({
@@ -1135,7 +1138,7 @@ const AssistenteIA = () => {
       const remainingSessions = (queryClient.getQueryData(aiStudySessionsQueryKey()) as SessionSummary[] | undefined) || [];
       const nextSession = remainingSessions.find((session) => session.id !== deletedId);
       if (nextSession) {
-        startTransition(() => navigate(buildSessionPath(nextSession.id)));
+        startTransition(() => { void navigate(buildSessionPath(nextSession.id)); });
       } else {
         navigate(buildNewModePath());
       }
@@ -1421,7 +1424,7 @@ const AssistenteIA = () => {
       <div
         className={cn(
           "space-y-6",
-          isConversationPage && "h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
+          isConversationPage && "student-workspace h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
           isConversationPage && activeMode === "speaking" && "min-h-[40rem]",
         )}
       >
@@ -1873,7 +1876,7 @@ const AssistenteIA = () => {
                         <p className="text-xs font-medium text-muted-foreground">Resposta por texto</p>
                         {!recordingSupportError() ? <Button type="button" size="sm" variant="ghost" onClick={openVoiceResponse}>Usar microfone</Button> : null}
                       </div> : null}
-                      <div className="flex items-end gap-3">
+                      <div className="flex min-w-0 items-end gap-2 sm:gap-3">
                         {canUseAudioInput && activeMode === "review" ? (
                           <button
                             type="button"
@@ -1891,7 +1894,7 @@ const AssistenteIA = () => {
                           </button>
                         ) : null}
 
-                        <div className="flex min-h-[52px] flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
+                        <div className="student-composer-field flex min-h-[52px] min-w-0 flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
                           <textarea
                             ref={textInputRef}
                             aria-label="Sua resposta por texto"
@@ -1901,7 +1904,7 @@ const AssistenteIA = () => {
                             placeholder={reviewCompleted ? "Revisão finalizada. Inicie uma nova revisão para praticar mais." : composerPlaceholder}
                             disabled={!activeSession || isBusy || isCapturing || reviewCompleted}
                             rows={1}
-                            className="max-h-32 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground disabled:opacity-50"
+                            className="max-h-32 min-h-[48px] w-full min-w-0 flex-1 resize-none bg-transparent px-3 py-3 text-base outline-none placeholder:text-muted-foreground disabled:opacity-50"
                           />
                         </div>
 
@@ -1950,7 +1953,7 @@ const AssistenteIA = () => {
                   </p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {hasSavedSessions
-                      ? "Abra uma conversa pelo histórico na sidebar ou inicie uma nova prática escolhendo o modo primeiro."
+                      ? "Abra uma conversa pelo histórico ou escolha um modo para começar uma nova prática."
                       : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">

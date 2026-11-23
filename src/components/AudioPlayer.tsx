@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { AlertCircle, Loader2, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
 
 const formatDuration = (seconds: number) => {
   if (!Number.isFinite(seconds)) return "0:00";
@@ -9,6 +10,7 @@ const formatDuration = (seconds: number) => {
 };
 
 const AudioPlayer = ({ src, compact = false }: { src?: string | null; compact?: boolean }) => {
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<WaveSurfer | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -85,7 +87,7 @@ const AudioPlayer = ({ src, compact = false }: { src?: string | null; compact?: 
       </div>
       {!isReady && !error ? <span role="status" className="sr-only">Carregando áudio...</span> : null}
       {error ? <div className="space-y-2"><p role="alert" className="text-xs text-muted-foreground">{error}</p>
-        <Button type="button" size="sm" variant="outline" onClick={() => setRetry((value) => value + 1)}>Tentar áudio novamente</Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => { void queryClient.invalidateQueries(); setRetry((value) => value + 1); }}>Tentar áudio novamente</Button>
       </div> : null}
     </div>
   );

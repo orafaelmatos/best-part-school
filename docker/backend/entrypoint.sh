@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-bps_core.settings_production}"
+
 if [ "${DJANGO_MIGRATE_ON_START:-1}" = "1" ]; then
   python manage.py migrate --noinput
 fi

@@ -1,9 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
-from django.conf.urls.static import static
-from django.urls import re_path
-from django.views.static import serve
+from .media import private_media
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -13,11 +11,5 @@ urlpatterns = [
     path('api/', include('payments.urls')),
     path('api/practice/', include('practice.urls')),
     path('api/ai-study/', include('ai_study.urls')),
+    path('media/<path:path>', private_media, name='private-media'),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-else:
-    urlpatterns += [
-        re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
-    ]

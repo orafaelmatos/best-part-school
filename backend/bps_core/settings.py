@@ -22,7 +22,7 @@ def env_list(name, default=""):
 
 
 def get_database_config():
-    database_url = os.getenv("DATABASE_URL")
+    database_url = os.getenv("DATABASE_URL") 
     if database_url:
         parsed = urlparse(database_url)
         scheme = parsed.scheme.split("+", 1)[0]
@@ -64,6 +64,8 @@ LOCAL_DEV_ORIGINS = ",".join(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "http://192.168.50.12:8080",
+        "capacitor://localhost",
+        "https://localhost",
     ]
 )
 
@@ -195,6 +197,8 @@ AUTH_USER_MODEL = 'accounts.User'
 
 # DRF Settings
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'bps_core.exceptions.api_exception_handler',
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -207,7 +211,8 @@ REST_FRAMEWORK = {
 
 # Simple JWT 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'CHECK_REVOKE_TOKEN': True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
@@ -215,3 +220,8 @@ SIMPLE_JWT = {
 # Media Files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+PRIVATE_MEDIA_URL_TTL = int(os.getenv('PRIVATE_MEDIA_URL_TTL', '900'))
+STORAGES = {
+    'default': {'BACKEND': 'bps_core.media.PrivateMediaStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage' if HAS_WHITENOISE else 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}

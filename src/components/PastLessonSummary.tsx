@@ -1,3 +1,4 @@
+import { normalizeList } from "@/lib/schoolTypes";
 import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -88,7 +89,6 @@ type PastLessonSummaryProps = {
   compact?: boolean;
 };
 
-const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
 const stripHtml = (value?: string) => {
   if (!value) return "";

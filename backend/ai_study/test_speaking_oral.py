@@ -1,3 +1,4 @@
+from django.utils import timezone
 from copy import deepcopy
 import tempfile
 import uuid
@@ -23,7 +24,7 @@ class SpeakingOralTests(TestCase):
         self.feedback_analysis = analysis_patch.start()
         self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
-        self.student = User.objects.create_user(email='oral@test.com', role='student', level='A1')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='oral@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)
         self.session = AIStudySession.objects.create(student=self.student, mode='speaking')
         self.session.guided_state = {'enabled': True, 'stage': 'active', 'level': 'A1',
@@ -163,7 +164,7 @@ class SpeakingOralTests(TestCase):
         url = f'/api/ai-study/sessions/{self.session.id}/utterance-audio/'
         response = self.client.post(url, {'message_id': str(message.id), 'part': 'question'}, format='json')
         self.assertEqual(response.status_code, 400)
-        other = User.objects.create_user(email='other-oral@test.com', role='student')
+        other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-oral@test.com', role='student')
         self.client.force_authenticate(other)
         self.assertEqual(self.client.post(url, {'message_id': str(message.id), 'part': 'question'}, format='json').status_code, 404)
         self.tts.assert_not_called()

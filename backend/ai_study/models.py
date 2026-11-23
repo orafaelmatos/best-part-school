@@ -7,6 +7,20 @@ from lessons.models import Lesson
 User = settings.AUTH_USER_MODEL
 
 
+class AIContentReport(models.Model):
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ai_content_reports')
+    message = models.ForeignKey('AIConversationMessage', null=True, on_delete=models.SET_NULL, related_name='content_reports')
+    reason = models.CharField(max_length=32, choices=[
+        ('unsafe', 'Conteúdo perigoso'), ('offensive', 'Conteúdo ofensivo'),
+        ('inaccurate', 'Informação incorreta'), ('other', 'Outro motivo'),
+    ])
+    details = models.CharField(max_length=2000, blank=True)
+    reported_text = models.TextField()
+    status = models.CharField(max_length=16, default='open', choices=[('open', 'Aberta'), ('reviewing', 'Em análise'), ('resolved', 'Resolvida')])
+    resolution_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class AIStudySession(models.Model):
     MODE_CHOICES = (
         ('review', 'Lesson Review'),

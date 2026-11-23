@@ -1,3 +1,4 @@
+import AIContentReportButton from "@/components/AIContentReportButton";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
@@ -297,7 +298,7 @@ const InterpreteIA = () => {
       });
       const createdSession = response.data as InterpreterSessionDetail;
       syncDraft(createdSession);
-      startTransition(() => navigate(buildInterpreterSessionPath(createdSession.id)));
+      startTransition(() => { void navigate(buildInterpreterSessionPath(createdSession.id)); });
       await invalidateSessionList();
     } catch {
       toast({
@@ -311,7 +312,7 @@ const InterpreteIA = () => {
   };
 
   const handleOpenSession = (id: string) => {
-    startTransition(() => navigate(buildInterpreterSessionPath(id)));
+    startTransition(() => { void navigate(buildInterpreterSessionPath(id)); });
   };
 
   const handleContinue = async () => {
@@ -693,6 +694,7 @@ const InterpreteIA = () => {
             </div>
           </div>
         </div>
+        {message.role === "assistant" && <AIContentReportButton messageId={message.id} />}
       </article>
     );
   };
@@ -715,6 +717,7 @@ const InterpreteIA = () => {
         </div>
         <p className="mt-2 text-sm leading-6">{message.text}</p>
         <p className="mt-3 text-xs font-medium opacity-80">Similaridade estimada: {feedback.similarity_score}%</p>
+        {message.role === "assistant" && <AIContentReportButton messageId={message.id} />}
       </article>
     );
   };
@@ -914,6 +917,7 @@ const InterpreteIA = () => {
                     return (
                       <div key={message.id} className="space-y-4">
                         {renderChallengeCard(message)}
+                        <AIContentReportButton messageId={message.id} />
                         {shouldRenderDraftActions ? (
                           <>
                             {renderDraftResponse(message)}

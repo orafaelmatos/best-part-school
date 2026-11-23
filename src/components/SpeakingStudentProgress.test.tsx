@@ -23,7 +23,7 @@ describe("Teacher Speaking follow-up", () => {
   it("loads only the selected student and paginates history with persisted report evidence", async () => {
     vi.mocked(api.get).mockImplementation(async (url, config) => {
       if (url.includes("overview")) return { data: { speaking_sessions: { total: 11, completed: 8 } } };
-      const second = config?.params?.page === 2;
+      const second = (config?.params as { page?: number; group?: string })?.page === 2;
       return { data: { count: 11, next: second ? null : "page2", previous: second ? "page1" : null,
         results: [{ id: second ? "report2" : "report1", updated_at: "2026-10-30T15:00:00Z", status: second ? "paused" : "completed",
           report: { ...speakingReportFixture(), scenario: second ? "Hotel" : "Aula de Jiu-Jitsu" } }] } };

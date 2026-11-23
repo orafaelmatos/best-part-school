@@ -1,3 +1,4 @@
+import type { SchoolUser, SchoolLesson, LessonSelectOption, AvailabilitySlot } from "@/lib/schoolTypes";
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -17,9 +18,9 @@ const CriarAula = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<SchoolUser[]>([]);
   const [lessonOptions, setLessonOptions] = useState<{label: string, value: string, title: string, level?: string}[]>([]);
-  const [calendarEvent, setCalendarEvent] = useState<any | null>(null);
+  const [calendarEvent, setCalendarEvent] = useState<SchoolLesson | null>(null);
   const eventId = searchParams.get("event");
   
   const [formData, setFormData] = useState({
@@ -37,8 +38,8 @@ const CriarAula = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const usersData = await fetchAllPages<any>("/accounts/users/");
-        const studentList = usersData.filter((u: any) => u.role === "student");
+        const usersData = await fetchAllPages<SchoolUser>("/accounts/users/");
+        const studentList = usersData.filter((u: SchoolUser) => u.role === "student");
         setStudents(studentList);
         if (studentList.length > 0) {
           setFormData(prev => ({ ...prev, studentId: studentList[0].id }));
@@ -92,8 +93,8 @@ const CriarAula = () => {
           );
           setLessonOptions(
             lessonsData
-              .filter((lesson: any) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
-              .map((lesson: any) => ({
+              .filter((lesson: SchoolLesson) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
+              .map((lesson: SchoolLesson) => ({
                 label: formatSequenceOptionLabel(lesson),
                 value: lesson.id,
                 title: lesson.title,
@@ -107,8 +108,8 @@ const CriarAula = () => {
         const lessonsData = Array.isArray(response.data) ? response.data : response.data.results || [];
         setLessonOptions(
           lessonsData
-            .filter((lesson: any) => lesson.is_template)
-            .map((lesson: any) => ({
+            .filter((lesson: SchoolLesson) => lesson.is_template)
+            .map((lesson: SchoolLesson) => ({
               label: `[${lesson.level}] ${lesson.title}`,
               value: lesson.id,
               title: lesson.title,
@@ -225,7 +226,7 @@ const CriarAula = () => {
                   level: calendarEvent?.level || formData.level,
                 });
               }}
-              onChange={(option: any) => {
+              onChange={(option: LessonSelectOption) => {
                 if (option) {
                   setFormData({
                     ...formData,
@@ -275,7 +276,7 @@ const CriarAula = () => {
                 value={formData.studentId} 
                 onChange={e => setFormData({...formData, studentId: e.target.value})}
               >
-                {students.map((student: any) => (
+                {students.map((student: SchoolUser) => (
                   <option key={student.id} value={student.id}>
                     {student.name || student.email}
                   </option>
