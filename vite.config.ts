@@ -1,9 +1,8 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { componentTagger } from "lovable-tagger";
-import { validateStudentBuildConfig } from "./src/lib/buildConfig";
-import { localApiProxyTarget } from "./src/lib/localDevelopment";
+import { validateStudentBuildConfig } from "./src/lib/buildConfig.ts";
+import { localApiProxyTarget } from "./src/lib/localDevelopment.ts";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
@@ -18,7 +17,7 @@ export default defineConfig(({ mode, command }) => {
   if (command === "build" && target === "student") validateStudentBuildConfig(env);
   const excludedPages: Record<string, string[]> = {
     site: ["Login", "Dashboard", "Alunos", "MinhasAulas", "AssistenteIA", "Pagamentos"],
-    student: ["LandingPage", "Alunos", "AlunoTrilha", "CriarAluno", "CriarAula", "CriarCurso", "AnotarAula", "CRM", "CorrigirHomework", "Calendario"],
+    student: ["LandingPage", "Alunos", "AlunoTrilha", "CriarAluno", "CriarAula", "CriarCurso", "AnotarAula", "CRM", "CorrigirHomework", "Calendario", "Marketplace", "Pagamentos"],
     admin: ["LandingPage", "MinhasAulas", "Homework", "JogoVocabulario", "AssistenteIA", "InterpreteIA"],
   };
   const applicationBoundaries: Plugin = {
@@ -42,6 +41,7 @@ export default defineConfig(({ mode, command }) => {
       "import.meta.env.VITE_LOCAL_API": JSON.stringify(localApi ? "1" : "0"),
     },
     build: {
+      target: ["es2020", "safari15", "chrome90"],
       outDir: target === "legacy" ? "dist" : `dist/${target}`,
       emptyOutDir: true,
     },
@@ -56,13 +56,12 @@ export default defineConfig(({ mode, command }) => {
     },
     plugins: [
       react(),
-      mode === "development" && componentTagger(),
       applicationBoundaries,
     ].filter(Boolean),
     resolve: {
       alias: {
-        "@": path.resolve(__dirname, "./src"),
-        "@app-entry": path.resolve(__dirname, `./src/apps/${target}/App.tsx`),
+        "@": path.resolve(import.meta.dirname, "./src"),
+        "@app-entry": path.resolve(import.meta.dirname, `./src/apps/${target}/App.tsx`),
       },
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
     },

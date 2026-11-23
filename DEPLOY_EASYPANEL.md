@@ -10,7 +10,7 @@ O desenvolvimento do app fica na `feat/mobile-app`. Features web e alterações 
 
 O arquivo de CI deste repositório valida código; ele não executa deploy. O deploy continua sob controle do EasyPanel. Em homologação, use serviços, banco e volumes próprios e selecione a branch que deseja testar.
 
-Passo a passo: [fluxo de desenvolvimento e publicação](docs/FLUXO_DE_DESENVOLVIMENTO.md).
+Passo a passo: [fluxo de desenvolvimento e publicação](docs/FLUXO_DE_DESENVOLVIMENTO.md). Para a versão mobile, siga também [publicação nas lojas](docs/PUBLICAR_APP.md), incluindo migrações, conta de revisão e validação em aparelhos.
 
 ## 1. Backend
 
@@ -22,11 +22,12 @@ Variáveis recomendadas:
 
 ```env
 OPENAI_API_KEY=sua-chave
-DJANGO_SECRET_KEY=gere-uma-chave-forte
+DJANGO_SETTINGS_MODULE=bps_core.settings_production
+DJANGO_SECRET_KEY=SUBSTITUA_POR_UMA_CHAVE_GERADA
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=api.seu-dominio.com
-DJANGO_CORS_ALLOWED_ORIGINS=https://app.seu-dominio.com
-DJANGO_CSRF_TRUSTED_ORIGINS=https://app.seu-dominio.com
+DJANGO_CORS_ALLOWED_ORIGINS=https://bestpartschool.com,capacitor://localhost,https://localhost
+DJANGO_CSRF_TRUSTED_ORIGINS=https://api.seu-dominio.com,https://bestpartschool.com
 DATABASE_URL=postgresql://usuario:senha@host:5432/bps
 DJANGO_MIGRATE_ON_START=1
 DJANGO_COLLECTSTATIC_ON_START=1
@@ -55,6 +56,8 @@ VITE_MEDIA_BASE_URL=https://api.seu-dominio.com
 
 Essas variáveis são injetadas em runtime pelo Nginx. Isso permite reaproveitar a mesma imagem sem rebuild para trocar domínio.
 
+Privacidade, suporte e exclusão também são exportados em HTML estático. Os valores públicos `VITE_SUPPORT_EMAIL`, `VITE_ORGANIZATION_NAME`, `VITE_ORGANIZATION_ID` e `VITE_PUBLIC_SITE_URL` são argumentos de **build** do `Dockerfile.frontend`: configure-os nos build arguments do EasyPanel e reconstrua a imagem ao trocar o contato ou responsável. O padrão atual usa o contato temporário aprovado; confira os dados antes da publicação. Arquivos `.env` locais são excluídos do contexto Docker.
+
 ## 3. Ordem sugerida
 
 1. Suba o banco.
@@ -64,5 +67,5 @@ Essas variáveis são injetadas em runtime pelo Nginx. Isso permite reaproveitar
 ## 4. Observações
 
 - O backend executa `migrate` e `collectstatic` ao iniciar por padrão.
-- O frontend é SPA e o Nginx já está configurado com fallback para `index.html`.
-- Arquivos de mídia continuam sendo servidos pelo backend; por isso o volume em `/app/backend/media` é importante.
+- O frontend tem fallback para `index.html` e páginas públicas estáticas em `/privacidade/`, `/suporte/` e `/excluir-conta/`.
+- Arquivos de mídia são servidos pelo Django com links assinados e temporários; preserve o volume `/app/backend/media` e não crie uma rota estática pública que ignore essa proteção.

@@ -7,7 +7,9 @@ from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlo
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
 from .serializers import GenerateWordSentencesSerializer, ApproveWordSentencesSerializer, GenerateSingleWordSentenceSerializer, SaveWordSentenceSerializer
 from .serializers import GenerateVocabularySentencesSerializer, SaveVocabularySentencesSerializer
-from .permissions import IsStudentOrTeacher
+from .permissions import IsStudentOrTeacher, LessonAccess, visible_lessons
+from accounts.access import IsSchoolManager, SchoolManagerOrReadOnly, is_admin, managed_students
+from accounts.privacy import AIActionConsentMixin
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from collections import defaultdict
@@ -44,31 +46,58 @@ from .word_sentences import SentenceGenerationError, WordSentenceService, senten
 
 logger = logging.getLogger(__name__)
 
-class AttachmentViewSet(viewsets.ModelViewSet):
+class ScopedLessonChildren:
+    def get_queryset(self):
+        return super().get_queryset().filter(lesson__in=visible_lessons(self.request.user))
+
+    def authorized_lesson(self, serializer):
+        lesson = serializer.validated_data.get('lesson') or getattr(serializer.instance, 'lesson', None)
+        alias = self.request.data.get('lesson_id')
+        if alias:
+            lesson = visible_lessons(self.request.user).filter(pk=alias).first()
+        if not lesson:
+            raise exceptions.ValidationError({'lesson': 'Aula não encontrada.'})
+        if not is_admin(self.request.user) and lesson.teacher_id != self.request.user.pk:
+            raise exceptions.PermissionDenied('Somente o professor responsável pode alterar materiais desta aula.')
+        return lesson
+
+
+class AttachmentViewSet(ScopedLessonChildren, viewsets.ModelViewSet):
     serializer_class = AttachmentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [SchoolManagerOrReadOnly]
     queryset = Attachment.objects.all()
 
-class NewWordViewSet(viewsets.ModelViewSet):
+    def perform_create(self, serializer):
+        serializer.save(lesson=self.authorized_lesson(serializer))
+
+    def perform_update(self, serializer):
+        serializer.save(lesson=self.authorized_lesson(serializer))
+
+    def perform_destroy(self, instance):
+        if not is_admin(self.request.user) and instance.lesson.teacher_id != self.request.user.pk:
+            raise exceptions.PermissionDenied('Somente o professor responsável pode excluir este material.')
+        instance.delete()
+
+class NewWordViewSet(ScopedLessonChildren, viewsets.ModelViewSet):
     serializer_class = NewWordSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     queryset = NewWord.objects.all()
 
     def perform_create(self, serializer):
-        lesson_id = self.request.data.get('lesson_id')
-        if lesson_id:
-            lesson = Lesson.objects.filter(id=lesson_id).first()
-            if not lesson:
-                raise exceptions.ValidationError({'lesson_id': 'Aula não encontrada.'})
-            instance = serializer.save(lesson=lesson)
-        else:
-            instance = serializer.save()
+        if self.request.user.role not in ['teacher', 'admin']:
+            raise exceptions.PermissionDenied('Somente a escola pode alterar o vocabulário da aula.')
+        instance = serializer.save(lesson=self.authorized_lesson(serializer))
         sync_new_word_card(
             instance,
             teacher=self.request.user if getattr(self.request.user, 'is_authenticated', False) else None,
         )
 
     def perform_update(self, serializer):
+        if self.request.user.role == 'student':
+            if set(serializer.validated_data) - {'status'}:
+                raise exceptions.PermissionDenied('Você pode alterar apenas seu status de revisão.')
+        else:
+            self.authorized_lesson(serializer)
         instance = serializer.save()
         sync_new_word_card(
             instance,
@@ -76,12 +105,15 @@ class NewWordViewSet(viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
+        if not is_admin(self.request.user) and instance.lesson.teacher_id != self.request.user.pk:
+            raise exceptions.PermissionDenied('Somente o professor responsável pode excluir esta palavra.')
         delete_new_word_cards(instance)
         super().perform_destroy(instance)
 
 class LessonSummaryViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSummarySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
+    http_method_names = ['get', 'put', 'patch', 'delete', 'head', 'options']
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['lesson', 'student', 'teacher']
     search_fields = ['summary', 'homework', 'observations', 'words__word', 'words__meaning', 'mistakes__mistake', 'mistakes__correction']
@@ -95,6 +127,7 @@ class LessonSummaryViewSet(viewsets.ModelViewSet):
             'mistakes',
             'next_topics',
             'lesson__vocabulary_cards',
+            'lesson__attachments',
             'lesson__vocabulary_cards__student',
             'lesson__vocabulary_cards__teacher',
             'lesson__vocabulary_cards__lesson',
@@ -125,12 +158,16 @@ class VocabularyCategoryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         ensure_default_categories()
         user = self.request.user
+        if self.request.method not in permissions.SAFE_METHODS:
+            if is_admin(user):
+                return VocabularyCategory.objects.all()
+            return VocabularyCategory.objects.filter(owner=user, is_default=False)
         return VocabularyCategory.objects.filter(Q(is_default=True) | Q(owner=user)).order_by('-is_default', 'name')
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user, is_default=False)
 
-class VocabularyCardViewSet(viewsets.ModelViewSet):
+class VocabularyCardViewSet(AIActionConsentMixin, viewsets.ModelViewSet):
     serializer_class = VocabularyCardSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -247,6 +284,10 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
             teacher = None
             source_type = 'student'
         elif user.role == 'teacher':
+            if not managed_students(user).filter(pk=student.pk).exists():
+                raise exceptions.PermissionDenied('Aluno fora do seu vínculo.')
+            if teacher and teacher.pk != user.pk:
+                raise exceptions.PermissionDenied('Use seu próprio vínculo de professor.')
             teacher = teacher or user
             source_type = source_type or 'teacher'
         card = serializer.save(student=student, teacher=teacher, source_type=source_type or 'student', next_review_at=timezone.now())
@@ -337,11 +378,11 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def import_lesson_words(self, request):
         lesson_id = request.data.get('lesson')
-        lesson = Lesson.objects.filter(id=lesson_id).prefetch_related('new_words').first()
+        lesson = visible_lessons(request.user).filter(id=lesson_id).prefetch_related('new_words').first()
         if not lesson:
             return Response({'error': 'Aula não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
         students = lesson_students(lesson)
-        if not students and getattr(request.user, 'role', None) == 'student':
+        if getattr(request.user, 'role', None) == 'student':
             students = [request.user]
         category, _ = VocabularyCategory.objects.get_or_create(
             owner=None,
@@ -370,7 +411,7 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
                     created.append(card)
         return Response(self.get_serializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
-class HomeworkViewSet(viewsets.ModelViewSet):
+class HomeworkViewSet(AIActionConsentMixin, viewsets.ModelViewSet):
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -828,8 +869,14 @@ class HomeworkViewSet(viewsets.ModelViewSet):
 
 class HomeworkAnswerViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkAnswerSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
+    http_method_names = ['get', 'patch', 'head', 'options']
     queryset = HomeworkAnswer.objects.select_related('homework', 'question', 'student')
+
+    def perform_update(self, serializer):
+        if set(serializer.validated_data) - {'teacher_feedback'}:
+            raise exceptions.ValidationError('Neste recurso, altere apenas o feedback do professor.')
+        serializer.save()
 
     def get_queryset(self):
         user = self.request.user
@@ -842,7 +889,7 @@ class HomeworkAnswerViewSet(viewsets.ModelViewSet):
 
 class HomeworkTemplateViewSet(viewsets.ModelViewSet):
     serializer_class = HomeworkTemplateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['teacher', 'classification']
     ordering_fields = ['created_at', 'updated_at', 'title']
@@ -855,9 +902,9 @@ class HomeworkTemplateViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(teacher=user)
 
-class LessonViewSet(viewsets.ModelViewSet):
+class LessonViewSet(AIActionConsentMixin, viewsets.ModelViewSet):
     serializer_class = LessonSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [LessonAccess]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['teacher', 'group', 'status', 'level', 'is_template', 'is_extra']
     ordering_fields = ['date', 'created_at', 'order']
@@ -1364,10 +1411,36 @@ class LessonViewSet(viewsets.ModelViewSet):
             if user.role == 'teacher':
                 return qs.filter(Q(teacher=user) | Q(is_template=True))
             return qs.filter(Q(student=user) | Q(group__students=user)).distinct()
-        return qs
+        return qs.none()
 
     def perform_create(self, serializer):
-        # Temporarily disabled auth check for testing
+        user = self.request.user
+        if not is_admin(user):
+            student = serializer.validated_data.get('student')
+            group = serializer.validated_data.get('group')
+            teacher = serializer.validated_data.get('teacher')
+            if teacher and teacher.pk != user.pk:
+                raise exceptions.PermissionDenied('Você não pode criar aulas para outro professor.')
+            if student and not managed_students(user).filter(pk=student.pk).exists():
+                raise exceptions.PermissionDenied('Aluno fora do seu vínculo.')
+            if group and group.teacher_id != user.pk:
+                raise exceptions.PermissionDenied('Grupo fora do seu vínculo.')
+            serializer.save(teacher=user)
+        else:
+            serializer.save()
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        if not is_admin(user):
+            teacher = serializer.validated_data.get('teacher')
+            student = serializer.validated_data.get('student')
+            group = serializer.validated_data.get('group')
+            if teacher and teacher.pk != user.pk:
+                raise exceptions.PermissionDenied('Não é permitido transferir esta aula para outro professor.')
+            if student and not managed_students(user).filter(pk=student.pk).exists():
+                raise exceptions.PermissionDenied('Aluno fora do seu vínculo.')
+            if group and group.teacher_id != user.pk:
+                raise exceptions.PermissionDenied('Grupo fora do seu vínculo.')
         serializer.save()
 
 class TeacherAvailabilityAPIView(APIView):
@@ -1542,7 +1615,7 @@ class StudentLessonSummariesAPIView(APIView):
 
 class TeacherBlockedDateViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherBlockedDateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsSchoolManager]
 
     def get_queryset(self):
         user = self.request.user
@@ -1579,7 +1652,7 @@ class TeacherBlockedDateViewSet(viewsets.ModelViewSet):
 
 class StudentRecurringScheduleViewSet(viewsets.ModelViewSet):
     serializer_class = StudentRecurringScheduleSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
 
     def get_queryset(self):
         user = self.request.user
@@ -1626,10 +1699,10 @@ class StudentRecurringScheduleViewSet(viewsets.ModelViewSet):
         })
 
 class CalendarAPIView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, format=None):
-        qs = Lesson.objects.exclude(status='pending')
+        qs = visible_lessons(request.user).exclude(status='pending')
         user = request.user
         if getattr(user, 'is_authenticated', False):
             if user.role == 'teacher':

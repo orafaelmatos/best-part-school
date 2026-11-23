@@ -5,6 +5,9 @@ from django.db import transaction
 from django.db.models import Q
 import json
 from .models import StudentGroup
+from .access import is_admin, managed_students
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 User = get_user_model()
 MAX_PHOTO_SIZE = 8 * 1024 * 1024
@@ -79,6 +82,7 @@ class UserSerializer(serializers.ModelSerializer):
     photo = serializers.FileField(required=False, allow_null=True, write_only=True)
     photo_url = serializers.FileField(source='photo', read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    current_password = serializers.CharField(write_only=True, required=False)
     remove_photo = serializers.BooleanField(write_only=True, required=False, default=False)
     schedule_day = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     schedule_time = serializers.TimeField(required=False, write_only=True, allow_null=True)
@@ -93,7 +97,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'name', 'email', 'role', 'level', 'photo', 'photo_url', 'password', 'remove_photo',
+            'id', 'name', 'email', 'role', 'level', 'photo', 'photo_url', 'password', 'current_password', 'remove_photo',
             'listening', 'speaking', 'reading', 'writing',
             *STUDENT_TRACKING_FIELDS,
             'effective_planned_lessons_count', 'effective_completed_lessons_count', 'pending_lessons_count',
@@ -126,6 +130,9 @@ class UserSerializer(serializers.ModelSerializer):
     def get_finance_profile(self, obj):
         from payments.serializers import StudentFinanceProfileSerializer
         if hasattr(obj, 'finance_profile'):
+            actor = getattr(self.context.get('request'), 'user', None)
+            if actor and actor.role == 'teacher' and obj.finance_profile.teacher_id != actor.pk:
+                return None
             return StudentFinanceProfileSerializer(obj.finance_profile).data
         return None
 
@@ -205,6 +212,33 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        request = self.context.get('request')
+        actor = getattr(request, 'user', None)
+        if actor and not is_admin(actor):
+            if self.instance and actor.pk == self.instance.pk:
+                allowed = {'name', 'email', 'photo', 'remove_photo', 'password', 'current_password'}
+                forbidden = set(attrs) - allowed
+                if forbidden:
+                    raise serializers.ValidationError({key: 'Este campo é gerenciado pela escola.' for key in forbidden})
+                if 'password' in attrs or ('email' in attrs and attrs['email'] != self.instance.email):
+                    if not self.instance.check_password(attrs.get('current_password', '')):
+                        raise serializers.ValidationError({'current_password': 'Confirme sua senha atual.'})
+            elif actor.role != 'teacher' or not managed_students(actor).filter(pk=self.instance.pk).exists():
+                raise serializers.ValidationError('Você não pode alterar esta conta.')
+            else:
+                if 'role' in attrs and attrs['role'] != 'student':
+                    raise serializers.ValidationError({'role': 'Somente a administração pode alterar perfis.'})
+                if attrs.get('teacher_id') and attrs['teacher_id'] != actor.pk:
+                    raise serializers.ValidationError({'teacher_id': 'Não é permitido transferir o aluno para outro professor.'})
+                if any(key in attrs for key in ['monthly_fee', 'due_day', 'finance_notes', 'contract_file', 'contract_name']):
+                    profile = getattr(self.instance, 'finance_profile', None)
+                    if profile and profile.teacher_id != actor.pk:
+                        raise serializers.ValidationError('O financeiro pertence a outro professor.')
+        if 'password' in attrs:
+            try:
+                validate_password(attrs['password'], self.instance)
+            except DjangoValidationError as error:
+                raise serializers.ValidationError({'password': error.messages})
         planned_count = attrs.get('planned_lessons_count', getattr(self.instance, 'planned_lessons_count', 0) if self.instance else 0) or 0
         completed_count = attrs.get('completed_lessons_count', getattr(self.instance, 'completed_lessons_count', 0) if self.instance else 0) or 0
         extra_count = 0
@@ -229,6 +263,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        validated_data.pop('current_password', None)
         password = validated_data.pop('password', None)
         remove_photo = validated_data.pop('remove_photo', False)
         schedule_day = validated_data.pop('schedule_day', None)
@@ -358,6 +393,23 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        actor = getattr(self.context.get('request'), 'user', None)
+        if self.context.get('request') is not None and (not actor.is_authenticated or (not is_admin(actor) and actor.role != 'teacher')):
+            raise serializers.ValidationError('O cadastro é realizado pela escola.')
+        if actor and not is_admin(actor):
+            if attrs.get('role', 'student') != 'student':
+                raise serializers.ValidationError({'role': 'Professores só podem cadastrar alunos.'})
+            if attrs.get('teacher_id') and attrs['teacher_id'] != actor.pk:
+                raise serializers.ValidationError({'teacher_id': 'Use seu próprio vínculo de professor.'})
+            attrs['teacher_id'] = actor.pk
+            if attrs.get('group_id') and not StudentGroup.objects.filter(pk=attrs['group_id'], teacher=actor).exists():
+                raise serializers.ValidationError({'group_id': 'Grupo não encontrado para este professor.'})
+        if attrs.get('teacher_id') and not User.objects.filter(pk=attrs['teacher_id'], role='teacher').exists():
+            raise serializers.ValidationError({'teacher_id': 'Professor inválido.'})
+        try:
+            validate_password(attrs['password'])
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({'password': error.messages})
         planned_count = attrs.get('planned_lessons_count', 0) or 0
         completed_count = attrs.get('completed_lessons_count', 0) or 0
         if planned_count and completed_count > planned_count:
@@ -486,6 +538,21 @@ class StudentGroupSerializer(serializers.ModelSerializer):
             student.name or student.email
             for student in obj.students.filter(role='student').order_by('name', 'email')
         ]
+
+    def validate(self, attrs):
+        actor = self.context['request'].user
+        teacher = attrs.get('teacher')
+        if teacher and teacher.role != 'teacher':
+            raise serializers.ValidationError({'teacher': 'Selecione um professor.'})
+        if not is_admin(actor):
+            if teacher and teacher.pk != actor.pk:
+                raise serializers.ValidationError({'teacher': 'Use seu próprio vínculo de professor.'})
+            allowed = set(managed_students(actor).values_list('pk', flat=True))
+            if any(student.pk not in allowed for student in attrs.get('students', [])):
+                raise serializers.ValidationError({'students': 'O grupo contém alunos de outro professor.'})
+        if any(student.role != 'student' for student in attrs.get('students', [])):
+            raise serializers.ValidationError({'students': 'Selecione apenas alunos.'})
+        return attrs
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):

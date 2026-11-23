@@ -1,3 +1,4 @@
+import AIContentReportButton from "@/components/AIContentReportButton";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
@@ -686,6 +687,7 @@ const MessageBubble = ({
           </div>
         </div>
 
+        {!isUser && !message.pending && <AIContentReportButton messageId={message.id} />}
         {message.audio_url && audioMeta?.created_at ? (
           <p className="px-1 text-[11px] text-muted-foreground">Áudio enviado em {formatDateTime(audioMeta.created_at)}</p>
         ) : null}
@@ -1019,7 +1021,7 @@ const AssistenteIA = () => {
   const handleSelectSession = (sessionId: string) => {
     setIsChangingLesson(false);
     setIsRenaming(false);
-    startTransition(() => navigate(buildSessionPath(sessionId)));
+    startTransition(() => { void navigate(buildSessionPath(sessionId)); });
   };
 
   const handleCreateSession = async (mode: PracticeMode, lessonId?: string) => {
@@ -1032,7 +1034,7 @@ const AssistenteIA = () => {
       syncDraft(createdSession);
       setRenameValue(createdSession.title || "");
       setIsChangingLesson(false);
-      startTransition(() => navigate(buildSessionPath(createdSession.id)));
+      startTransition(() => { void navigate(buildSessionPath(createdSession.id)); });
       await invalidateSessionList();
     } catch {
       toast({
@@ -1136,7 +1138,7 @@ const AssistenteIA = () => {
       const remainingSessions = (queryClient.getQueryData(aiStudySessionsQueryKey()) as SessionSummary[] | undefined) || [];
       const nextSession = remainingSessions.find((session) => session.id !== deletedId);
       if (nextSession) {
-        startTransition(() => navigate(buildSessionPath(nextSession.id)));
+        startTransition(() => { void navigate(buildSessionPath(nextSession.id)); });
       } else {
         navigate(buildNewModePath());
       }

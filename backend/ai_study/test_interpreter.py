@@ -46,10 +46,10 @@ def make_assessment(text):
 class InterpreterAPITests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.student = User.objects.create_user(email='interpreter@test.com', role='student', name='Aluno')
-        cls.other = User.objects.create_user(email='interpreter-other@test.com', role='student', name='Outro')
-        cls.teacher = User.objects.create_user(email='interpreter-teacher@test.com', role='teacher', name='Professor')
-        cls.unrelated_teacher = User.objects.create_user(email='interpreter-unrelated@test.com', role='teacher', name='Outro professor')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='interpreter@test.com', role='student', name='Aluno')
+        cls.other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='interpreter-other@test.com', role='student', name='Outro')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='interpreter-teacher@test.com', role='teacher', name='Professor')
+        cls.unrelated_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='interpreter-unrelated@test.com', role='teacher', name='Outro professor')
         Lesson.objects.create(title='Interpretação', student=cls.student, teacher=cls.teacher, level='A2', date=timezone.now())
 
     def setUp(self):

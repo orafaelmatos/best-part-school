@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -9,10 +10,10 @@ from .models import Homework, HomeworkAnswer, HomeworkQuestion, HomeworkTemplate
 class HomeworkDeletionTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.teacher = User.objects.create_user(email='delete-teacher@test.com', role='teacher')
-        cls.other_teacher = User.objects.create_user(email='delete-other-teacher@test.com', role='teacher')
-        cls.student = User.objects.create_user(email='delete-student@test.com', role='student')
-        cls.admin = User.objects.create_user(email='delete-admin@test.com', role='admin')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='delete-teacher@test.com', role='teacher')
+        cls.other_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='delete-other-teacher@test.com', role='teacher')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='delete-student@test.com', role='student')
+        cls.admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='delete-admin@test.com', role='admin')
         cls.lesson = Lesson.objects.create(
             title='Homework lesson', level='B1', teacher=cls.teacher, student=cls.student,
         )
@@ -85,7 +86,7 @@ class HomeworkDeletionTests(TestCase):
         self.assertTrue(Homework.objects.filter(pk=self.homework.pk).exists())
 
     def test_deletion_preserves_other_group_students_and_saved_templates(self):
-        other_student = User.objects.create_user(email='delete-other-student@test.com', role='student')
+        other_student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='delete-other-student@test.com', role='student')
         group = StudentGroup.objects.create(name='Group', teacher=self.teacher)
         group.students.add(self.student, other_student)
         self.lesson.student = None

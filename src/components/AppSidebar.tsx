@@ -1,3 +1,4 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -219,10 +220,10 @@ const AppSidebar = () => {
       queryClient.invalidateQueries({ queryKey: ["current-user-profile", user?.user_id] });
       toast({ title: "Foto atualizada" });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
         title: "Erro ao atualizar foto",
-        description: error.response?.data?.photo?.[0] || "Nao foi possivel salvar a imagem agora.",
+        description: apiErrorMessage(error, 'Nao foi possivel salvar a imagem agora.'),
         variant: "destructive",
       });
     },

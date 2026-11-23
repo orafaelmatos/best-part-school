@@ -1,3 +1,5 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
+import type { SchoolUser, SchoolLesson, LessonSelectOption, AvailabilitySlot } from "@/lib/schoolTypes";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -112,12 +114,12 @@ const getTotalLessons = (level: string) => {
   return levelData.lessons.length + levelData.grammar.length + transversalData.lessons.length + transversalData.grammar.length;
 };
 
-const getStudentName = (student: any) => student.name?.trim() || student.email?.split("@")[0] || "Aluno sem nome";
+const getStudentName = (student: SchoolUser) => student.name?.trim() || student.email?.split("@")[0] || "Aluno sem nome";
 
 const getLevelLabel = (level?: string) => level === "A1/A2" ? "Basico (A1/A2)" : `Nivel ${level || "A1/A2"}`;
 
-const getRecurringSchedules = (student: any): RecurringScheduleRecord[] =>
-  Array.isArray(student?.recurring_schedules) ? student.recurring_schedules.filter((schedule: any) => schedule?.active !== false) : [];
+const getRecurringSchedules = (student: SchoolUser): RecurringScheduleRecord[] =>
+  Array.isArray(student?.recurring_schedules) ? student.recurring_schedules.filter((schedule: NonNullable<SchoolUser["recurring_schedules"]>[number]) => schedule?.active !== false) : [];
 
 const formatRecurringScheduleCompact = (schedule?: RecurringScheduleRecord | null) => {
   if (!schedule) return "Sem horario fixo";
@@ -132,7 +134,7 @@ const formatRecurringSchedulesSummary = (schedules: RecurringScheduleRecord[]) =
   return `${labels.slice(0, 2).join(" · ")} +${labels.length - 2}`;
 };
 
-const getCompletedLessons = (student: any) => {
+const getCompletedLessons = (student: SchoolUser) => {
   const parsed = Number(
     student.effective_completed_lessons_count ??
     student.completed_lessons_count ??
@@ -146,7 +148,7 @@ const getCompletedLessons = (student: any) => {
   return Math.max(0, parsed);
 };
 
-const getPlannedLessons = (student: any) => {
+const getPlannedLessons = (student: SchoolUser) => {
   const parsed = Number(student.effective_planned_lessons_count ?? student.planned_lessons_count);
   if (Number.isFinite(parsed) && parsed > 0) {
     return parsed;
@@ -154,7 +156,7 @@ const getPlannedLessons = (student: any) => {
   return getTotalLessons(student.level || "A1/A2");
 };
 
-const getPendingLessons = (student: any) => {
+const getPendingLessons = (student: SchoolUser) => {
   const parsed = Number(student.pending_lessons_count);
   if (Number.isFinite(parsed)) {
     return Math.max(0, parsed);
@@ -164,7 +166,7 @@ const getPendingLessons = (student: any) => {
 
 const toDateInputValue = (value?: string | null) => value ? value.slice(0, 10) : "";
 
-const getAverageSkill = (student: any) => {
+const getAverageSkill = (student: SchoolUser) => {
   const total = skillConfigs.reduce((sum, skill) => sum + getSafeSkillValue(student[skill.key]), 0);
   return total / skillConfigs.length;
 };
@@ -191,8 +193,8 @@ const Alunos = () => {
   const { data: students = [], isLoading } = useQuery({
     queryKey: ["students"],
     queryFn: async () => {
-      const usersData = await fetchAllPages<any>("/accounts/users/");
-      return usersData.filter((u: any) => u.role === "student");
+      const usersData = await fetchAllPages<SchoolUser>("/accounts/users/");
+      return usersData.filter((u: SchoolUser) => u.role === "student");
     },
   });
 
@@ -209,23 +211,23 @@ const Alunos = () => {
     if (!searchQuery) return students;
     const lowerQuery = searchQuery.toLowerCase();
     return students.filter(
-      (s: any) =>
+      (s: SchoolUser) =>
         s.name?.toLowerCase().includes(lowerQuery) ||
         s.email?.toLowerCase().includes(lowerQuery)
     );
   }, [students, searchQuery]);
 
   const activeLevelsCount = useMemo(() => {
-    return new Set(students.map((student: any) => student.level || "A1/A2")).size;
+    return new Set(students.map((student: SchoolUser) => student.level || "A1/A2")).size;
   }, [students]);
 
   const averageSkillAcrossStudents = useMemo(() => {
     if (!students.length) return "0.0";
-    const total = students.reduce((sum: number, student: any) => sum + getAverageSkill(student), 0);
+    const total = students.reduce((sum: number, student: SchoolUser) => sum + getAverageSkill(student), 0);
     return (total / students.length).toFixed(1);
   }, [students]);
 
-  const editingStudent = students.find((student: any) => student.id === editingStudentId);
+  const editingStudent = students.find((student: SchoolUser) => student.id === editingStudentId);
   const editingSchedules = getRecurringSchedules(editingStudent);
   const isEditingGroup = Boolean(editingStudent?.student_groups?.length);
 
@@ -269,7 +271,7 @@ const Alunos = () => {
         });
         return null;
       } else {
-        const payload: any = {
+        const payload: Record<string, unknown> = {
           name: data.name.trim(),
           email: data.email.trim(),
           password: data.password,
@@ -317,19 +319,10 @@ const Alunos = () => {
       toast({ title: editingStudentId ? "Aluno atualizado com sucesso!" : "Aluno cadastrado com sucesso!" });
       closeModal();
     },
-    onError: (err: any) => {
-      console.error(err);
+    onError: (err: unknown) => {
       toast({
         title: "Erro ao salvar",
-        description:
-          err.response?.data?.schedule ||
-          err.response?.data?.completed_lessons_count?.[0] ||
-          err.response?.data?.contract_end_date?.[0] ||
-          err.response?.data?.monthly_fee?.[0] ||
-          err.response?.data?.photo?.[0] ||
-          err.response?.data?.email?.[0] ||
-          err.response?.data?.error ||
-          "Verifique os dados e tente novamente.",
+        description: apiErrorMessage(err, 'Verifique os dados e tente novamente.'),
         variant: "destructive",
       });
     },
@@ -400,7 +393,7 @@ const Alunos = () => {
     });
   };
 
-  const openEditModal = (student: any) => {
+  const openEditModal = (student: SchoolUser) => {
     const financeProfile = student.finance_profile || {};
     const schedules = getRecurringSchedules(student).map((schedule) => ({
       day: String(schedule.day_of_week),
@@ -525,7 +518,7 @@ const Alunos = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredStudents.map((student: any, index: number) => {
+                {filteredStudents.map((student: SchoolUser, index: number) => {
                   const studentName = getStudentName(student);
                   const studentPhotoUrl = absoluteMediaUrl(student.photo_url);
                   const recurringSchedules = getRecurringSchedules(student);

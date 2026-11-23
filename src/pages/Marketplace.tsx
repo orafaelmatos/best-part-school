@@ -1,3 +1,4 @@
+import { supportMailto } from "@/lib/privacy";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import { useQuery } from "@tanstack/react-query";
@@ -46,9 +47,9 @@ const Marketplace = () => {
         )}
       </div>
 
-      <button className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 sidebar-transition">
-        {isFreeCourse(course) ? "Acessar" : "Comprar"}
-      </button>
+      <a href={supportMailto(`Informações sobre o curso: ${course.title}`)} className="block text-center w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 sidebar-transition">
+        {isFreeCourse(course) ? "Solicitar acesso" : "Consultar curso"}
+      </a>
     </div>
     );
   };

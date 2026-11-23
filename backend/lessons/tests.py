@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 from django.test import TestCase
 from django.urls import reverse
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -15,20 +16,20 @@ from .vocabulary import schedule_card, vocabulary_stats
 class LessonVisibilityTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        
-        self.admin = User.objects.create_user(email='admin@test.com', password='123', role='admin', name='Admin')
-        self.teacher = User.objects.create_user(email='teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student1 = User.objects.create_user(email='student1@test.com', password='123', role='student', name='Student 1')
-        self.student2 = User.objects.create_user(email='student2@test.com', password='123', role='student', name='Student 2')
-        
+
+        self.admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='admin@test.com', password='123', role='admin', name='Admin')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student1 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='student1@test.com', password='123', role='student', name='Student 1')
+        self.student2 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='student2@test.com', password='123', role='student', name='Student 2')
+
         # Create a template
         self.template = Lesson.objects.create(
-            title='Template Lesson', 
-            level='A1/A2', 
-            is_template=True, 
+            title='Template Lesson',
+            level='A1/A2',
+            is_template=True,
             status='pending'
         )
-        
+
         # Create a lesson for student 1 taught by teacher
         self.student1_lesson = Lesson.objects.create(
             title='Student 1 Lesson',
@@ -37,7 +38,7 @@ class LessonVisibilityTests(TestCase):
             teacher=self.teacher,
             status='scheduled'
         )
-        
+
         # Create a lesson for student 2 taught by teacher
         self.student2_lesson = Lesson.objects.create(
             title='Student 2 Lesson',
@@ -52,18 +53,18 @@ class LessonVisibilityTests(TestCase):
         self.client.force_authenticate(user=self.student1)
         response = self.client.get('/api/lessons/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         titles = [item['title'] for item in response.data['results']]
         self.assertIn('Student 1 Lesson', titles)
         self.assertNotIn('Template Lesson', titles, "Alunos não devem ver templates")
         self.assertNotIn('Student 2 Lesson', titles, "Alunos só devem ver as próprias aulas")
-        
+
     def test_teacher_can_see_templates_and_taught_lessons(self):
         """Um professor deve conseguir ver os templates base e as aulas que ele ensina"""
         self.client.force_authenticate(user=self.teacher)
         response = self.client.get('/api/lessons/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        
+
         titles = [item['title'] for item in response.data['results']]
         self.assertIn('Template Lesson', titles, "Professores devem ter visibilidade dos templates")
         self.assertIn('Student 1 Lesson', titles)
@@ -97,9 +98,9 @@ class LessonVisibilityTests(TestCase):
 class GroupLessonBehaviorTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='group-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student1 = User.objects.create_user(email='group-student1@test.com', password='123', role='student', name='Student 1', level='B1')
-        self.student2 = User.objects.create_user(email='group-student2@test.com', password='123', role='student', name='Student 2', level='B1')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='group-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student1 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='group-student1@test.com', password='123', role='student', name='Student 1', level='B1')
+        self.student2 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='group-student2@test.com', password='123', role='student', name='Student 2', level='B1')
         self.group = StudentGroup.objects.create(name='Group A', teacher=self.teacher)
         self.group.students.add(self.student1, self.student2)
         self.lesson = Lesson.objects.create(
@@ -135,8 +136,8 @@ class GroupLessonBehaviorTests(TestCase):
         self.assertEqual({item['id'] for item in response.data}, {str(self.lesson.pk), str(past.pk)})
 
     def test_group_history_filter_preserves_teacher_and_student_permissions(self):
-        other_teacher = User.objects.create_user(email='other-group-history@test.com', role='teacher', name='Other')
-        outsider = User.objects.create_user(email='outside-group-history@test.com', role='student', name='Outsider')
+        other_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-group-history@test.com', role='teacher', name='Other')
+        outsider = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='outside-group-history@test.com', role='student', name='Outsider')
         for user in [other_teacher, outsider]:
             self.client.force_authenticate(user=user)
             response = self.client.get('/api/lessons/', {'all': 'true', 'group': str(self.group.pk), 'is_template': 'false'})
@@ -221,9 +222,9 @@ class GroupLessonBehaviorTests(TestCase):
 class LessonSchedulingValidationTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='schedule-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student1 = User.objects.create_user(email='schedule-student1@test.com', password='123', role='student', name='Student 1', level='B1')
-        self.student2 = User.objects.create_user(email='schedule-student2@test.com', password='123', role='student', name='Student 2', level='B1')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='schedule-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student1 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='schedule-student1@test.com', password='123', role='student', name='Student 1', level='B1')
+        self.student2 = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='schedule-student2@test.com', password='123', role='student', name='Student 2', level='B1')
         self.template = Lesson.objects.create(title='B1 Template', level='B1', is_template=True, status='pending')
         future_date = timezone.localdate() + datetime.timedelta(days=3)
         self.lesson_date = timezone.make_aware(datetime.datetime.combine(future_date, datetime.time(12, 0)))
@@ -233,6 +234,11 @@ class LessonSchedulingValidationTests(TestCase):
             start_time=datetime.time(8, 0),
             end_time=datetime.time(22, 0),
         )
+
+        self.client.force_authenticate(self.teacher)
+        from payments.models import StudentFinanceProfile
+        for student in [self.student1, self.student2]:
+            StudentFinanceProfile.objects.create(student=student, teacher=self.teacher, monthly_fee=0, due_day=10)
 
     def test_create_lesson_rejects_conflicting_teacher_slot(self):
         Lesson.objects.create(
@@ -620,8 +626,8 @@ class LessonSchedulingValidationTests(TestCase):
 class StudentLessonSequenceTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='sequence-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student = User.objects.create_user(email='sequence-student@test.com', password='123', role='student', name='Student', level='B1')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sequence-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sequence-student@test.com', password='123', role='student', name='Student', level='B1')
         self.template_a = Lesson.objects.create(title='Lesson A', level='B1', is_template=True, status='pending')
         self.template_b = Lesson.objects.create(title='Lesson B', level='B1', is_template=True, status='pending')
         self.template_c = Lesson.objects.create(title='Lesson C', level='B1', is_template=True, status='pending')
@@ -837,20 +843,20 @@ class StudentLessonSequenceTests(TestCase):
 class StudentRecurringScheduleChangeTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(),
             email='schedule-change-teacher@test.com',
             password='123',
             role='teacher',
             name='Teacher',
         )
-        self.other_student = User.objects.create_user(
+        self.other_student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(),
             email='other-student@test.com',
             password='123',
             role='student',
             name='Other Student',
             level='B1',
         )
-        self.student = User.objects.create_user(
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(),
             email='schedule-change-student@test.com',
             password='123',
             role='student',
@@ -960,8 +966,8 @@ class StudentRecurringScheduleChangeTests(TestCase):
 class HomeworkSubmissionTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='homework-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student = User.objects.create_user(email='homework-student@test.com', password='123', role='student', name='Student')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='homework-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='homework-student@test.com', password='123', role='student', name='Student')
         self.lesson = Lesson.objects.create(
             title='Homework lesson',
             level='B1',
@@ -1278,8 +1284,8 @@ class HomeworkSubmissionTests(TestCase):
 class HomeworkQuestionMediaTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='media-homework-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student = User.objects.create_user(email='media-homework-student@test.com', password='123', role='student', name='Student')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='media-homework-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='media-homework-student@test.com', password='123', role='student', name='Student')
         self.lesson = Lesson.objects.create(
             title='Listening lesson',
             level='B1',
@@ -1342,7 +1348,7 @@ class HomeworkQuestionMediaTests(TestCase):
 class VocabularySpacedRepetitionTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.student = User.objects.create_user(email='vocab-student@test.com', password='123', role='student', name='Vocab Student')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='vocab-student@test.com', password='123', role='student', name='Vocab Student')
         self.card = VocabularyCard.objects.create(
             student=self.student,
             word='take off',
@@ -1398,16 +1404,16 @@ class VocabularySpacedRepetitionTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.card.refresh_from_db()
-        self.assertEqual(self.card.audio_url, '/media/ai_study/tts/take-off.mp3')
-        self.assertEqual(response.data['audio_url'], '/media/ai_study/tts/take-off.mp3')
+        self.assertEqual(urlsplit(self.card.audio_url).path, '/media/ai_study/tts/take-off.mp3')
+        self.assertEqual(urlsplit(response.data['audio_url']).path, '/media/ai_study/tts/take-off.mp3')
         generate_tts_mock.assert_called_once()
 
 
 class LessonWordSyncTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='word-teacher@test.com', password='123', role='teacher', name='Teacher')
-        self.student = User.objects.create_user(email='word-student@test.com', password='123', role='student', name='Student', level='B1')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='word-teacher@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='word-student@test.com', password='123', role='student', name='Student', level='B1')
         self.lesson = Lesson.objects.create(
             title='Lesson with vocabulary',
             level='B1',
@@ -1434,7 +1440,7 @@ class LessonWordSyncTests(TestCase):
         self.assertEqual(card.lesson, self.lesson)
         self.assertEqual(card.word, 'turn down')
         self.assertEqual(card.translation, 'recusar; abaixar o volume')
-        self.assertEqual(card.audio_url, '/media/ai_study/tts/turn-down.mp3')
+        self.assertEqual(urlsplit(card.audio_url).path, '/media/ai_study/tts/turn-down.mp3')
         generate_tts_mock.assert_called_once()
 
     @patch('ai_study.services.AIStudyOpenAIService.generate_tts', return_value='/media/ai_study/tts/look-up.mp3')
@@ -1465,7 +1471,7 @@ class LessonWordSyncTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         card.refresh_from_db()
         self.assertEqual(card.translation, 'consultar; procurar informacao')
-        self.assertEqual(card.audio_url, '/media/ai_study/tts/look-up.mp3')
+        self.assertEqual(urlsplit(card.audio_url).path, '/media/ai_study/tts/look-up.mp3')
         generate_tts_mock.assert_called_once()
 
     def test_deleting_new_word_removes_auto_created_student_card(self):

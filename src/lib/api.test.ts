@@ -119,4 +119,68 @@ describe("authenticated API session", () => {
     expect(getSession()).toBeNull();
     expect(storage.clear).toHaveBeenCalledOnce();
   });
+
+  it("discards successful private responses that arrive after switching accounts", async () => {
+    let finish!: () => void;
+    let started!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    const sent = new Promise<void>((resolve) => { started = resolve; });
+    const { api, saveSession, clearSession, getSession } = await setup(async (config) => {
+      started();
+      await pending;
+      return ok(config, { private: 'first account data' });
+    });
+    await saveSession({ access: jwt(), refresh: "first-refresh" });
+    const response = api.get('/lessons/');
+    await sent;
+    await clearSession();
+    const next = { access: 'second-account-access', refresh: 'second-refresh' };
+    await saveSession(next);
+    finish();
+    await expect(response).rejects.toMatchObject({ __CANCEL__: true });
+    expect(getSession()).toEqual(next);
+  });
+});
+
+describe('AI consent request coordination', () => {
+  it('asks once for concurrent denied requests and replays only after explicit permission', async () => {
+    let allowed = false;
+    const adapter = vi.fn<AxiosAdapter>(async (config) => {
+      if (allowed) return ok(config, { ready: true });
+      const { AxiosError } = await import('axios');
+      throw new AxiosError('Consent required', 'ERR_BAD_REQUEST', config, undefined, {
+        status: 403, statusText: 'Forbidden', data: { code: 'ai_consent_required' }, headers: {}, config,
+      });
+    });
+    const { api, saveSession } = await setup(adapter);
+    await saveSession({ access: jwt(), refresh: 'refresh' });
+    const { registerAIConsentRequester } = await import('./aiConsent');
+    const prompt = vi.fn(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); allowed = true; return true; });
+    const unregister = registerAIConsentRequester(prompt);
+    try {
+      const responses = await Promise.all([api.post('/ai-study/sessions/'), api.post('/practice/sessions/')]);
+      expect(responses.every((response) => response.data.ready)).toBe(true);
+      expect(prompt).toHaveBeenCalledOnce();
+      expect(adapter).toHaveBeenCalledTimes(4);
+    } finally { unregister(); }
+  });
+
+  it('never replays a denied AI request after refusal or account change', async () => {
+    const adapter = vi.fn<AxiosAdapter>(async (config) => {
+      const { AxiosError } = await import('axios');
+      throw new AxiosError('Consent required', 'ERR_BAD_REQUEST', config, undefined, {
+        status: 403, statusText: 'Forbidden', data: { code: 'ai_consent_required' }, headers: {}, config,
+      });
+    });
+    const { api, saveSession, clearSession } = await setup(adapter);
+    await saveSession({ access: jwt(), refresh: 'refresh' });
+    const { registerAIConsentRequester } = await import('./aiConsent');
+    let unregister = registerAIConsentRequester(async () => false);
+    await expect(api.post('/ai-study/sessions/')).rejects.toMatchObject({ __CANCEL__: true });
+    unregister();
+    unregister = registerAIConsentRequester(async () => { await clearSession(); return true; });
+    await expect(api.post('/ai-study/sessions/')).rejects.toMatchObject({ __CANCEL__: true });
+    unregister();
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
 });

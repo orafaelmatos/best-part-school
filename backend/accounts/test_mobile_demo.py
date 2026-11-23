@@ -142,7 +142,7 @@ class MobileDemoSeedTests(TestCase):
                 self.assertTrue(payload['messages'])
                 if session.mode == 'speaking':
                     feedback = next(message['feedback_detail'] for message in payload['messages'] if message['feedback_detail'])
-                    self.assertGreater(feedback['overall_score'], 0)
+                    self.assertIsNone(feedback['overall_score'])
                     self.assertIn('/media/mobile-demo/audio/', feedback['audio_url'])
                 elif session.mode == 'writing':
                     feedback = next(message['writing_feedback_detail'] for message in payload['messages'] if message['writing_feedback_detail'])

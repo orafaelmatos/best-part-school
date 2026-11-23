@@ -11,12 +11,14 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { APP_PATHS } from "@/lib/routes";
-import { PUBLIC_SITE_URL } from "@/apps/target";
+import { LEGAL_PATHS } from "@/lib/privacy";
+import { PUBLIC_SITE_URL, APP_TARGET } from "@/apps/target";
+import StudentPrivacyPanel from "@/components/student/StudentPrivacyPanel";
 
 export default function StudentProfile() {
   const { user, logout } = useAuth();
   const query = useStudentProfile();
-  const { data: badges } = useSidebarBadges(user?.role === "student");
+  const { data: badges } = useSidebarBadges(user?.role === "student" && APP_TARGET !== "student");
   const input = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -46,11 +48,12 @@ export default function StudentProfile() {
           <h2 className="mt-5 text-xl font-bold">{name}</h2><p className="mt-1 break-all text-sm text-slate-500">{query.data?.email || user.email}</p>{(query.data?.level || user.level) && <span className="mt-4 inline-flex rounded-full bg-[#e7f3ef] px-3 py-1.5 text-xs font-semibold text-[#137c78]">Inglês · Nível {query.data?.level || user.level}</span>}
           {query.isError && <button type="button" onClick={() => void query.refetch()} className="mt-4 block min-h-11 w-full text-sm font-semibold text-[#137c78]">Não carregamos seu perfil. Tentar novamente</button>}
         </section>
-        <section aria-labelledby="profile-account"><h2 id="profile-account" className="mb-3 text-sm font-bold">Sua conta</h2><div className="student-card divide-y divide-slate-100 overflow-hidden">
+        {APP_TARGET !== "student" && <section aria-labelledby="profile-account"><h2 id="profile-account" className="mb-3 text-sm font-bold">Sua conta</h2><div className="student-card divide-y divide-slate-100 overflow-hidden">
           <Link to={APP_PATHS.finance} className="flex min-h-[76px] items-center gap-4 px-5 py-4"><CreditCard size={21} className="shrink-0 text-slate-500" /><div className="flex-1"><span className="text-sm font-bold">Financeiro</span><p className="mt-1 text-xs text-slate-500">Pagamentos e contratos</p></div>{Boolean(badges?.finance?.count) && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">{badges.finance.count}</span>}<ChevronRight size={17} className="text-slate-400" /></Link>
           <Link to={APP_PATHS.marketplace} className="flex min-h-[76px] items-center gap-4 px-5 py-4"><ShoppingBag size={21} className="shrink-0 text-slate-500" /><div className="flex-1"><span className="text-sm font-bold">Cursos e materiais</span><p className="mt-1 text-xs text-slate-500">Explore o catálogo da escola</p></div><ChevronRight size={17} className="text-slate-400" /></Link>
-        </div></section>
-        <section className="student-card flex items-start gap-3 p-5"><HelpCircle size={21} className="mt-0.5 shrink-0 text-[#137c78]" /><div><h2 className="text-sm font-bold">Precisa de uma mão?</h2><p className="mt-1.5 text-xs leading-5 text-slate-500">Fale com seu professor para tirar dúvidas sobre aulas ou acesso à conta.</p>{PUBLIC_SITE_URL && <a href={PUBLIC_SITE_URL} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-[#137c78]">Visitar o site da escola <ExternalLink size={14} /></a>}</div></section>
+        </div></section>}
+        <StudentPrivacyPanel />
+        <section className="student-card flex items-start gap-3 p-5"><HelpCircle size={21} className="mt-0.5 shrink-0 text-[#137c78]" /><div><h2 className="text-sm font-bold">Precisa de uma mão?</h2><p className="mt-1.5 text-xs leading-5 text-slate-500">Fale com seu professor para tirar dúvidas sobre aulas ou acesso à conta.</p>{APP_TARGET === "student" ? <Link to={LEGAL_PATHS.support} className="mt-2 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-[#137c78]">Falar com o suporte <HelpCircle size={14} /></Link> : PUBLIC_SITE_URL && <a href={PUBLIC_SITE_URL} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center gap-2 text-xs font-bold text-[#137c78]">Visitar o site da escola <ExternalLink size={14} /></a>}</div></section>
         <button type="button" onClick={() => void logout()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm font-semibold text-slate-600"><LogOut size={17} />Sair da conta</button>
         <p className="pb-2 text-center text-[10px] font-medium tracking-wide text-slate-400">BEST PART SCHOOL · SEU INGLÊS, DO SEU JEITO</p>
       </div>

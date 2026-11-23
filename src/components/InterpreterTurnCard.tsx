@@ -1,3 +1,4 @@
+import AIContentReportButton from "@/components/AIContentReportButton";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import MicRecorder, { type RecordingState } from "@/components/MicRecorder";
@@ -129,6 +130,7 @@ const InterpreterTurnCard = ({ sessionId, message, state, answer, feedback, busy
       <div><h3 className="mb-2 text-sm font-semibold">Uma interpretação sugerida</h3><p lang={turn.target_language === "pt" ? "pt-BR" : "en"} className="mb-3 text-sm leading-relaxed">{turn.suggested_interpretation}</p><InterpreterAudio sessionId={sessionId} messageId={message.id} part="suggested" label={`Ouvir interpretação sugerida em ${target}`} initialUrl={turn.suggested_audio_url} /></div>
       {!readOnly ? <Button type="button" variant="outline" disabled={busy} onClick={onRetry}>Tentar novamente</Button> : null}
     </section> : assistance && !canRespond ? <><Button variant="ghost" onClick={() => setShowSuggested((value) => !value)}>Ver interpretação sugerida</Button>{showSuggested ? <p className="text-sm">{turn.suggested_interpretation}</p> : null}</> : null}
+    <AIContentReportButton messageId={message.id} />
   </article>;
 };
 

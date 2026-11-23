@@ -42,11 +42,14 @@ from .serializers import (
 )
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService
 from . import interpreter
+from accounts.privacy import HasAIConsent
+from bps_core.media import signed_media_url
 from .review import LessonReviewService, ReviewUnavailable
 
 
 class AIStudySessionViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, CanAccessAIStudySession]
+    permission_classes = [permissions.IsAuthenticated, CanAccessAIStudySession, HasAIConsent]
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
     pagination_class = None
 
     def get_queryset(self):
@@ -245,7 +248,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         serializer = SpeakingVocabularyAudioSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         audio_url = AIStudyWorkflowService.vocabulary_audio(session, **serializer.validated_data)
-        return Response({'audio_url': audio_url})
+        return Response({'audio_url': signed_media_url(audio_url)})
 
     @action(detail=True, methods=['post'], url_path='simulation-audio')
     def simulation_audio(self, request, pk=None):
@@ -255,7 +258,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         serializer = SpeakingSimulationAudioSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         audio_url = AIStudyWorkflowService.simulation_audio(session, **serializer.validated_data)
-        return Response({'audio_url': audio_url})
+        return Response({'audio_url': signed_media_url(audio_url)})
 
     @action(detail=True, methods=['post'], url_path='utterance-audio')
     def utterance_audio(self, request, pk=None):
@@ -264,7 +267,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Áudio de estudo disponível apenas no Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = SpeakingUtteranceAudioSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response({'audio_url': AIStudyWorkflowService.utterance_audio(session, **serializer.validated_data)})
+        return Response({'audio_url': signed_media_url(AIStudyWorkflowService.utterance_audio(session, **serializer.validated_data))})
 
     @action(detail=True, methods=['post'])
     def message(self, request, pk=None):
@@ -433,7 +436,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         serializer = InterpreterAudioSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response({'audio_url': interpreter.audio(session, serializer.validated_data)})
+        return Response({'audio_url': signed_media_url(interpreter.audio(session, serializer.validated_data))})
 
     @action(detail=True, methods=['post'], url_path='translate-selection')
     def translate_selection(self, request, pk=None):
@@ -446,7 +449,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
 
 class SpeakingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = SpeakingSessionReportSerializer
-    permission_classes = [permissions.IsAuthenticated, CanAccessSpeakingFeedback]
+    permission_classes = [permissions.IsAuthenticated, CanAccessSpeakingFeedback, HasAIConsent]
 
     def get_queryset(self):
         reports = SpeakingSessionReport.objects.filter(session__student__in=visible_students(self.request.user)).select_related('session')
@@ -514,7 +517,7 @@ class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
             feedback.tts_audio_url = audio_url
             feedback.raw_response = {**raw, 'tts_text': text}
             feedback.save(update_fields=['tts_audio_url', 'raw_response'])
-        return Response({'audio_url': audio_url, 'text': text})
+        return Response({'audio_url': signed_media_url(audio_url), 'text': text})
 
 
 class ContextLessonsAPIView(APIView):

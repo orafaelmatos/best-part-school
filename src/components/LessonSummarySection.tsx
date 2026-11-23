@@ -1,3 +1,6 @@
+import type { SchoolLesson } from "@/lib/schoolTypes";
+import type { LessonWord, LessonAttachment } from "@/lib/studentLessonHistory";
+import { normalizeList } from "@/lib/schoolTypes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -5,8 +8,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Brain, Loader2, Save, Sparkles } from "lucide-react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import ReactQuill from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
 
 type SummaryWord = { id?: string; word: string; meaning: string };
 type SummaryMistake = { id?: string; mistake: string; correction: string };
@@ -37,7 +40,6 @@ const emptySummary: LessonSummary = {
   flashcards: [],
 };
 
-const normalizeList = (data: any) => (Array.isArray(data) ? data : data?.results || []);
 
 const hasHtmlTags = (value: string) => /<\/?[a-z][\s\S]*>/i.test(value);
 
@@ -143,7 +145,7 @@ const LessonSummarySection = ({
   notes,
   onUpdated,
 }: {
-  lesson: any;
+  lesson: SchoolLesson;
   notes: string;
   onUpdated?: () => void;
 }) => {
@@ -178,13 +180,13 @@ const LessonSummarySection = ({
 
   const sources = useMemo(() => {
     const newWords = lesson.new_words || [];
-    const noteImages = (lesson.attachments || []).filter((attachment: any) => attachment.is_image);
+    const noteImages = (lesson.attachments || []).filter((attachment: LessonAttachment) => attachment.is_image);
     return {
       lessonContext: [lesson.title, lesson.template_title].filter(Boolean).join(" · "),
-      words: newWords.map((word: any) => ({ word: word.word, meaning: word.meaning })),
+      words: newWords.map((word: LessonWord) => ({ word: word.word, meaning: word.meaning })),
       wordCount: newWords.length,
       imageCount: noteImages.length,
-      imageNames: noteImages.map((attachment: any) => attachment.file_name).filter(Boolean).slice(0, 4),
+      imageNames: noteImages.map((attachment: LessonAttachment) => attachment.file_name).filter(Boolean).slice(0, 4),
     };
   }, [lesson]);
 
@@ -356,7 +358,7 @@ const LessonSummarySection = ({
         <div className="h-64 animate-pulse rounded-xl bg-muted" />
       ) : form.id || isTeacher ? (
         <div className="bg-background rounded-md overflow-hidden border border-border h-[360px]">
-          <ReactQuill
+          <ReactQuill useSemanticHTML={false}
             ref={summaryQuillRef}
             theme="snow"
             value={form.summary}

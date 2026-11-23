@@ -10,6 +10,7 @@ import { legacyRedirectRoutes } from "../shared/redirects";
 import { studentPaths, studentRoutes } from "../student/routes";
 import { adminPaths, adminRoutes } from "../admin/routes";
 import { publicRoutes } from "../site/routes";
+import { commercePaths, commerceRoutes } from "../shared/commerceRoutes";
 
 export default function LegacyApp() {
   return (
@@ -19,9 +20,10 @@ export default function LegacyApp() {
           <Routes>
             {publicRoutes()}
             <Route path={LOGIN_PATH} element={<Login />} />
-            {legacyRedirectRoutes([...accountPaths, ...studentPaths, ...adminPaths])}
+            {legacyRedirectRoutes([...accountPaths, ...commercePaths, ...studentPaths, ...adminPaths])}
             <Route element={<PrivateRoute />}>
               {accountRoutes()}
+              {commerceRoutes()}
               {studentRoutes({ includeCalendarAlias: false })}
               {adminRoutes({ includeLessonsAlias: false })}
             </Route>

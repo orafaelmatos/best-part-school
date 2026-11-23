@@ -1,3 +1,4 @@
+import type { AvailabilitySlot } from "@/lib/schoolTypes";
 import { useState, useEffect } from "react";
 import { X, Plus, Trash } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -37,7 +38,7 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
   }, [data]);
 
   const saveMutation = useMutation({
-    mutationFn: async (newSlots: any[]) => {
+    mutationFn: async (newSlots: AvailabilitySlot[]) => {
       return api.post(`/teacher-availability/${user?.user_id}/`, { slots: newSlots });
     },
     onSuccess: () => {
@@ -59,7 +60,7 @@ export default function TeacherAvailabilityModal({ onClose }: { onClose: () => v
     setSlots(slots.filter((_, i) => i !== index));
   };
 
-  const updateSlot = (index: number, field: string, value: any) => {
+  const updateSlot = <K extends keyof AvailabilitySlot>(index: number, field: K, value: AvailabilitySlot[K]) => {
     const newSlots = [...slots];
     newSlots[index] = { ...newSlots[index], [field]: value };
     setSlots(newSlots);

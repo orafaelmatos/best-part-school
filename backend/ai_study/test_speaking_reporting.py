@@ -1,3 +1,4 @@
+from django.utils import timezone
 from copy import deepcopy
 import tempfile
 import uuid
@@ -26,7 +27,7 @@ class SpeakingReportingTests(TestCase):
         self.feedback_analysis = analysis_patch.start()
         self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
-        self.student = User.objects.create_user(email='reports@test.com', role='student', level='A1')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='reports@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)
         self.patches = {}
         for method, value in {
@@ -208,10 +209,10 @@ class SpeakingReportingTests(TestCase):
         self.send(session, value='finalize_session', kind='session_control')
         record = session.speaking_reports.get()
         url = f'/api/ai-study/speaking-reports/{record.id}/'
-        teacher = User.objects.create_user(email='teacher-reports@test.com', role='teacher')
-        outsider = User.objects.create_user(email='outsider-reports@test.com', role='teacher')
-        other = User.objects.create_user(email='other-reports@test.com', role='student')
-        admin = User.objects.create_user(email='admin-reports@test.com', role='admin')
+        teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='teacher-reports@test.com', role='teacher')
+        outsider = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='outsider-reports@test.com', role='teacher')
+        other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-reports@test.com', role='student')
+        admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='admin-reports@test.com', role='admin')
         group = StudentGroup.objects.create(name='Speaking group', teacher=teacher)
         group.students.add(self.student)
         for user, expected in [(teacher, 200), (admin, 200), (self.student, 200), (outsider, 404), (other, 404)]:

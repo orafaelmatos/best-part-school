@@ -14,6 +14,11 @@ Veja o [fluxo de desenvolvimento e publicação](docs/FLUXO_DE_DESENVOLVIMENTO.m
 
 ## Aplicativos Android e iOS
 
+- [Preparação de produção e publicação nas lojas](docs/PUBLICAR_APP.md)
+- [Dados e textos para os formulários das lojas](docs/DECLARACOES_LOJAS.md)
+- [Resultados e limites da validação de produção](docs/RELEASE_VALIDATION.md)
+
+
 A base Capacitor e os builds independentes do aluno, site e gestão estão implementados. A aplicação completa continua sendo o padrão de `npm run dev` e `npm run build`.
 
 - [Desenvolvimento mobile e comandos](docs/MOBILE_DEVELOPMENT.md)

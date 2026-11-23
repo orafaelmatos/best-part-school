@@ -1,3 +1,6 @@
+import { isAxiosError } from "axios";
+import { apiErrorMessage } from "@/lib/apiErrors";
+import type { FinancialSettings } from "@/lib/schoolTypes";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -157,9 +160,9 @@ const formatApiErrorValue = (value: unknown): string => {
   return String(value);
 };
 
-const getApiErrorMessage = (err: any) => {
-  const data = err?.response?.data;
-  if (!data) return err?.message || "Verifique os dados e tente novamente.";
+const getApiErrorMessage = (err: unknown) => {
+  const data = isAxiosError<Record<string, unknown>>(err) ? err.response?.data : undefined;
+  if (!data) return apiErrorMessage(err, err instanceof Error ? err.message : "Verifique os dados e tente novamente.");
 
   const priorityFields = [
     "schedule",
@@ -179,7 +182,7 @@ const getApiErrorMessage = (err: any) => {
   return formatApiErrorValue(data) || "Verifique os dados e tente novamente.";
 };
 
-const buildReviewItems = (student: StudentDraft, financeSettings: any, scheduleData?: GroupScheduleData) => {
+const buildReviewItems = (student: StudentDraft, financeSettings: FinancialSettings, scheduleData?: GroupScheduleData) => {
   const formData = student.formData;
   const lessonSchedule = scheduleData || formData;
   const pendingLessons = getPendingLessons(formData);
@@ -410,7 +413,7 @@ const CriarAluno = () => {
           });
           createdStudents.push(getStudentTitle(student, index));
           responses.push(res.data);
-        } catch (err: any) {
+        } catch (err: unknown) {
           const partialMessage = createdStudents.length
             ? ` ${createdStudents.length} aluno(s) ja foram cadastrados.`
             : "";
@@ -427,10 +430,10 @@ const CriarAluno = () => {
       });
       navigate(APP_PATHS.students);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: isGroupMode ? "Erro ao cadastrar grupo" : "Erro ao cadastrar",
-        description: err?.message || "Verifique os dados e tente novamente.",
+        description: err instanceof Error ? err.message : "Verifique os dados e tente novamente.",
         variant: "destructive",
       });
     },

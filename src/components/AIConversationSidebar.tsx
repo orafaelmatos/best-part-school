@@ -227,7 +227,7 @@ const AIConversationSidebar = () => {
   };
 
   const handleSelectSession = (targetSessionId: string) => {
-    startTransition(() => navigate(buildWorkspaceSessionPath(activeWorkspace.id, targetSessionId)));
+    startTransition(() => { void navigate(buildWorkspaceSessionPath(activeWorkspace.id, targetSessionId)); });
   };
 
   const handleStartRename = (session: SessionSummary) => {
@@ -286,7 +286,7 @@ const AIConversationSidebar = () => {
 
       if (session.id === sessionId) {
         if (remainingSessions.length) {
-          startTransition(() => navigate(buildWorkspaceSessionPath(activeWorkspace.id, remainingSessions[0].id)));
+          startTransition(() => { void navigate(buildWorkspaceSessionPath(activeWorkspace.id, remainingSessions[0].id)); });
         } else {
           navigate(activeWorkspace.newPath);
         }
@@ -319,7 +319,7 @@ const AIConversationSidebar = () => {
                 type="button"
                 onClick={() => {
                   if (!isActive) {
-                    startTransition(() => navigate(workspace.basePath));
+                    startTransition(() => { void navigate(workspace.basePath); });
                   }
                 }}
                 className={cn(

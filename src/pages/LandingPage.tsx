@@ -1,3 +1,4 @@
+import { LEGAL_PATHS } from "@/lib/privacy";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -885,7 +886,7 @@ const SiteFooter = () => (
 
     <div className="mx-auto mt-10 flex max-w-7xl flex-col gap-3 border-t border-neutral-200 pt-6 text-sm text-neutral-500 sm:flex-row sm:items-center sm:justify-between">
       <p>© {new Date().getFullYear()} Best Part School. Todos os direitos reservados.</p>
-      <p>Site institucional</p>
+      <div className="flex gap-5"><Link to={LEGAL_PATHS.privacy} className="underline">Privacidade</Link><Link to={LEGAL_PATHS.support} className="underline">Suporte</Link><Link to={LEGAL_PATHS.deletion} className="underline">Excluir conta</Link></div>
     </div>
   </footer>
 );

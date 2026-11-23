@@ -1,12 +1,14 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import PracticeSession, Message
 from .serializers import PracticeSessionSerializer, MessageSerializer
 from .services import AIService, SpeechToTextService, TextToSpeechService
+from accounts.privacy import HasAIConsent
 
 class PracticeSessionViewSet(viewsets.ModelViewSet):
     serializer_class = PracticeSessionSerializer
+    permission_classes = [permissions.IsAuthenticated, HasAIConsent]
 
     def get_queryset(self):
         return PracticeSession.objects.filter(user=self.request.user)

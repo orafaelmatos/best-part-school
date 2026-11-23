@@ -8,15 +8,19 @@ import AppProviders from "../AppProviders";
 import { accountPaths, accountRoutes } from "../shared/accountRoutes";
 import { legacyRedirectRoutes } from "../shared/redirects";
 import { adminPaths, adminRoutes } from "./routes";
+import { commercePaths, commerceRoutes } from "../shared/commerceRoutes";
+import { legalRoutes } from "../shared/legalRoutes";
 
 export function AdminRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to={APP_PATHS.dashboard} replace />} />
       <Route path={LOGIN_PATH} element={<Login />} />
-      {legacyRedirectRoutes([...accountPaths, ...adminPaths, APP_PATHS.lessons])}
+      {legalRoutes()}
+      {legacyRedirectRoutes([...accountPaths, ...commercePaths, ...adminPaths, APP_PATHS.lessons])}
       <Route element={<PrivateRoute allowedRoles={["teacher", "admin"]} />}>
         {accountRoutes()}
+        {commerceRoutes()}
         {adminRoutes()}
       </Route>
       <Route path="*" element={<NotFound />} />

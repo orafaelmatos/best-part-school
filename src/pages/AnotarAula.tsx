@@ -1,3 +1,6 @@
+import type { LessonAttachment } from "@/lib/studentLessonHistory";
+import { normalizeList } from "@/lib/schoolTypes";
+import type { SchoolUser, SchoolLesson, LessonSelectOption, AvailabilitySlot } from "@/lib/schoolTypes";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -42,8 +45,8 @@ import {
   ZoomIn,
   XCircle,
 } from "lucide-react";
-import ReactQuill, { Quill } from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import ReactQuill, { Quill } from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
 import { FlashcardEditor } from "@/components/FlashcardEditor";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
 import PastLessonSummary from "@/components/PastLessonSummary";
@@ -84,12 +87,8 @@ type ManualSaveAction = {
 const PLANNABLE_STATUSES = ["pending", "scheduled", "rescheduled", "in_progress"];
 const PLANNING_MODE_STATUSES = ["pending", "scheduled", "rescheduled"];
 
-const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
-type QuillBlockEmbedConstructor = {
-  new (...args: unknown[]): object;
-  create: (value?: unknown) => HTMLElement;
-};
+type QuillBlockEmbedConstructor = typeof import("quill/blots/block").BlockEmbed;
 
 const registerLessonNoteImageBlot = () => {
   const registry = globalThis as typeof globalThis & { __bpsLessonNoteImageBlotRegistered?: boolean };
@@ -145,8 +144,12 @@ const removeImageFromNotesHtml = (html: string, imageUrl?: string) => {
   }
   const element = document.createElement("div");
   element.innerHTML = html;
+  const fileIdentity = (url: string) => {
+    try { const parsed = new URL(url, window.location.origin); return `${parsed.origin}${parsed.pathname}`; }
+    catch { return url; }
+  };
   element.querySelectorAll("img").forEach((image) => {
-    if (image.getAttribute("src") === imageUrl || image.src === imageUrl) {
+    if (fileIdentity(image.getAttribute("src") || "") === fileIdentity(imageUrl)) {
       const container = image.closest("[data-bps-note-image='true'], figure.bps-note-image");
       if (container) {
         container.remove();
@@ -210,7 +213,7 @@ const AnotarAula = () => {
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
   const [meetingUrl, setMeetingUrl] = useState("");
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<SchoolUser[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [lessonPickerMode, setLessonPickerMode] = useState<LessonPickerMode | null>(null);
@@ -241,7 +244,7 @@ const AnotarAula = () => {
   const groupContextMismatch = Boolean(lesson && expectedGroupId && expectedGroupId !== lessonGroupId);
   const annotationContextMismatch = studentContextMismatch || groupContextMismatch;
   const isStudentContextLocked = Boolean(lessonStudentId || lessonGroupId);
-  const contextStudent = students.find((student: any) => String(student.id) === String(contextStudentId));
+  const contextStudent = students.find((student: SchoolUser) => String(student.id) === String(contextStudentId));
   const currentStudentName =
     lesson?.student_name ||
     contextStudent?.name ||
@@ -330,8 +333,8 @@ const AnotarAula = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const usersData = await fetchAllPages<any>("/accounts/users/");
-        setStudents(usersData.filter((u: any) => u.role === "student"));
+        const usersData = await fetchAllPages<SchoolUser>("/accounts/users/");
+        setStudents(usersData.filter((u: SchoolUser) => u.role === "student"));
       } catch (err) {
         console.error("Failed to fetch students", err);
       }
@@ -374,7 +377,7 @@ const AnotarAula = () => {
     }
   }, [lesson]);
 
-  const noteImages = (lesson?.attachments || []).filter((attachment: any) => attachment.is_image);
+  const noteImages = (lesson?.attachments || []).filter((attachment: LessonAttachment) => attachment.is_image);
   const draftStatus: LessonSaveStatus =
     lesson?.status === "completed"
       ? "completed"
@@ -390,7 +393,7 @@ const AnotarAula = () => {
   );
 
   const buildAutosavePayload = useCallback((notesOverride?: string) => {
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       title,
       notes: notesOverride ?? notes,
       meeting_url: meetingUrl,
@@ -521,7 +524,7 @@ const AnotarAula = () => {
     setSelectedNoteImage(readLessonNoteImageValue(container));
 
     const blot = Quill.find(container);
-    if (blot) {
+    if (blot && "domNode" in blot) {
       const index = editor.getIndex(blot);
       editor.setSelection(index, 1, "silent");
     }
@@ -640,7 +643,7 @@ const AnotarAula = () => {
     imageInputRef.current?.click();
   };
 
-  const handleRemoveImage = async (attachment: any) => {
+  const handleRemoveImage = async (attachment: LessonAttachment) => {
     if (!id || deletingImageId) {
       return;
     }
@@ -689,7 +692,7 @@ const AnotarAula = () => {
         datetime = new Date(`${date}T${time}`).toISOString();
       }
 
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         title,
         notes,
         meeting_url: meetingUrl,
@@ -701,7 +704,7 @@ const AnotarAula = () => {
       if (!lessonMetadataLocked) {
         payload.date = datetime;
       }
-      
+
       await api.patch(`/lessons/${id}/`, payload);
       return { status, stayOnPage };
     },
@@ -869,7 +872,7 @@ const AnotarAula = () => {
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <PageHeader 
+        <PageHeader
           title={pageTitle}
           description={pageDescription}
         />
@@ -932,11 +935,11 @@ const AnotarAula = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-semibold mb-1">Título da Aula</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 className="w-full p-2 border border-border rounded-lg bg-background text-sm"
-                value={title} 
-                onChange={(e) => setTitle(e.target.value)} 
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
               />
             </div>
             {lessonMetadataLocked ? (
@@ -965,13 +968,13 @@ const AnotarAula = () => {
                 ) : (
                   <div>
                     <label className="block text-sm font-semibold mb-1">Aluno</label>
-                    <select 
-                      className="w-full p-2 border border-border rounded-lg bg-background text-sm" 
-                      value={studentId} 
+                    <select
+                      className="w-full p-2 border border-border rounded-lg bg-background text-sm"
+                      value={studentId}
                       onChange={(e) => setStudentId(e.target.value)}
                     >
                       <option value="" disabled>Selecione um aluno</option>
-                      {students.map((student: any) => (
+                      {students.map((student: SchoolUser) => (
                         <option key={student.id} value={student.id}>
                           {student.name || student.email}
                         </option>
@@ -982,20 +985,20 @@ const AnotarAula = () => {
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-semibold mb-1">Data</label>
-                    <input 
-                      type="date" 
+                    <input
+                      type="date"
                       className="w-full p-2 border border-border rounded-lg bg-background text-sm"
-                      value={date} 
-                      onChange={(e) => setDate(e.target.value)} 
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold mb-1">Hora</label>
-                    <input 
-                      type="time" 
+                    <input
+                      type="time"
                       className="w-full p-2 border border-border rounded-lg bg-background text-sm"
-                      value={time} 
-                      onChange={(e) => setTime(e.target.value)} 
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
                     />
                   </div>
                 </div>
@@ -1030,10 +1033,10 @@ const AnotarAula = () => {
             </Button>
           </div>
           <div className="lesson-notes-editor h-[75vh] min-h-[520px] resize-y overflow-hidden rounded-md border border-border bg-background md:h-[80vh] md:min-h-[760px]">
-            <ReactQuill 
+            <ReactQuill useSemanticHTML={false}
               ref={quillRef}
-              theme="snow" 
-              value={notes} 
+              theme="snow"
+              value={notes}
               onChange={handleNotesChange}
               placeholder="Escreva o contexto da aula aqui. Você pode misturar texto, links e imagens."
               style={{ height: '100%', border: 'none' }}
@@ -1142,7 +1145,7 @@ const AnotarAula = () => {
               <p className="text-sm text-muted-foreground">Nenhuma imagem anexada ainda.</p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {noteImages.map((attachment: any) => (
+                {noteImages.map((attachment: LessonAttachment) => (
                   <div
                     key={attachment.id}
                     className="overflow-hidden rounded-xl border border-border bg-muted/20"
@@ -1192,9 +1195,9 @@ const AnotarAula = () => {
           <label className="flex items-center gap-2 text-sm font-semibold mb-2">
             <LinkIcon size={16} /> Link da Aula (URL)
           </label>
-          <input 
-            type="url" 
-            placeholder="https://..." 
+          <input
+            type="url"
+            placeholder="https://..."
             className="w-full p-2 border border-border rounded-lg bg-background text-sm"
             value={meetingUrl}
             onChange={(e) => setMeetingUrl(e.target.value)}
@@ -1224,8 +1227,8 @@ const AnotarAula = () => {
             </>
           ) : (
             <>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => handleSave(draftStatus, true)}
                 disabled={updateMutation.isPending}
               >
@@ -1240,7 +1243,7 @@ const AnotarAula = () => {
                   <XCircle className="mr-2 h-4 w-4" /> Cancelar anotação
                 </Button>
               )}
-              <Button 
+              <Button
                 onClick={() => handleSave("completed")}
                 className="bg-green-600 hover:bg-green-700 text-white"
                 disabled={updateMutation.isPending}

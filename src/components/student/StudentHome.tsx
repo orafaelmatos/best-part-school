@@ -1,3 +1,4 @@
+import { APP_TARGET } from "@/apps/target";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -189,8 +190,8 @@ const StudentHome = () => {
       </section>
 
       <div className="grid grid-cols-2 gap-3 border-t border-slate-200/80 pt-3">
-        <Link to={APP_PATHS.finance} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-medium text-slate-600 transition hover:bg-white ${touchLink}`}><CreditCard className="h-4 w-4" aria-hidden="true" />Financeiro</Link>
-        <Link to={APP_PATHS.marketplace} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-medium text-slate-600 transition hover:bg-white ${touchLink}`}><ShoppingBag className="h-4 w-4" aria-hidden="true" />Loja de cursos</Link>
+        {APP_TARGET !== "student" && <Link to={APP_PATHS.finance} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-medium text-slate-600 transition hover:bg-white ${touchLink}`}><CreditCard className="h-4 w-4" aria-hidden="true" />Financeiro</Link>}
+        {APP_TARGET !== "student" && <Link to={APP_PATHS.marketplace} className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-sm font-medium text-slate-600 transition hover:bg-white ${touchLink}`}><ShoppingBag className="h-4 w-4" aria-hidden="true" />Loja de cursos</Link>}
       </div>
     </div>
   );

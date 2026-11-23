@@ -1,3 +1,4 @@
+from django.utils import timezone
 from copy import deepcopy
 import json
 import tempfile
@@ -185,7 +186,7 @@ class VocabularyFlowTests(TestCase):
         self.feedback_analysis = analysis_patch.start()
         self.addCleanup(analysis_patch.stop)
         self.client = APIClient()
-        self.student = User.objects.create_user(email='phase-two@test.com', role='student', level='A1')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='phase-two@test.com', role='student', level='A1')
         self.client.force_authenticate(self.student)
         self.original_assess = AIStudyOpenAIService.assess_vocabulary_practice
         self.patches = [
@@ -411,7 +412,7 @@ class VocabularyFlowTests(TestCase):
 
     def test_audio_access_is_scoped_to_the_students_session(self):
         session, response = self.create()
-        other = User.objects.create_user(email='phase-two-other@test.com', role='student')
+        other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='phase-two-other@test.com', role='student')
         self.client.force_authenticate(other)
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/vocabulary-audio/',
                                     {'message_id': response.data['assistant_message']['id'], 'part': 'word'}, format='json')

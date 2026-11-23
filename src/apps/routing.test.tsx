@@ -74,15 +74,12 @@ describe("student application routing", () => {
     ["/app/treinar-ia", "ai-practice"],
     ["/app/treinar-ia/conversa/session-123", "ai-practice"],
     ["/app/interprete-ia/conversa/session-456", "interpreter"],
-    ["/app/financeiro", "payments"],
-    ["/app/pagamentos", "payments"],
-    ["/app/marketplace", "marketplace"],
   ])("preserves student functionality at %s", (path, page) => {
     open(path);
     expect(screen.getByText(page)).toBeInTheDocument();
   });
 
-  it.each(["/app/alunos", "/app/aulas/nova", "/app/crm", "/app/corrigir-homework", "/cursos"]) (
+  it.each(["/app/financeiro", "/app/pagamentos", "/app/marketplace", "/app/alunos", "/app/aulas/nova", "/app/crm", "/app/corrigir-homework", "/cursos"]) (
     "excludes management and institutional route %s", (path) => {
       open(path);
       expect(screen.getByText("not-found")).toBeInTheDocument();

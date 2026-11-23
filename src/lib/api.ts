@@ -1,13 +1,16 @@
-import axios, { type InternalAxiosRequestConfig } from "axios";
+import axios, { type InternalAxiosRequestConfig, type AxiosRequestConfig } from "axios";
 import { jwtDecode } from "jwt-decode";
 import { API_BASE_URL } from "@/lib/config";
 import { clearSession, getSession, getSessionGeneration, hydrateSession, saveSession } from "@/lib/session";
+import { requestAIConsent } from "@/lib/aiConsent";
 
 export const api = axios.create({ baseURL: API_BASE_URL });
 // A separate client avoids recursively intercepting a rejected refresh request.
 const tokenApi = axios.create({ baseURL: API_BASE_URL });
-type AuthRequest = InternalAxiosRequestConfig & { _authRetry?: boolean; _authGeneration?: number };
+type AuthRequest = InternalAxiosRequestConfig & { _authRetry?: boolean; _authGeneration?: number; _aiConsentRetry?: boolean };
 let refreshing: { generation: number; promise: Promise<string | null> } | undefined;
+
+export const sessionBoundConfig = (generation: number): AxiosRequestConfig & { _authGeneration: number } => ({ _authGeneration: generation });
 
 const isAuthEndpoint = (url = "") => /\/accounts\/(login|token\/refresh)\/?(?:\?|$)/.test(url);
 
@@ -58,8 +61,9 @@ export async function restoreAuthSession() {
 
 api.interceptors.request.use(async (config: AuthRequest) => {
   if (isAuthEndpoint(config.url)) return config;
+  const startedAt = getSessionGeneration();
   await hydrateSession();
-  config._authGeneration ??= getSessionGeneration();
+  config._authGeneration ??= startedAt;
   if (config._authGeneration !== getSessionGeneration()) throw new axios.CanceledError("Sessão alterada.");
   const access = getSession()?.access;
   if (access) config.headers.set("Authorization", `Bearer ${access}`);
@@ -67,8 +71,20 @@ api.interceptors.request.use(async (config: AuthRequest) => {
   return config;
 });
 
-api.interceptors.response.use((response) => response, async (error) => {
+api.interceptors.response.use((response) => {
+  const config = response.config as AuthRequest;
+  if (config._authGeneration !== undefined && config._authGeneration !== getSessionGeneration()) {
+    throw new axios.CanceledError("A resposta pertence a uma sessão anterior.");
+  }
+  return response;
+}, async (error) => {
   const config = error.config as AuthRequest | undefined;
+  if (config && error.response?.status === 403 && error.response?.data?.code === "ai_consent_required" &&
+      !config._aiConsentRetry && config._authGeneration === getSessionGeneration()) {
+    config._aiConsentRetry = true;
+    if (await requestAIConsent() && config._authGeneration === getSessionGeneration()) return api.request(config);
+    throw new axios.CanceledError("Você escolheu continuar sem IA.");
+  }
   if (!config || error.response?.status !== 401 || isAuthEndpoint(config.url) ||
       config._authGeneration !== getSessionGeneration()) throw error;
   if (config._authRetry) {

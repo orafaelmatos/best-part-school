@@ -197,6 +197,8 @@ AUTH_USER_MODEL = 'accounts.User'
 
 # DRF Settings
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'bps_core.exceptions.api_exception_handler',
+    'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -209,7 +211,8 @@ REST_FRAMEWORK = {
 
 # Simple JWT 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'CHECK_REVOKE_TOKEN': True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
@@ -217,3 +220,8 @@ SIMPLE_JWT = {
 # Media Files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+PRIVATE_MEDIA_URL_TTL = int(os.getenv('PRIVATE_MEDIA_URL_TTL', '900'))
+STORAGES = {
+    'default': {'BACKEND': 'bps_core.media.PrivateMediaStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage' if HAS_WHITENOISE else 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+}
