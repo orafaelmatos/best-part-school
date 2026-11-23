@@ -5,7 +5,8 @@ from django.db.models import Max, Q
 from django.db import transaction
 from .models import Lesson, NewWord, Attachment, TeacherAvailability, TeacherBlockedDate, StudentRecurringSchedule, Homework, HomeworkQuestion, HomeworkAnswer, HomeworkTemplate, VocabularyCard, VocabularyCategory, LessonSummary
 from .serializers import LessonSerializer, NewWordSerializer, AttachmentSerializer, TeacherAvailabilitySerializer, TeacherBlockedDateSerializer, StudentRecurringScheduleSerializer, HomeworkSerializer, HomeworkAnswerSerializer, HomeworkTemplateSerializer, VocabularyCardSerializer, VocabularyCategorySerializer, VocabularyReviewLogSerializer, LessonSummarySerializer
-from .serializers import GenerateWordSentencesSerializer, ApproveWordSentencesSerializer
+from .serializers import GenerateWordSentencesSerializer, ApproveWordSentencesSerializer, GenerateSingleWordSentenceSerializer, SaveWordSentenceSerializer
+from .serializers import GenerateVocabularySentencesSerializer, SaveVocabularySentencesSerializer
 from .permissions import IsStudentOrTeacher
 from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -39,7 +40,7 @@ from .vocabulary import (
 )
 from .homework_auto import HomeworkAutoCorrectionService
 from ai_study.services import LessonSummaryWorkflowService
-from .word_sentences import SentenceGenerationError, WordSentenceService
+from .word_sentences import SentenceGenerationError, WordSentenceService, sentence_level, lesson_sentence_level
 
 logger = logging.getLogger(__name__)
 
@@ -138,13 +139,102 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
     ordering_fields = ['next_review_at', 'last_reviewed_at', 'created_at', 'word', 'confidence_level', 'failure_count']
     ordering = ['next_review_at']
 
+    def _sentence_owner(self, student_id=None, *, personal=False):
+        from django.contrib.auth import get_user_model
+        from ai_study.permissions import can_access_student
+        user = self.request.user
+        if not student_id or student_id == user.pk:
+            return user
+        if personal or user.role == 'student':
+            raise exceptions.PermissionDenied('Você só pode criar frases para o seu próprio vocabulário.')
+        student = get_user_model().objects.filter(pk=student_id, role='student').first()
+        if not student or not can_access_student(user, student):
+            raise exceptions.PermissionDenied('Você não tem acesso ao vocabulário deste aluno.')
+        return student
+
+    @action(detail=False, methods=['post'], url_path='generate-word-sentences')
+    def generate_word_sentences(self, request):
+        serializer = GenerateVocabularySentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'), personal=True)
+        level = sentence_level(student.level)
+        try:
+            items = WordSentenceService.generate_vocabulary(data['words'], level=level)
+        except (OpenAIError, SentenceGenerationError):
+            logger.warning('Could not generate vocabulary sentences for student %s', student.pk, exc_info=True)
+            return Response(
+                {'detail': 'Não foi possível gerar todas as frases agora. Sua lista foi mantida; tente novamente.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({'items': items, 'level': level})
+
+    @action(detail=False, methods=['post'], url_path='generate-word-sentence')
+    def generate_word_sentence(self, request):
+        serializer = GenerateSingleWordSentenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'))
+        level = sentence_level(student.level)
+        try:
+            item = WordSentenceService.generate_single(data['source_word'], level=level,
+                adjustment=data['adjustment'], previous_sentence=data.get('previous_sentence', ''))
+        except (OpenAIError, SentenceGenerationError):
+            logger.warning('Could not generate vocabulary sentence for student %s', student.pk, exc_info=True)
+            return Response({'detail': 'Não foi possível criar a frase agora. Sua palavra e a frase anterior foram mantidas para tentar novamente.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({'item': item, 'level': level})
+
+    @action(detail=False, methods=['post'], url_path='save-word-sentence')
+    def save_word_sentence(self, request):
+        serializer = SaveWordSentenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'))
+        cards, created_count = self._save_sentence_items(student, [data])
+        return Response({'created': bool(created_count), 'card': self.get_serializer(cards[0]).data},
+                        status=status.HTTP_201_CREATED if created_count else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='save-word-sentences')
+    def save_word_sentences(self, request):
+        serializer = SaveVocabularySentencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        student = self._sentence_owner(data.get('student_id'), personal=True)
+        cards, created_count = self._save_sentence_items(student, data['items'])
+        return Response({
+            'created_count': created_count,
+            'skipped_count': len(cards) - created_count,
+            'cards': self.get_serializer(cards, many=True).data,
+        }, status=status.HTTP_201_CREATED if created_count else status.HTTP_200_OK)
+
+    def _save_sentence_items(self, student, items):
+        from django.contrib.auth import get_user_model
+        from .vocabulary import default_vocabulary_category
+        teacher = self.request.user if student.pk != self.request.user.pk else None
+        source_type = 'teacher' if teacher else 'student'
+        cards = []
+        created_count = 0
+        with transaction.atomic():
+            get_user_model().objects.select_for_update().get(pk=student.pk)
+            for item in items:
+                card = VocabularyCard.objects.filter(student=student, teacher=teacher, source_type=source_type,
+                                                      word__iexact=item['sentence']).first()
+                if card is None:
+                    card = VocabularyCard.objects.create(student=student, teacher=teacher, source_type=source_type,
+                        word=item['sentence'], translation=item['translation'], example_sentence=item['sentence'],
+                        explanation=f"Palavra praticada: {item['source_word']}", tags=['Frase com IA', item['source_word']],
+                        category=default_vocabulary_category(), next_review_at=timezone.now())
+                    created_count += 1
+                cards.append(card)
+        return cards, created_count
+
     def get_queryset(self):
         user = self.request.user
         qs = VocabularyCard.objects.select_related('student', 'teacher', 'lesson', 'category', 'source_new_word')
         if user.role == 'admin':
             return qs
         if user.role == 'teacher':
-            return qs.filter(Q(teacher=user) | Q(lesson__teacher=user))
+            return qs.filter(Q(student=user) | Q(teacher=user) | Q(lesson__teacher=user))
         return qs.filter(student=user)
 
     def perform_create(self, serializer):
@@ -152,8 +242,9 @@ class VocabularyCardViewSet(viewsets.ModelViewSet):
         student = serializer.validated_data.get('student') or user
         teacher = serializer.validated_data.get('teacher')
         source_type = serializer.validated_data.get('source_type')
-        if user.role == 'student':
+        if user.role == 'student' or student.pk == user.pk:
             student = user
+            teacher = None
             source_type = 'student'
         elif user.role == 'teacher':
             teacher = teacher or user
@@ -350,6 +441,11 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             serializer.save(teacher=self.request.user)
             return
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user.role not in ['teacher', 'admin']:
+            raise exceptions.PermissionDenied('Somente professores e administradores podem excluir homeworks.')
+        super().perform_destroy(instance)
 
     def _clone_homework_for_student(self, source, student):
         clone = Homework.objects.create(
@@ -763,7 +859,7 @@ class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['teacher', 'status', 'level', 'is_template', 'is_extra']
+    filterset_fields = ['teacher', 'group', 'status', 'level', 'is_template', 'is_extra']
     ordering_fields = ['date', 'created_at', 'order']
     ordering = ['date']
 
@@ -787,7 +883,24 @@ class LessonViewSet(viewsets.ModelViewSet):
                 {'detail': 'Não foi possível gerar todas as frases agora. Tente novamente; nenhuma frase foi salva.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({'items': items})
+        return Response({'items': items, 'level': lesson_sentence_level(lesson)})
+
+    @action(detail=True, methods=['post'], url_path='rewrite-word-sentence', permission_classes=[permissions.IsAuthenticated])
+    def rewrite_word_sentence(self, request, pk=None):
+        lesson = self._word_sentence_lesson()
+        serializer = GenerateSingleWordSentenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data.get('student_id'):
+            raise exceptions.ValidationError({'student_id': 'A frase usa o aluno ou a turma desta aula.'})
+        level = lesson_sentence_level(lesson)
+        try:
+            item = WordSentenceService.generate_single(data['source_word'], level=level, topic=lesson.title,
+                adjustment=data['adjustment'], previous_sentence=data.get('previous_sentence', ''))
+        except (OpenAIError, SentenceGenerationError):
+            logger.warning('Could not rewrite word sentence for lesson %s', lesson.pk, exc_info=True)
+            return Response({'detail': 'Não foi possível refazer a frase agora. A sugestão anterior foi mantida.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({'item': item, 'level': level})
 
     @action(detail=True, methods=['post'], url_path='approve-word-sentences', permission_classes=[permissions.IsAuthenticated])
     def approve_word_sentences(self, request, pk=None):

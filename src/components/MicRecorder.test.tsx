@@ -1,121 +1,190 @@
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MicRecorder, { type RecordingState } from "@/components/MicRecorder";
-import { recordingFileExtension } from "@/lib/recordingAudio";
 
-const stopTrack = vi.fn();
-const getUserMedia = vi.fn();
-let supportedType = "audio/mp4";
-let constructorFailure = false;
-const recorders: FakeMediaRecorder[] = [];
-
-class FakeMediaRecorder {
-  static isTypeSupported(type: string) { return type === supportedType; }
-  mimeType: string;
+class FakeRecorder {
+  static instances: FakeRecorder[] = [];
+  static isTypeSupported = vi.fn((type: string) => type.startsWith("audio/webm"));
+  static fail = false;
+  static defaultType = "audio/mp4";
   state = "inactive";
-  ondataavailable?: (event: { data: Blob }) => void;
-  onstop?: () => void;
-  constructor(_stream: MediaStream, options: MediaRecorderOptions) {
-    if (constructorFailure) throw new Error("Recorder initialization failed");
-    this.mimeType = `${options.mimeType};codecs=mp4a.40.2`;
-    recorders.push(this);
+  mimeType: string;
+  empty = false;
+  ondataavailable: ((event: { data: Blob }) => void) | null = null;
+  onstop: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor(_stream: MediaStream, options?: { mimeType: string }) {
+    if (FakeRecorder.fail) throw new Error("encoder unavailable");
+    this.mimeType = options?.mimeType || FakeRecorder.defaultType;
+    FakeRecorder.instances.push(this);
   }
   start() { this.state = "recording"; }
   pause() { this.state = "paused"; }
   resume() { this.state = "recording"; }
   stop() {
     this.state = "inactive";
-    this.ondataavailable?.({ data: new Blob(["recorded audio"], { type: this.mimeType }) });
+    if (!this.empty) this.ondataavailable?.({ data: new Blob(["recorded"], { type: this.mimeType }) });
     this.onstop?.();
   }
 }
 
-function renderRecorder() {
-  supportedType = "audio/mp4";
-  constructorFailure = false;
-  vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
-  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-  getUserMedia.mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
-  const completed = vi.fn();
-  function Harness() {
-    const [state, setState] = useState<RecordingState>("idle");
-    return <MicRecorder state={state} onStateChange={setState} onRecordingComplete={completed} />;
-  }
-  return { ...render(<Harness />), completed };
-}
+const Harness = ({ done, onText = vi.fn(), maxDurationSeconds }: { done: (blob: Blob, seconds: number) => void | Promise<void>; onText?: () => void; maxDurationSeconds?: number }) => {
+  const [state, setState] = useState<RecordingState>("idle");
+  return <MicRecorder state={state} onStateChange={setState} onUseText={onText} maxDurationSeconds={maxDurationSeconds}
+    onRecordingComplete={async (blob, seconds) => { await done(blob, seconds); setState("completed"); }} />;
+};
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-  vi.clearAllMocks();
-  recorders.length = 0;
-});
+describe("Speaking microphone lifecycle", () => {
+  let stopTrack: ReturnType<typeof vi.fn>;
+  let getUserMedia: ReturnType<typeof vi.fn>;
+  let originalMedia: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    FakeRecorder.instances = [];
+    FakeRecorder.fail = false;
+    FakeRecorder.defaultType = "audio/mp4";
+    FakeRecorder.isTypeSupported.mockImplementation((type) => type.startsWith("audio/webm"));
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    stopTrack = vi.fn();
+    getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+    originalMedia = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+  });
+  afterEach(() => {
+    cleanup();
+    if (originalMedia) Object.defineProperty(navigator, "mediaDevices", originalMedia);
+    else Reflect.deleteProperty(navigator, "mediaDevices");
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+  const start = async () => { await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Gravar resposta" })); }); };
 
-describe("mobile microphone recording", () => {
-  it("records MP4 and preserves its real MIME type and upload extension", async () => {
-    const { completed } = renderRecorder();
-    let now = 1000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    await screen.findByRole("button", { name: "Enviar" });
-    now = 6000;
-    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+  it("records the actual format and duration, excluding paused time", async () => {
+    const done = vi.fn();
+    render(<Harness done={done} />);
+    await start();
+    act(() => vi.advanceTimersByTime(3000));
+    fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
+    act(() => vi.advanceTimersByTime(5000));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar gravação" }));
+    act(() => vi.advanceTimersByTime(2000));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar áudio" })); });
+    expect(done).toHaveBeenCalledOnce();
+    expect(done.mock.calls[0][1]).toBe(5);
+    expect(done.mock.calls[0][0].type).toBe("audio/webm;codecs=opus");
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(screen.getByRole("status")).toHaveTextContent("Resposta enviada");
+  });
 
-    const [blob, seconds] = completed.mock.calls[0];
-    expect(blob.type).toBe("audio/mp4;codecs=mp4a.40.2");
-    expect(recordingFileExtension(blob.type)).toBe("mp4");
-    expect(seconds).toBe(5);
+  it("uses the browser's actual MIME when none of the preferred formats is advertised", async () => {
+    FakeRecorder.isTypeSupported.mockReturnValue(false);
+    const done = vi.fn();
+    render(<Harness done={done} />);
+    await start();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar áudio" })); });
+    expect(done.mock.calls[0][0].type).toBe("audio/mp4");
+  });
+
+  it("submits automatically at the review limit while excluding paused time", async () => {
+    const done = vi.fn();
+    render(<Harness done={done} maxDurationSeconds={120} />);
+    await start();
+    act(() => vi.advanceTimersByTime(60000));
+    fireEvent.click(screen.getByRole("button", { name: "Pausar" }));
+    act(() => vi.advanceTimersByTime(180000));
+    expect(done).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar gravação" }));
+    await act(async () => { vi.advanceTimersByTime(60000); });
+    expect(done).toHaveBeenCalledOnce();
+    expect(done.mock.calls[0][1]).toBe(120);
     expect(stopTrack).toHaveBeenCalledOnce();
   });
 
-  it("explains unsupported formats without requesting the microphone", async () => {
-    const { completed } = renderRecorder();
-    supportedType = "none";
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    expect(await screen.findByText("Este dispositivo não oferece um formato de gravação compatível.")).toBeInTheDocument();
-    expect(getUserMedia).not.toHaveBeenCalled();
-    expect(completed).not.toHaveBeenCalled();
+  it.each([['NotAllowedError', 'não foi permitido'], ['NotFoundError', 'Nenhum microfone'], ['NotReadableError', 'ocupado']])(
+    "offers text when microphone access fails with %s", async (name, text) => {
+      getUserMedia.mockRejectedValue(new DOMException("failure", name));
+      const onText = vi.fn();
+      render(<Harness done={vi.fn()} onText={onText} />);
+      await start();
+      expect(screen.getByRole("alert")).toHaveTextContent(text);
+      fireEvent.click(screen.getByRole("button", { name: "Responder por texto" }));
+      expect(onText).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not pretend recording is available without MediaRecorder", () => {
+    vi.stubGlobal("MediaRecorder", undefined);
+    render(<Harness done={vi.fn()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("não está disponível");
+    expect(screen.queryByRole("button", { name: "Gravar resposta" })).not.toBeInTheDocument();
   });
 
-  it("releases the microphone when recorder initialization fails", async () => {
-    renderRecorder();
-    constructorFailure = true;
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    await screen.findByText(/Verifique a permissão/);
+  it("releases tracks if the encoder constructor fails", async () => {
+    FakeRecorder.fail = true;
+    render(<Harness done={vi.fn()} />);
+    await start();
     expect(stopTrack).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveTextContent("responda por texto");
   });
 
-  it("cancels an active recording without uploading it", async () => {
-    const { completed } = renderRecorder();
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    await screen.findByRole("button", { name: "Cancelar" });
-    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(completed).not.toHaveBeenCalled();
-    expect(recorders[recorders.length - 1].state).toBe("inactive");
+  it("cancels a pending permission request and closes a stream that arrives later", async () => {
+    let resolveStream!: (stream: unknown) => void;
+    getUserMedia.mockReturnValue(new Promise((resolve) => { resolveStream = resolve; }));
+    const done = vi.fn();
+    render(<Harness done={done} />);
+    await start();
+    expect(screen.getByRole("status")).toHaveTextContent("Aguardando");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar gravação" }));
+    await act(async () => { resolveStream({ getTracks: () => [{ stop: stopTrack }] }); });
     expect(stopTrack).toHaveBeenCalledOnce();
+    expect(done).not.toHaveBeenCalled();
+    expect(FakeRecorder.instances).toHaveLength(0);
   });
 
-  it("stops an unmounted recording without submitting it", async () => {
-    const { unmount, completed } = renderRecorder();
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    await screen.findByRole("button", { name: "Enviar" });
-    unmount();
-    expect(completed).not.toHaveBeenCalled();
-    expect(recorders[recorders.length - 1].state).toBe("inactive");
-    expect(stopTrack).toHaveBeenCalledOnce();
+  it("never submits cancelled or unmounted recordings", async () => {
+    const done = vi.fn();
+    const view = render(<Harness done={done} />);
+    await start();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar gravação" }));
+    expect(done).not.toHaveBeenCalled();
+    await start();
+    view.unmount();
+    expect(done).not.toHaveBeenCalled();
+    expect(stopTrack).toHaveBeenCalledTimes(2);
+    expect(FakeRecorder.instances[1].state).toBe("inactive");
   });
 
-  it("releases permission granted after the recorder has unmounted", async () => {
-    const { unmount, completed } = renderRecorder();
-    let grantPermission!: (stream: { getTracks: () => { stop: typeof stopTrack }[] }) => void;
-    getUserMedia.mockReturnValue(new Promise((resolve) => { grantPermission = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Gravar" }));
-    await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
-    unmount();
-    await act(async () => grantPermission({ getTracks: () => [{ stop: stopTrack }] }));
-    expect(stopTrack).toHaveBeenCalledOnce();
-    expect(completed).not.toHaveBeenCalled();
+  it("shows a fallback for encoder errors and empty recordings", async () => {
+    const done = vi.fn();
+    render(<Harness done={done} />);
+    await start();
+    act(() => FakeRecorder.instances[0].onerror?.());
+    expect(screen.getByRole("alert")).toHaveTextContent("interrompida");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Gravar novamente" })); });
+    FakeRecorder.instances[1].empty = true;
+    fireEvent.click(screen.getByRole("button", { name: "Enviar áudio" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("vazia");
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it("retains the same clip for retry after upload failure", async () => {
+    const done = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce(undefined);
+    render(<Harness done={done} />);
+    await start();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar áudio" })); });
+    expect(screen.getByRole("alert")).toHaveTextContent("enviar novamente");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar áudio novamente" })); });
+    expect(done.mock.calls[0][0]).toBe(done.mock.calls[1][0]);
+    expect(done.mock.calls[0][1]).toBe(done.mock.calls[1][1]);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it.each([['uploading', 'Enviando'], ['processing', 'Transcrevendo']])("announces the %s state", (state, text) => {
+    render(<MicRecorder state={state as RecordingState} onStateChange={vi.fn()} onRecordingComplete={vi.fn()} />);
+    expect(screen.getByRole("status")).toHaveTextContent(text);
+    expect(screen.queryByRole("button", { name: "Gravar resposta" })).not.toBeInTheDocument();
   });
 });

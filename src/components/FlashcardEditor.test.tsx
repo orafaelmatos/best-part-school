@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -48,6 +48,33 @@ afterEach(() => {
 });
 
 describe("Frases com IA nas anotações", () => {
+  it("refaz só a frase escolhida, mantendo a palavra original e a seleção", async () => {
+    renderEditor();
+    await generateDrafts();
+    const row = screen.getByRole("group", { name: "Sugestão com airport" });
+    const rewritten = { ...drafts[0], sentence: "I work at the airport because I like planes.", translation: "Trabalho no aeroporto porque gosto de aviões." };
+    post.mockResolvedValueOnce({ data: { item: rewritten, level: "A2" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Refazer mais difícil" }));
+    await screen.findByDisplayValue(rewritten.sentence);
+    expect(post).toHaveBeenLastCalledWith("/lessons/lesson-1/rewrite-word-sentence/", { source_word: "airport", previous_sentence: drafts[0].sentence, adjustment: "harder" });
+    expect(within(row).getByRole("checkbox", { name: "Incluir airport" })).toBeChecked();
+    expect(screen.getByDisplayValue(drafts[1].sentence)).toBeInTheDocument();
+    post.mockResolvedValueOnce({ data: { item: drafts[0], level: "A2" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Refazer mais fácil" }));
+    await screen.findByDisplayValue(drafts[0].sentence);
+    expect(post).toHaveBeenLastCalledWith("/lessons/lesson-1/rewrite-word-sentence/", { source_word: "airport", previous_sentence: rewritten.sentence, adjustment: "easier" });
+  });
+
+  it("mantém o rascunho anterior se o ajuste de dificuldade falhar", async () => {
+    renderEditor(); await generateDrafts();
+    post.mockRejectedValueOnce(new Error("network"));
+    const row = screen.getByRole("group", { name: "Sugestão com airport" });
+    fireEvent.click(within(row).getByRole("button", { name: "Refazer mais fácil" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("sugestão anterior foi mantida");
+    expect(screen.getByDisplayValue(drafts[0].sentence)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(drafts[0].translation)).toBeInTheDocument();
+  });
+
   it("gera um rascunho com palavras únicas e aguarda aprovação antes de salvar", async () => {
     const { refetch } = renderEditor();
     await generateDrafts();

@@ -263,7 +263,8 @@ class WordSentenceGenerationTests(SimpleTestCase):
         result = WordSentenceService.generate(self.lesson, ['go', 'turn down', "don't"])
 
         self.assertEqual([item['source_word'] for item in result], ['go', 'turn down', "don't"])
-        self.assertTrue(all(item['review_warning'] for item in result))
+        self.assertTrue(all(item['review_warning'] for item in result[:2]))
+        self.assertNotIn('review_warning', result[2])  # Typographic apostrophes preserve the same word.
 
     @patch('ai_study.services.client')
     def test_literal_matches_ignore_case_and_whitespace_without_warning(self, client):
@@ -275,3 +276,310 @@ class WordSentenceGenerationTests(SimpleTestCase):
         result = WordSentenceService.generate(self.lesson, ['airport', 'turn down'])
 
         self.assertTrue(all('review_warning' not in item for item in result))
+
+    @patch('ai_study.services.client')
+    def test_all_cefr_levels_have_distinct_policies_and_beginner_profiles_start_at_a1(self, client):
+        client.with_options.return_value.chat.completions.create.return_value = self.completion([
+            {'index': 0, 'sentence': 'I am happy.', 'translation': 'Eu estou feliz.'},
+        ])
+        policies = set()
+        for profile_level, expected in [('A1', 'A1'), ('A2', 'A2'), ('B1', 'B1'), ('B2', 'B2'), ('A1/A2', 'A1')]:
+            lesson = SimpleNamespace(title='Travel', level='B2', student=SimpleNamespace(level=profile_level))
+            WordSentenceService.generate(lesson, ['happy'])
+            call = client.with_options.return_value.chat.completions.create.call_args.kwargs
+            context = json.loads(call['messages'][1]['content'])
+            self.assertEqual(context['level'], expected)
+            policies.add(context['level_policy'])
+        self.assertEqual(len(policies), 4)
+
+    @patch('ai_study.services.client')
+    def test_rewrite_uses_previous_sentence_and_preserves_original_word(self, client):
+        client.with_options.return_value.chat.completions.create.return_value = self.completion([
+            {'index': 0, 'sentence': 'I am happy because my sister is here.', 'translation': 'Estou feliz porque minha irmã está aqui.'},
+        ])
+        result = WordSentenceService.generate_single('happy', level='A1', adjustment='harder', previous_sentence='I am happy.')
+        self.assertEqual(result['source_word'], 'happy')
+        call = client.with_options.return_value.chat.completions.create.call_args.kwargs
+        context = json.loads(call['messages'][1]['content'])
+        self.assertEqual(context['level'], 'A1')
+        self.assertEqual(context['previous_sentence'], 'I am happy.')
+        self.assertEqual(context['adjustment'], 'harder')
+        self.assertTrue(context['strict_word'])
+
+    @patch('ai_study.services.client')
+    def test_single_sentence_retries_if_target_is_missing_and_rejects_substrings(self, client):
+        create = client.with_options.return_value.chat.completions.create
+        create.side_effect = [
+            self.completion([{'index': 0, 'sentence': 'I learn English.', 'translation': 'Eu aprendo inglês.'}]),
+            self.completion([{'index': 0, 'sentence': 'My ear hurts.', 'translation': 'Minha orelha dói.'}]),
+        ]
+        result = WordSentenceService.generate_single('ear', level='A2')
+        self.assertEqual(result['sentence'], 'My ear hurts.')
+        self.assertEqual(create.call_count, 2)
+
+    @patch('ai_study.services.client')
+    def test_rewrite_rejects_unchanged_sentence_and_does_not_return_wrong_target(self, client):
+        create = client.with_options.return_value.chat.completions.create
+        for sentence in ['I am happy!', 'I am sad.']:
+            with self.subTest(sentence=sentence):
+                create.return_value = self.completion([{'index': 0, 'sentence': sentence, 'translation': 'Eu estou feliz.'}])
+                with self.assertRaises(SentenceGenerationError):
+                    WordSentenceService.generate_single('happy', level='A1', adjustment='easier', previous_sentence='I am happy.')
+
+
+class PersonalWordSentenceTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(email='personal-word@test.com', role='student', name='Aluno', level='A1')
+        cls.other = User.objects.create_user(email='personal-other@test.com', role='student', name='Outro', level='B2')
+        cls.teacher = User.objects.create_user(email='personal-teacher@test.com', role='teacher', name='Professor')
+        cls.unrelated_teacher = User.objects.create_user(email='personal-unrelated@test.com', role='teacher', name='Outro professor')
+        cls.lesson = Lesson.objects.create(title='Travel', level='B2', teacher=cls.teacher, student=cls.student)
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.student)
+        self.generate_url = '/api/vocabulary-cards/generate-word-sentence/'
+        self.save_url = '/api/vocabulary-cards/save-word-sentence/'
+        self.item = {'source_word': 'happy', 'sentence': 'I am happy.', 'translation': 'Eu estou feliz.'}
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_student_can_generate_using_server_profile_without_saving_or_trusting_client_level(self, generate):
+        generate.return_value = self.item
+        response = self.client.post(self.generate_url, {'source_word': ' happy ', 'level': 'B2', 'student': str(self.other.pk)}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['level'], 'A1')
+        generate.assert_called_once_with('happy', level='A1', adjustment='standard', previous_sentence='')
+        self.assertFalse(VocabularyCard.objects.exists())
+        self.assertFalse(NewWord.objects.exists())
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_easier_and_harder_use_same_original_word_and_keep_profile_level(self, generate):
+        generate.return_value = self.item
+        for adjustment in ['easier', 'harder']:
+            response = self.client.post(self.generate_url, {'source_word': 'happy', 'adjustment': adjustment, 'previous_sentence': 'I am happy because you are here.'}, format='json')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(generate.call_args.kwargs['level'], 'A1')
+            self.assertEqual(generate.call_args.args[0], 'happy')
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.level, 'A1')
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_linked_teacher_uses_student_profile_even_if_lesson_level_differs(self, generate):
+        generate.return_value = self.item
+        self.client.force_authenticate(self.teacher)
+        response = self.client.post(f'/api/lessons/{self.lesson.pk}/rewrite-word-sentence/', {'source_word': 'happy', 'adjustment': 'harder', 'previous_sentence': 'I am happy.'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(generate.call_args.kwargs['level'], 'A1')
+        self.assertEqual(generate.call_args.kwargs['topic'], 'Travel')
+        response = self.client.post(self.generate_url, {'student_id': str(self.student.pk), 'source_word': 'happy'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['level'], 'A1')
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_unauthorized_students_and_teachers_cannot_generate_or_save_for_someone_else(self, generate):
+        for user in [self.other, self.unrelated_teacher]:
+            self.client.force_authenticate(user)
+            for url in [self.generate_url, self.save_url]:
+                response = self.client.post(url, {**self.item, 'student_id': str(self.student.pk)}, format='json')
+                self.assertEqual(response.status_code, 403)
+            response = self.client.post(f'/api/lessons/{self.lesson.pk}/rewrite-word-sentence/', {'source_word': 'happy'}, format='json')
+            self.assertIn(response.status_code, [403, 404])
+        generate.assert_not_called()
+        self.assertFalse(VocabularyCard.objects.exists())
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_teacher_can_generate_personal_sentence_and_requests_require_authentication(self, generate):
+        generate.return_value = self.item
+        self.client.force_authenticate(self.teacher)
+        self.assertEqual(self.client.post(self.generate_url, {'source_word': 'happy'}, format='json').status_code, 200)
+        generate.reset_mock()
+        self.client.force_authenticate(None)
+        for url in [self.generate_url, self.save_url]:
+            self.assertEqual(self.client.post(url, self.item, format='json').status_code, 401)
+        generate.assert_not_called()
+
+    @patch('lessons.views.WordSentenceService.generate_single')
+    def test_invalid_generation_requests_do_not_call_provider(self, generate):
+        for payload in [{}, {'source_word': ''}, {'source_word': 'a' * 101}, {'source_word': 'happy', 'adjustment': 'easier'}, {'source_word': 'happy', 'adjustment': 'unknown'}]:
+            self.assertEqual(self.client.post(self.generate_url, payload, format='json').status_code, 400)
+        generate.assert_not_called()
+
+    @patch('lessons.vocabulary.ensure_vocabulary_card_audio')
+    def test_save_creates_own_review_card_and_repeated_saves_do_not_duplicate(self, audio):
+        payload = {**self.item, 'student': str(self.other.pk), 'teacher': str(self.teacher.pk), 'source_type': 'teacher'}
+        first = self.client.post(self.save_url, payload, format='json')
+        second = self.client.post(self.save_url, payload, format='json')
+        self.assertEqual(first.status_code, 201)
+        self.assertTrue(first.data['created'])
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(second.data['created'])
+        card = VocabularyCard.objects.get()
+        self.assertEqual(card.student, self.student)
+        self.assertIsNone(card.teacher)
+        self.assertEqual(card.source_type, 'student')
+        self.assertIn('happy', card.tags)
+        self.assertEqual(card.translation, self.item['translation'])
+        audio.assert_not_called()
+
+    def test_teacher_can_save_sentence_to_selected_student_review_queue(self):
+        self.client.force_authenticate(self.teacher)
+        response = self.client.post(self.save_url, {**self.item, 'student_id': str(self.student.pk)}, format='json')
+        self.assertEqual(response.status_code, 201)
+        card = VocabularyCard.objects.get()
+        self.assertEqual(card.student, self.student)
+        self.assertEqual(card.teacher, self.teacher)
+        self.assertEqual(card.source_type, 'teacher')
+        self.client.force_authenticate(self.student)
+        queue = self.client.get('/api/vocabulary-cards/queue/')
+        self.assertEqual(queue.status_code, 200)
+        self.assertEqual(queue.data[0]['word'], self.item['sentence'])
+
+    def test_save_rejects_sentence_that_drops_the_original_word(self):
+        for item in [{**self.item, 'sentence': 'I am sad.'}, {**self.item, 'source_word': 'ear', 'sentence': 'I learn English.'}]:
+            self.assertEqual(self.client.post(self.save_url, item, format='json').status_code, 400)
+        self.assertFalse(VocabularyCard.objects.exists())
+
+    @patch('lessons.views.WordSentenceService.generate_single', side_effect=SentenceGenerationError('wrong word'))
+    def test_provider_failure_does_not_publish_a_partial_sentence(self, generate):
+        with self.assertLogs('lessons.views', level='WARNING'):
+            response = self.client.post(self.generate_url, {'source_word': 'happy'}, format='json')
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(VocabularyCard.objects.exists())
+
+
+class VocabularyBatchSentenceTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = User.objects.create_user(email='batch-student@test.com', role='student', name='Ana', level='A1')
+        cls.other = User.objects.create_user(email='batch-other@test.com', role='student', name='Bruno', level='B2')
+        cls.teacher = User.objects.create_user(email='batch-teacher@test.com', role='teacher', name='Professor', level='C1')
+        cls.unrelated_teacher = User.objects.create_user(email='batch-unrelated@test.com', role='teacher', name='Outro professor')
+        cls.admin = User.objects.create_user(email='batch-admin@test.com', role='admin', name='Admin')
+        Lesson.objects.create(title='Travel', level='B2', teacher=cls.teacher, student=cls.student)
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.student)
+        self.generate_url = '/api/vocabulary-cards/generate-word-sentences/'
+        self.save_url = '/api/vocabulary-cards/save-word-sentences/'
+
+    @patch('lessons.views.WordSentenceService.generate_vocabulary', return_value=DRAFTS)
+    def test_student_generates_unique_words_at_profile_level_without_saving(self, generate):
+        response = self.client.post(self.generate_url, {
+            'words': [' airport ', 'achievement', 'AIRPORT'],
+            'level': 'C2', 'student': str(self.other.pk),
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {'items': DRAFTS, 'level': 'A1'})
+        generate.assert_called_once_with(['airport', 'achievement'], level='A1')
+        self.assertFalse(VocabularyCard.objects.exists())
+        self.assertFalse(NewWord.objects.exists())
+
+    @patch('lessons.views.WordSentenceService.generate_vocabulary', return_value=DRAFTS)
+    def test_teacher_and_admin_generate_using_their_own_profile(self, generate):
+        for user in [self.teacher, self.admin]:
+            self.client.force_authenticate(user)
+            response = self.client.post(self.generate_url, {'words': ['airport', 'achievement']}, format='json')
+            self.assertEqual(response.status_code, 200)
+            level = 'C1' if user == self.teacher else 'A2'
+            self.assertEqual(response.data['level'], level)
+            self.assertEqual(generate.call_args.kwargs['level'], level)
+
+    @patch('lessons.views.WordSentenceService.generate_vocabulary')
+    def test_personal_vocabulary_cannot_target_any_other_user(self, generate):
+        for user in [self.other, self.unrelated_teacher, self.teacher, self.admin]:
+            self.client.force_authenticate(user)
+            for url, payload in [(self.generate_url, {'words': ['airport']}), (self.save_url, {'items': DRAFTS})]:
+                response = self.client.post(url, {**payload, 'student_id': str(self.student.pk)}, format='json')
+                self.assertEqual(response.status_code, 403)
+        generate.assert_not_called()
+        self.assertFalse(VocabularyCard.objects.exists())
+
+    def test_all_endpoints_require_authentication(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.post(self.generate_url, {'words': ['airport']}, format='json').status_code, 401)
+        self.assertEqual(self.client.post(self.save_url, {'items': DRAFTS}, format='json').status_code, 401)
+
+    @patch('lessons.views.WordSentenceService.generate_vocabulary')
+    def test_invalid_lists_are_rejected_before_calling_ai(self, generate):
+        for words in [[], [''], ['a' * 101], ['airport'] * 51, 'airport', None]:
+            response = self.client.post(self.generate_url, {'words': words}, format='json')
+            self.assertEqual(response.status_code, 400)
+        generate.assert_not_called()
+
+    def test_save_creates_own_cards_and_retries_do_not_duplicate_or_replace_edits(self):
+        payload = {'items': DRAFTS, 'student': str(self.other.pk), 'teacher': str(self.teacher.pk), 'source_type': 'teacher'}
+        response = self.client.post(self.save_url, payload, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['created_count'], 2)
+        retry = self.client.post(self.save_url, {'items': [
+            {**item, 'sentence': item['sentence'].upper(), 'translation': 'Outra tradução'} for item in DRAFTS
+        ]}, format='json')
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.data['created_count'], 0)
+        self.assertEqual(retry.data['skipped_count'], 2)
+        self.assertEqual(VocabularyCard.objects.count(), 2)
+        for card in VocabularyCard.objects.all():
+            self.assertEqual(card.student, self.student)
+            self.assertIsNone(card.teacher)
+            self.assertEqual(card.source_type, 'student')
+            self.assertNotEqual(card.translation, 'Outra tradução')
+        self.assertFalse(NewWord.objects.exists())
+
+    def test_teacher_saves_selected_sentence_to_own_vocabulary_and_review_queue(self):
+        self.client.force_authenticate(self.teacher)
+        item = {**DRAFTS[0], 'sentence': 'I work at the airport.', 'translation': 'Eu trabalho no aeroporto.'}
+        response = self.client.post(self.save_url, {'items': [item]}, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['created_count'], 1)
+        card = VocabularyCard.objects.get()
+        self.assertIsNone(card.teacher)
+        self.assertEqual(card.student, self.teacher)
+        self.assertEqual(card.source_type, 'student')
+        self.assertIn('airport', card.tags)
+        queue = self.client.get('/api/vocabulary-cards/queue/')
+        self.assertEqual(queue.data[0]['word'], item['sentence'])
+        self.assertEqual(queue.data[0]['translation'], item['translation'])
+        self.assertEqual(self.client.get(f'/api/vocabulary-cards/{card.pk}/').status_code, 200)
+        self.assertEqual(self.client.get('/api/vocabulary-cards/dashboard/').data['total_learned_words'], 1)
+        self.teacher.refresh_from_db()
+        self.assertEqual(self.teacher.level, 'C1')
+        self.client.force_authenticate(self.student)
+        self.assertEqual(self.client.get('/api/vocabulary-cards/queue/').data, [])
+        self.assertEqual(self.client.get(f'/api/vocabulary-cards/{card.pk}/').status_code, 404)
+
+    @patch('lessons.views.ensure_vocabulary_card_audio')
+    def test_teacher_can_also_manually_add_and_review_own_words(self, audio):
+        self.client.force_authenticate(self.teacher)
+        response = self.client.post('/api/vocabulary-cards/', {'word': 'happy', 'translation': 'feliz'}, format='json')
+        self.assertEqual(response.status_code, 201)
+        card = VocabularyCard.objects.get()
+        self.assertEqual(card.student, self.teacher)
+        self.assertIsNone(card.teacher)
+        self.assertEqual(self.client.get(f'/api/vocabulary-cards/{card.pk}/').status_code, 200)
+        self.assertEqual(self.client.post(f'/api/vocabulary-cards/{card.pk}/review/', {'rating': 'good'}, format='json').status_code, 200)
+
+    def test_invalid_item_rejects_entire_batch_without_partial_saving(self):
+        for invalid_item in [{**DRAFTS[1], 'sentence': ''}, {**DRAFTS[1], 'translation': ''}, {**DRAFTS[1], 'sentence': 'a' * 256}]:
+            response = self.client.post(self.save_url, {'items': [DRAFTS[0], invalid_item]}, format='json')
+            self.assertEqual(response.status_code, 400)
+            self.assertFalse(VocabularyCard.objects.exists())
+
+    def test_save_rolls_back_entire_batch_if_storage_fails(self):
+        create = VocabularyCard.objects.create
+        def fail_on_second(**kwargs):
+            if kwargs['word'] == DRAFTS[1]['sentence']:
+                raise RuntimeError('storage failure')
+            return create(**kwargs)
+        with patch('lessons.views.VocabularyCard.objects.create', side_effect=fail_on_second):
+            with self.assertRaises(RuntimeError):
+                self.client.post(self.save_url, {'items': DRAFTS}, format='json')
+        self.assertFalse(VocabularyCard.objects.exists())
+
+    @patch('lessons.views.WordSentenceService.generate_vocabulary', side_effect=SentenceGenerationError('missing sentence'))
+    def test_generation_failure_never_publishes_a_partial_batch(self, generate):
+        with self.assertLogs('lessons.views', level='WARNING'):
+            response = self.client.post(self.generate_url, {'words': ['airport', 'achievement']}, format='json')
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(VocabularyCard.objects.exists())

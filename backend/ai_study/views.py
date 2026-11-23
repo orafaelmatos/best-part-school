@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -7,9 +8,11 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
+from openai import OpenAIError
 from lessons.models import Lesson
-from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback
-from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student
+from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback, SpeakingSessionReport, WritingSessionReport, LessonReviewReport
+from .permissions import CanAccessAIStudySession, CanAccessSpeakingFeedback, can_access_student, visible_students
 from .serializers import (
     AIConversationMessageSerializer,
     AIStudyRecommendationSerializer,
@@ -18,15 +21,28 @@ from .serializers import (
     AIStudySessionListSerializer,
     LessonContextOptionSerializer,
     ListeningAnswerSerializer,
+    InterpreterAnswerSerializer,
+    InterpreterRetrySerializer,
+    InterpreterAudioSerializer,
     PinConversationSerializer,
     RenameConversationSerializer,
     SetContextLessonsSerializer,
     SpeakingAudioUploadSerializer,
+    SpeakingVocabularyAudioSerializer,
+    SpeakingSimulationAudioSerializer,
+    SpeakingUtteranceAudioSerializer,
     SpeakingFeedbackSerializer,
+    SpeakingFeedbackAudioSerializer,
+    SpeakingSessionReportSerializer,
+    SpeakingReportFilterSerializer,
+    WritingSessionReportSerializer,
     TextSelectionTranslationSerializer,
     TextMessageSerializer,
+    LessonReviewReportSerializer,
 )
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService
+from . import interpreter
+from .review import LessonReviewService, ReviewUnavailable
 
 
 class AIStudySessionViewSet(viewsets.ModelViewSet):
@@ -38,6 +54,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             'student',
             'lesson',
             'lesson__teacher',
+            'review_report',
         ).prefetch_related(
             'context_lessons__lesson__teacher',
         ).annotate(
@@ -56,7 +73,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             qs = base_qs
         elif user.role == 'teacher':
-            qs = base_qs.filter(student__lessons_attended__teacher=user).distinct()
+            qs = base_qs.filter(Q(student__in=visible_students(user)) | Q(student=user, mode='listening', guided_state__interpreter__version=1))
         else:
             qs = base_qs.filter(student=user)
 
@@ -76,6 +93,11 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         ])
         if modes:
             qs = qs.filter(mode__in=list(dict.fromkeys(modes)))
+        student_id = self.request.query_params.get('student')
+        if student_id:
+            from rest_framework import serializers
+            student_id = serializers.UUIDField().run_validation(student_id)
+            qs = qs.filter(student_id=student_id)
         return qs.order_by('-is_pinned', '-last_interaction_at', '-created_at')
 
     def get_serializer_class(self):
@@ -85,6 +107,7 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             return AIStudySessionCreateSerializer
         return AIStudySessionDetailSerializer
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -107,7 +130,10 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         )
         if lesson:
             AIStudyContextService.sync_session_lesson(session, lesson)
-        if mode == 'listening':
+        if mode == 'listening' and 'interpreter_settings' in serializer.validated_data:
+            interpreter.initialize(session, serializer.validated_data)
+            session.refresh_from_db()
+        elif mode == 'listening':
             AIStudyWorkflowService.prepare_listening_session(
                 session,
                 serializer.validated_data.get('scenario_key'),
@@ -121,8 +147,13 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         return Response(detail_serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def contexts(self, request, pk=None):
         session = self.get_object()
+        if session.mode == 'review':
+            session = AIStudySession.objects.select_for_update().get(pk=session.pk)
+            if session.review_state.get('started_at') or session.status != 'active':
+                raise ValidationError('Inicie uma nova revisão para trocar de aula e preservar seu desempenho.')
         serializer = SetContextLessonsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         lesson = get_object_or_404(
@@ -130,13 +161,18 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             id=serializer.validated_data['selected_lesson_id'],
         )
         AIStudyContextService.sync_session_lesson(session, lesson)
-        AIConversationMessage.objects.create(
-            session=session,
-            role='assistant',
-            content_type='text',
-            text=f"Aula atual atualizada para {lesson.title}. Vou continuar usando esse conteúdo como referência principal.",
-            metadata={'lesson_changed': True},
-        )
+        if session.mode == 'review':
+            session.review_state = {}
+            session.save(update_fields=['review_state'])
+            AIConversationMessage.objects.create(**LessonReviewService.initial_message_payload(session))
+        else:
+            AIConversationMessage.objects.create(
+                session=session,
+                role='assistant',
+                content_type='text',
+                text=f"Aula atual atualizada para {lesson.title}. Vou continuar usando esse conteúdo como referência principal.",
+                metadata={'lesson_changed': True},
+            )
         return Response(AIStudySessionDetailSerializer(session, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
@@ -169,27 +205,66 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def audio(self, request, pk=None):
         session = self.get_object()
-        guided_state = AIStudyWorkflowService.ensure_guided_state(session) if session.mode == 'speaking' else {}
-        if session.mode == 'speaking' and guided_state.get('stage') != 'active':
-            return Response(
-                {'error': 'Complete o onboarding de cenário e nível antes de enviar áudio.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if session.mode == 'review':
+            with transaction.atomic():
+                session = AIStudySession.objects.select_for_update().get(pk=session.pk)
+                serializer = SpeakingAudioUploadSerializer(data=request.data)
+                serializer.is_valid(raise_exception=True)
+                LessonReviewService.check_request(session, serializer.validated_data.get('review_revision'))
+                try:
+                    user_message, assistant_message = LessonReviewService.audio(session, serializer.validated_data['audio'])
+                except (OpenAIError, ValueError, OSError) as exc:
+                    raise ReviewUnavailable() from exc
+                return self.review_response(session, user_message, assistant_message)
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio disponível apenas para Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = SpeakingAudioUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        feedback = AIStudyWorkflowService.handle_audio_upload(
+        user_message, assistant_message = AIStudyWorkflowService.handle_audio_upload(
             session,
             serializer.validated_data['audio'],
             serializer.validated_data.get('duration_seconds'),
+            request_id=serializer.validated_data.get('request_id'),
+            prompt_id=serializer.validated_data.get('prompt_id'),
+            retry_feedback_id=serializer.validated_data.get('retry_feedback_id'),
+            chunk_index=serializer.validated_data.get('chunk_index'),
+            feedback_language=serializer.validated_data['feedback_language'],
         )
-        user_message = session.messages.filter(audio=feedback.audio, role='user').select_related('audio', 'feedback__audio').last()
-        assistant_message = session.messages.filter(feedback=feedback, role='assistant').select_related('feedback__audio').last()
         return Response({
-            'feedback': SpeakingFeedbackSerializer(feedback, context={'request': request}).data,
+            'feedback': SpeakingFeedbackSerializer(assistant_message.feedback, context={'request': request}).data if assistant_message.feedback_id else None,
             'user_message': AIConversationMessageSerializer(user_message, context={'request': request}).data if user_message else None,
             'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': request}).data if assistant_message else None,
             'session': AIStudySessionListSerializer(session, context={'request': request}).data,
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='vocabulary-audio')
+    def vocabulary_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio de vocabulário disponível apenas no Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingVocabularyAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        audio_url = AIStudyWorkflowService.vocabulary_audio(session, **serializer.validated_data)
+        return Response({'audio_url': audio_url})
+
+    @action(detail=True, methods=['post'], url_path='simulation-audio')
+    def simulation_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Repetição disponível apenas para Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingSimulationAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        audio_url = AIStudyWorkflowService.simulation_audio(session, **serializer.validated_data)
+        return Response({'audio_url': audio_url})
+
+    @action(detail=True, methods=['post'], url_path='utterance-audio')
+    def utterance_audio(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'speaking':
+            return Response({'error': 'Áudio de estudo disponível apenas no Speaking.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = SpeakingUtteranceAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response({'audio_url': AIStudyWorkflowService.utterance_audio(session, **serializer.validated_data)})
 
     @action(detail=True, methods=['post'])
     def message(self, request, pk=None):
@@ -205,7 +280,16 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         guided_action = serializer.validated_data.get('guided_action')
         if not text and not guided_action:
             return Response({'error': 'text is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if AIStudyWorkflowService.is_guided_mode(session):
+        if session.mode == 'review':
+            with transaction.atomic():
+                session = AIStudySession.objects.select_for_update().get(pk=session.pk)
+                LessonReviewService.check_request(session, serializer.validated_data.get('review_revision'))
+                try:
+                    user_message, assistant_message = LessonReviewService.message(session, text, guided_action)
+                except (OpenAIError, ValueError, OSError) as exc:
+                    raise ReviewUnavailable() from exc
+                return self.review_response(session, user_message, assistant_message)
+        elif AIStudyWorkflowService.is_guided_mode(session):
             user_message, assistant_message = AIStudyWorkflowService.handle_guided_message(
                 session,
                 text=text,
@@ -236,11 +320,42 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             'session': AIStudySessionListSerializer(session, context={'request': request}).data,
         })
 
+    def review_response(self, session, user_message=None, assistant_message=None):
+        return Response({
+            'user_message': AIConversationMessageSerializer(user_message, context={'request': self.request}).data if user_message else None,
+            'assistant_message': AIConversationMessageSerializer(assistant_message, context={'request': self.request}).data if assistant_message else None,
+            'session': AIStudySessionListSerializer(session, context={'request': self.request}).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='review/finish')
+    @transaction.atomic
+    def review_finish(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'review':
+            raise ValidationError('Esta sessão não é uma revisão de aula.')
+        session = AIStudySession.objects.select_for_update().get(pk=session.pk)
+        LessonReviewService.finish(session)
+        return self.review_response(session, assistant_message=session.messages.order_by('created_at').last())
+
+    @action(detail=True, methods=['post'], url_path='review/heartbeat')
+    @transaction.atomic
+    def review_heartbeat(self, request, pk=None):
+        session = self.get_object()
+        if session.mode != 'review':
+            raise ValidationError('Esta sessão não é uma revisão de aula.')
+        session = AIStudySession.objects.select_for_update().get(pk=session.pk)
+        LessonReviewService.tick(session)
+        if session.status == 'active':
+            LessonReviewService.save(session, bump=False)
+        return Response({'duration_seconds': int(session.review_state.get('duration_seconds', 0))})
+
     @action(detail=True, methods=['post'], url_path='listening/next')
     def listening_next(self, request, pk=None):
         session = self.get_object()
         if session.mode != 'listening':
             return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (session.guided_state or {}).get('interpreter'):
+            return Response({'error': 'Use as ações do simulador de interpretação.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             assistant_message = AIStudyWorkflowService.create_listening_challenge(session)
         except ValueError as exc:
@@ -256,6 +371,8 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         if session.mode != 'listening':
             return Response({'error': 'This session is not a listening session.'}, status=status.HTTP_400_BAD_REQUEST)
+        if (session.guided_state or {}).get('interpreter'):
+            return Response({'error': 'Use as ações do simulador de interpretação.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = ListeningAnswerSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -279,6 +396,45 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
             'session': AIStudySessionListSerializer(refreshed_session, context={'request': request}).data,
         })
 
+    def interpreter_detail(self, session):
+        session = AIStudySession.objects.get(pk=session.pk)
+        return Response(AIStudySessionDetailSerializer(session, context={'request': self.request}).data)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/next')
+    def interpreter_next(self, request, pk=None):
+        session = self.get_object()
+        interpreter.next_turn(session)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/answer')
+    def interpreter_answer(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        interpreter.answer(session, serializer.validated_data)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/finish')
+    def interpreter_finish(self, request, pk=None):
+        session = self.get_object()
+        interpreter.finish(session)
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/retry')
+    def interpreter_retry(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterRetrySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        interpreter.retry(session, serializer.validated_data['message_id'])
+        return self.interpreter_detail(session)
+
+    @action(detail=True, methods=['post'], url_path='interpreter/audio')
+    def interpreter_audio(self, request, pk=None):
+        session = self.get_object()
+        serializer = InterpreterAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response({'audio_url': interpreter.audio(session, serializer.validated_data)})
+
     @action(detail=True, methods=['post'], url_path='translate-selection')
     def translate_selection(self, request, pk=None):
         self.get_object()
@@ -286,6 +442,38 @@ class AIStudySessionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         translation = AIStudyOpenAIService.translate_selection(serializer.validated_data['text'])
         return Response({'translation': translation})
+
+
+class SpeakingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = SpeakingSessionReportSerializer
+    permission_classes = [permissions.IsAuthenticated, CanAccessSpeakingFeedback]
+
+    def get_queryset(self):
+        reports = SpeakingSessionReport.objects.filter(session__student__in=visible_students(self.request.user)).select_related('session')
+        filters = SpeakingReportFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        student = filters.validated_data.get('student')
+        if student:
+            reports = reports.filter(session__student_id=student)
+        session = filters.validated_data.get('session')
+        if session:
+            reports = reports.filter(session_id=session)
+        return reports.order_by('-updated_at', '-id')
+
+
+class WritingSessionReportViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = WritingSessionReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        reports = WritingSessionReport.objects.filter(session__student__in=visible_students(self.request.user))
+        filters = SpeakingReportFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        if filters.validated_data.get('student'):
+            reports = reports.filter(session__student_id=filters.validated_data['student'])
+        if filters.validated_data.get('session'):
+            reports = reports.filter(session_id=filters.validated_data['session'])
+        return reports.order_by('-updated_at', '-id')
 
 
 class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
@@ -303,15 +491,30 @@ class SpeakingFeedbackViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def tts(self, request, pk=None):
+        from . import speaking_feedback
         feedback = self.get_object()
-        if feedback.tts_audio_url:
-            return Response({'audio_url': feedback.tts_audio_url})
-        text = feedback.corrected_sentence or feedback.natural_sentence or feedback.native_alternative_sentence
+        serializer = SpeakingFeedbackAudioSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        options = serializer.validated_data
+        raw = feedback.raw_response or {}
+        text = speaking_feedback.sentence(feedback)
+        full_text = raw.get('full_sentence') or text
+        if 'chunk_index' in options:
+            parts = speaking_feedback.chunks(full_text)
+            if options['chunk_index'] >= len(parts):
+                return Response({'error': 'Trecho de prática inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+            text = parts[options['chunk_index']]
+        elif options['full_sentence']:
+            text = full_text
         if not text:
-            return Response({'error': 'No corrected or natural sentence available for TTS.'}, status=status.HTTP_400_BAD_REQUEST)
-        feedback.tts_audio_url = AIStudyOpenAIService.generate_tts(text)
-        feedback.save(update_fields=['tts_audio_url'])
-        return Response({'audio_url': feedback.tts_audio_url})
+            return Response({'error': 'Nenhuma frase sugerida disponível.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Cache identity includes the actual saved text. Old, unbound URLs are discarded.
+        audio_url = AIStudyWorkflowService._cached_speaking_audio(text)
+        if text == speaking_feedback.sentence(feedback):
+            feedback.tts_audio_url = audio_url
+            feedback.raw_response = {**raw, 'tts_text': text}
+            feedback.save(update_fields=['tts_audio_url', 'raw_response'])
+        return Response({'audio_url': audio_url, 'text': text})
 
 
 class ContextLessonsAPIView(APIView):
@@ -418,9 +621,20 @@ class AIStudyProgressOverviewAPIView(APIView):
         recommendation = AIStudyRecommendation.objects.filter(student=student).select_related('teacher', 'lesson').first()
         speaking_history = SpeakingFeedback.objects.filter(session__student=student).order_by('-created_at')[:8]
         writing_history = WritingFeedback.objects.filter(student=student).order_by('-created_at')[:8]
+        reports = SpeakingSessionReport.objects.filter(session__student=student).select_related('session')
+        writing_reports = WritingSessionReport.objects.filter(session__student=student)
 
         return Response({
+            'writing_sessions': {
+                'total': writing_reports.count(), 'completed': writing_reports.filter(status='completed').count(),
+                'recent': WritingSessionReportSerializer(writing_reports[:8], many=True).data,
+            },
+            'speaking_sessions': {
+                'total': reports.count(), 'completed': reports.filter(status='completed').count(),
+                'recent': SpeakingSessionReportSerializer(reports[:8], many=True).data,
+            },
             'recommendation': AIStudyRecommendationSerializer(recommendation, context={'request': request}).data if recommendation else None,
+            'review_history': LessonReviewReportSerializer(LessonReviewReport.objects.filter(student=student)[:20], many=True).data,
             'speaking_history': [
                 {
                     'id': str(item.id),

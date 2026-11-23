@@ -4,6 +4,7 @@ import { Calendar, CheckCircle2 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageHeader from "@/components/PageHeader";
 import StudentHome from "@/components/student/StudentHome";
+import WordSentenceComposer from "@/components/WordSentenceComposer";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 
@@ -12,7 +13,7 @@ type StaffLesson = { status?: string };
 const Dashboard = () => {
   const { user } = useAuth();
   if (user?.role === "student") {
-    return <DashboardLayout><StudentHome /></DashboardLayout>;
+    return <DashboardLayout><StudentHome /><div className="mt-6"><WordSentenceComposer /></div></DashboardLayout>;
   }
   return <StaffDashboard />;
 };

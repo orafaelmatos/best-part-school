@@ -11,6 +11,7 @@ from lessons.models import Attachment, Lesson, LessonSummary, NewWord, Vocabular
 from .guided_tutor import build_default_guided_state
 from .services import AIStudyContextService, AIStudyOpenAIService, AIStudyWorkflowService, LessonSummaryWorkflowService
 from .models import AIConversationMessage, AIStudyRecommendation, AIStudySession, SpeakingFeedback, WritingFeedback
+from .test_speaking import make_plan
 
 
 class AIStudyAPITests(TestCase):
@@ -142,7 +143,8 @@ class AIStudyAPITests(TestCase):
         self.assertTrue(exercise['tts_unavailable'])
         self.assertIn('audio nao foi gerado agora', response.data['guided_state']['progress_summary'])
 
-    def test_speaking_session_guided_onboarding_advances_scenario_and_level(self):
+    @patch('ai_study.services.AIStudyOpenAIService.plan_speaking_session', side_effect=lambda *_: make_plan())
+    def test_speaking_session_guided_onboarding_advances_scenario_and_level(self, _plan_mock):
         self.client.force_authenticate(user=self.student)
         response = self.client.post('/api/ai-study/sessions/', {'mode': 'speaking'})
         session_id = response.data['id']
@@ -407,44 +409,21 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(response.data['session']['guided_state']['session_status'], 'completed')
         self.assertTrue(response.data['follow_up_message']['metadata']['interpreter_journey_completed'])
 
+    @patch('ai_study.services.AIStudyOpenAIService.plan_speaking_session', side_effect=lambda *_: make_plan())
     @patch('ai_study.services.AIStudyOpenAIService.transcribe', return_value='I go to airport yesterday.')
     @patch('ai_study.services.AIStudyOpenAIService.analyze_speaking')
-    def test_audio_upload_saves_structured_feedback(self, analyze_mock, _transcribe_mock):
-        analyze_mock.return_value = {
-            'transcript': 'I go to airport yesterday.',
-            'overall_score': 74,
-            'estimated_level': 'B1',
-            'pronunciation_score': 72,
-            'fluency_score': 68,
-            'intonation_score': 66,
-            'clarity_score': 71,
-            'corrected_sentence': 'I went to the airport yesterday.',
-            'natural_sentence': 'I went to the airport yesterday.',
-            'ai_feedback': 'Good attempt. Use past tense for yesterday.',
-            'correct_words': ['yesterday'],
-            'problem_words': ['airport'],
-            'pronunciation_mistakes': ['airport stress'],
-            'error_details': [{'word': 'airport', 'issue': 'stress on the first syllable', 'tip': 'Say AIR-port'}],
-            'grammar_explanation': 'Use went for past tense.',
-            'improvement_tips': ['Slow down before the stressed syllable.'],
-            'practice_exercises': ['Repeat: airport, boarding, passport.'],
-            'vocabulary_suggestions': ['departure gate'],
-            'native_alternative_sentence': 'I went to the airport yesterday.',
-            'assistant_response': 'Nice work. What did you do at the airport?',
-        }
+    def test_audio_upload_starts_pedagogical_preparation_for_legacy_session(self, analyze_mock, _transcribe_mock, _plan_mock):
         session = AIStudySession.objects.create(student=self.student, mode='speaking', theme='travel')
         self.activate_guided_session(session)
         self.client.force_authenticate(user=self.student)
         upload = SimpleUploadedFile('speech.webm', b'audio bytes', content_type='audio/webm')
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/audio/', {'audio': upload, 'duration_seconds': '3'}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        feedback = SpeakingFeedback.objects.get(session=session)
-        self.assertEqual(feedback.transcript, 'I go to airport yesterday.')
-        self.assertEqual(feedback.overall_score, 74)
-        self.assertEqual(feedback.estimated_level, 'B1')
-        self.assertEqual(feedback.pronunciation_score, 72)
-        self.assertEqual(feedback.intonation_score, 66)
-        self.assertEqual(feedback.problem_words, ['airport'])
+        self.assertEqual(response.data['user_message']['text'], 'I go to airport yesterday.')
+        self.assertEqual(response.data['session']['guided_state']['speaking']['phase'], 'LEARN')
+        self.assertIsNone(response.data['feedback'])
+        analyze_mock.assert_not_called()
+        self.assertFalse(SpeakingFeedback.objects.filter(session=session).exists())
 
     def test_tts_requires_corrected_or_natural_sentence(self):
         session = AIStudySession.objects.create(student=self.student, mode='speaking', theme='travel')
@@ -618,147 +597,25 @@ class AIStudyAPITests(TestCase):
         self.assertIn('A aula focou em descrever o clima', text_block['text'])
         self.assertTrue(any(block['type'] == 'image_url' for block in messages[1]['content']))
 
-    @patch('ai_study.services.AIStudyOpenAIService.analyze_writing')
-    def test_writing_message_creates_structured_feedback(self, analyze_writing_mock):
-        analyze_writing_mock.return_value = {
-            'estimated_level': 'A2',
-            'writing_score': 63,
-            'sub_scores': {
-                'grammar': 58,
-                'vocabulary': 61,
-                'naturality': 60,
-                'coherence': 66,
-                'complexity': 52,
-            },
-            'corrected_text': 'I went to the park yesterday and it was very fun.',
-            'general_feedback': 'Good message with simple ideas.',
-            'level_progress_feedback': 'To reach B1, use more connectors and more varied verbs.',
-            'strengths': ['Clear meaning'],
-            'error_explanations': [
-                {
-                    'excerpt': 'I go to the park yesterday',
-                    'corrected': 'I went to the park yesterday',
-                    'explanation': 'Use past simple with yesterday.',
-                    'category': 'Grammar',
-                }
-            ],
-            'improvement_tips': ['Use connectors like because, but and so.'],
-            'rewrites': {
-                'B1': 'Yesterday I went to the park, and I had a great time there.',
-                'B2': 'Yesterday I went to the park, where I spent an enjoyable afternoon relaxing and walking.',
-                'C1': 'Yesterday I went to the park and found the whole experience genuinely refreshing and enjoyable.',
-                'C2': 'Yesterday I visited the park, an outing that proved remarkably invigorating and unexpectedly memorable.',
-            },
-            'exercises': ['Rewrite three past simple sentences about yesterday.'],
-            'grammar_breakdown': ['Past simple is required with finished past time markers like yesterday.'],
-            'vocabulary_flashcards': [{'term': 'invigorating', 'meaning': 'revigorante', 'example': 'The walk was invigorating.'}],
-            'assistant_response': 'Here is your writing analysis.',
-        }
-        session = AIStudySession.objects.create(student=self.student, mode='writing', theme='custom')
-        self.activate_guided_session(session)
-        self.client.force_authenticate(user=self.student)
-
-        response = self.client.post(f'/api/ai-study/sessions/{session.id}/message/', {
-            'text': 'I go to the park yesterday and it was very fun.',
-            'text_type': 'free',
-        })
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        feedback = WritingFeedback.objects.get(session=session)
-        self.assertEqual(feedback.estimated_level, 'A2')
-        self.assertEqual(feedback.writing_score, 63)
-        self.assertIn('B2', feedback.rewrites)
-        self.assertEqual(response.data['assistant_message']['content_type'], 'writing_feedback')
-        self.assertIn('Versao sugerida:', response.data['assistant_message']['text'])
-        self.assertNotIn('Proximo passo recomendado', response.data['assistant_message']['text'])
-
     @patch('ai_study.services.AIStudyOpenAIService.generate_guided_tutor_reply')
     @patch('ai_study.services.AIStudyOpenAIService.analyze_writing')
-    def test_writing_request_in_chat_format_uses_tutor_reply_instead_of_analysis(self, analyze_writing_mock, guided_reply_mock):
-        guided_reply_mock.return_value = {
-            'assistant_response': 'Sure. Here is a short model text about the topic for you to study.',
-            'activity_type': 'model_text',
-            'recommended_next_step': 'continue',
-            'objective': 'Help the student with a model text before asking for a new writing attempt.',
-            'difficulty': 'guided',
-            'progress_summary': 'The student asked for an example before writing.',
-            'learned_words': [],
-            'recurring_errors': [],
-            'quick_replies': [],
-            'expected_input': 'chat',
-            'current_task': 'Read the model text and ask for vocabulary or write your own version.',
-            'input_placeholder': 'Escreva sua proxima pergunta ou seu proprio texto em ingles.',
-            'should_wrap_up': False,
-            'session_summary': [],
-        }
+    def test_existing_writing_session_offers_guided_practice_without_grading_an_unprepared_answer(self, analyze_mock, guided_mock):
         session = AIStudySession.objects.create(student=self.student, mode='writing', theme='custom')
         self.activate_guided_session(session)
+        old_message = AIConversationMessage.objects.create(session=session, role='assistant', text='Previous lesson')
         self.client.force_authenticate(user=self.student)
 
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/message/', {
-            'text': 'Quero um texto sobre o assunto!',
-            'text_type': 'free',
+            'text': 'Quero aprender a escrever sobre o assunto!',
         })
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['assistant_message']['content_type'], 'text')
-        self.assertEqual(WritingFeedback.objects.filter(session=session).count(), 0)
-        analyze_writing_mock.assert_not_called()
-        guided_reply_mock.assert_called_once()
-        self.assertIn('model text', response.data['assistant_message']['text'])
-        self.assertTrue(response.data['assistant_message']['metadata']['choices'])
-
-    @patch('ai_study.services.AIStudyOpenAIService.analyze_writing')
-    def test_writing_feedback_sanitizes_json_dump_in_assistant_response(self, analyze_writing_mock):
-        analyze_writing_mock.return_value = {
-            'estimated_level': 'A1',
-            'writing_score': 40,
-            'sub_scores': {
-                'grammar': 3,
-                'vocabulary': 3,
-                'naturality': 3,
-                'coherence': 2,
-                'complexity': 2,
-            },
-            'corrected_text': 'I went to the park yesterday and it was fun.',
-            'general_feedback': 'Your idea is clear, but the verb tense needs adjustment.',
-            'level_progress_feedback': 'Use past simple consistently when you describe finished actions.',
-            'strengths': ['Clear intention'],
-            'error_explanations': [
-                {
-                    'excerpt': 'I go to the park yesterday and it is fun.',
-                    'corrected': 'I went to the park yesterday and it was fun.',
-                    'explanation': 'Use past simple with yesterday and keep the sentence in the same time frame.',
-                    'category': 'Grammar',
-                }
-            ],
-            'improvement_tips': ['Practice past simple with regular and irregular verbs.'],
-            'rewrites': {
-                'B1': 'Yesterday I went to the park and had a good time there.',
-                'B2': 'Yesterday I went to the park, where I spent an enjoyable afternoon walking and relaxing.',
-                'C1': 'Yesterday I went to the park and found the whole outing enjoyable and refreshing.',
-                'C2': 'Yesterday I visited the park, an experience that turned out to be both pleasant and memorable.',
-            },
-            'exercises': ['Write three sentences about what you did yesterday.'],
-            'grammar_breakdown': ['Use past simple with finished time markers such as yesterday.'],
-            'vocabulary_flashcards': [],
-            'assistant_response': '{"estimated_level":"A1","writing_score":40,"general_feedback":"Too much JSON"}',
-        }
-        session = AIStudySession.objects.create(student=self.student, mode='writing', theme='custom')
-        self.activate_guided_session(session)
-        self.client.force_authenticate(user=self.student)
-
-        response = self.client.post(f'/api/ai-study/sessions/{session.id}/message/', {
-            'text': 'I go to the park yesterday and it is fun.',
-            'text_type': 'free',
-        })
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assistant_text = response.data['assistant_message']['text']
-        self.assertNotIn('"estimated_level"', assistant_text)
-        self.assertIn('Versao sugerida:', assistant_text)
-        self.assertIn('I went to the park yesterday and it was fun.', assistant_text)
-        self.assertIn('Dica rapida:', assistant_text)
+        self.assertEqual(response.data['assistant_message']['metadata']['stage'], 'choose_writing_mode')
+        self.assertEqual(len(response.data['assistant_message']['metadata']['choices']), 8)
+        self.assertTrue(AIConversationMessage.objects.filter(pk=old_message.pk).exists())
+        self.assertFalse(WritingFeedback.objects.filter(session=session).exists())
+        analyze_mock.assert_not_called()
+        guided_mock.assert_not_called()
 
     def test_teacher_can_set_and_clear_recommendation(self):
         self.client.force_authenticate(user=self.teacher)

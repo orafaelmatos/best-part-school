@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import DashboardLayout from "@/components/DashboardLayout";
 import { HomeworkPanel } from "@/components/HomeworkPanel";
+import { DeleteHomeworkButton } from "@/components/DeleteHomeworkButton";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -653,9 +654,12 @@ export default function CorrigirHomework() {
           </button>
           
           <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-            <div>
-              <h2 className="text-xl font-bold">{selectedHomework.title}</h2>
-              <p className="text-sm text-muted-foreground">{selectedHomework.lesson_title ? `Aula: ${selectedHomework.lesson_title}` : ""}</p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold">{selectedHomework.title}</h2>
+                <p className="text-sm text-muted-foreground">{selectedHomework.lesson_title ? `Aula: ${selectedHomework.lesson_title}` : ""}</p>
+              </div>
+              <DeleteHomeworkButton homework={selectedHomework} onDeleted={() => setSelectedHomework(null)} />
             </div>
 
             {selectedHomework.student_report ? (
@@ -1134,7 +1138,7 @@ export default function CorrigirHomework() {
                     </p>
                   </div>
                   
-                  <div>
+                  <div className="flex flex-wrap gap-2">
                     {item.status === "draft" ? (
                       <Button onClick={() => void handleContinueDraft(item)} size="sm" disabled={openingHomeworkId === item.id}>
                         {openingHomeworkId === item.id ? "Carregando..." : "Continuar homework"}
@@ -1156,6 +1160,7 @@ export default function CorrigirHomework() {
                         Aguardando Aluno
                       </Button>
                     )}
+                    <DeleteHomeworkButton homework={item} />
                   </div>
                 </div>
               );

@@ -16,9 +16,15 @@ import {
 import DashboardLayout from "@/components/DashboardLayout";
 import LessonExperienceCard from "@/components/lesson-history/LessonExperienceCard";
 import PageHeader from "@/components/PageHeader";
+import LessonReviewReportCard from "@/components/LessonReviewReportCard";
+import type { LessonReviewReport } from "@/lib/aiStudy";
 import RichTextContent from "@/components/RichTextContent";
 import ScheduleSlotPicker from "@/components/ScheduleSlotPicker";
 import StatusBadge from "@/components/StatusBadge";
+import SpeakingStudentProgress from "@/components/SpeakingStudentProgress";
+import InterpreterStudentProgress from "@/components/InterpreterStudentProgress";
+import WordSentenceComposer from "@/components/WordSentenceComposer";
+import WritingStudentProgress from "@/components/WritingStudentProgress";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -134,6 +140,15 @@ const AlunoTrilha = () => {
         params: { student: studentId },
       });
       return response.data as AIStudyRecommendation | null;
+    },
+    enabled: !!studentId,
+  });
+
+  const reviewProgressQuery = useQuery({
+    queryKey: ["ai-study-progress-overview", studentId],
+    queryFn: async () => {
+      const response = await api.get("/ai-study/progress/overview/", { params: { student: studentId } });
+      return response.data as { review_history: LessonReviewReport[] };
     },
     enabled: !!studentId,
   });
@@ -391,6 +406,11 @@ const AlunoTrilha = () => {
             <MetricCard title="Revisoes" value={reviewPendingCount} description="Pontos que pedem reforco" icon={Target} tone={reviewPendingCount > 0 ? "warning" : "success"} />
           </div>
 
+          <div className="mt-6"><WordSentenceComposer studentId={studentId} /></div>
+          <div className="mt-6"><SpeakingStudentProgress key={studentId} studentId={studentId} /></div>
+          <div className="mt-6"><InterpreterStudentProgress key={studentId} studentId={studentId} /></div>
+          <div className="mt-6"><WritingStudentProgress key={studentId} studentId={studentId} /></div>
+
           <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-sm">
               <div className="mb-2 flex items-center justify-between text-sm">
@@ -484,6 +504,17 @@ const AlunoTrilha = () => {
               </div>
             </div>
           </div>
+
+          <section className="mt-6 rounded-[28px] border border-border bg-white p-5">
+            <h2 className="text-lg font-semibold">Revisões de aula com IA</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Acertos, erros, tempo de prática e dificuldades das últimas 20 revisões finalizadas.</p>
+            <div className="mt-4 space-y-4">
+              {reviewProgressQuery.isLoading ? <p className="text-sm text-muted-foreground">Carregando relatórios...</p> :
+                reviewProgressQuery.isError ? <button type="button" onClick={() => void reviewProgressQuery.refetch()} className="text-sm text-primary underline">Não foi possível carregar. Tentar novamente</button> :
+                reviewProgressQuery.data?.review_history?.length ? reviewProgressQuery.data.review_history.map((report) => <LessonReviewReportCard key={report.id} report={report} />) :
+                <p className="text-sm text-muted-foreground">O aluno ainda não finalizou uma revisão guiada.</p>}
+            </div>
+          </section>
 
           <StudentTrackingPanel
             student={student}

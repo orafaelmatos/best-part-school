@@ -28,6 +28,8 @@ export type LessonHistoryLesson = {
   teacher_name?: string;
   student?: string;
   student_name?: string;
+  group?: string | null;
+  group_name?: string;
   template_title?: string;
   order?: number | null;
   is_extra?: boolean;

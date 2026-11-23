@@ -1,3 +1,5 @@
+from . import speaking, speaking_preparation
+
 CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 
 
@@ -117,46 +119,6 @@ SUMMARY_ACTIONS = [
     build_choice("new_scenario", "Novo cenario", "new_scenario", "session_control"),
     build_choice("finalize_session", "Encerrar", "finalize_session", "session_control", variant="outline"),
 ]
-
-SPEAKING_SCENARIO_TASKS = {
-    "restaurant": "Voce chegou a um restaurante e quer pedir uma mesa para duas pessoas. Responda em ingles com 1 ou 2 frases, ou envie um audio.",
-    "hotel": "Voce acabou de chegar ao hotel. Faca seu check-in em ingles com 2 frases curtas.",
-    "airport": "Voce precisa perguntar onde fica seu portao. Diga sua pergunta em ingles.",
-    "taxi": "Explique ao motorista para onde voce vai e pergunte quanto tempo a viagem vai levar.",
-    "hospital": "Descreva rapidamente o que voce esta sentindo em ingles.",
-    "job_interview": "Responda em ingles: Tell me about yourself.",
-    "work": "Explique para um colega em ingles em que voce esta trabalhando hoje.",
-    "university": "Pergunte ao professor em ingles sobre uma atividade ou prazo.",
-    "cafeteria": "Faca um pedido simples em ingles e escolha sua bebida.",
-    "friends": "Comece uma conversa natural com um amigo sobre seu fim de semana.",
-    "date": "Abra uma conversa leve e natural em ingles durante um encontro.",
-    "phone_call": "Atenda o telefonema em ingles e diga o motivo da ligacao.",
-    "bank": "Explique em ingles qual servico voce precisa no banco.",
-    "emergency": "Peca ajuda em ingles e explique rapidamente o problema.",
-    "cinema": "Pergunte em ingles sobre o horario de um filme ou sobre os assentos.",
-    "tourism": "Pergunte em ingles como chegar a um ponto turistico.",
-    "free_conversation": "Fale em ingles sobre seu dia, seus planos ou um tema que voce goste. Use 2 ou 3 frases.",
-}
-
-WRITING_SCENARIO_TASKS = {
-    "restaurant": "Escreva em ingles uma mensagem curta fazendo um pedido e pedindo uma recomendacao do cardapio.",
-    "hotel": "Escreva em ingles um pedido curto para o hotel, como late check-out ou toalhas extras.",
-    "airport": "Escreva em ingles uma pergunta curta para a equipe do aeroporto sobre embarque ou bagagem.",
-    "taxi": "Escreva em ingles uma mensagem curta explicando seu destino e um pedido para o motorista.",
-    "hospital": "Escreva em ingles 3 frases descrevendo seus sintomas e pedindo orientacao.",
-    "job_interview": "Escreva em ingles uma mini resposta para Tell me about yourself.",
-    "work": "Escreva em ingles uma mensagem profissional curta atualizando uma tarefa.",
-    "university": "Escreva em ingles um e-mail curto para um professor pedindo ajuda ou prazo extra.",
-    "cafeteria": "Escreva em ingles um pedido curto com bebida, comida e preferencia.",
-    "friends": "Escreva em ingles uma mensagem casual convidando um amigo para sair.",
-    "date": "Escreva em ingles uma mensagem educada para combinar um encontro.",
-    "phone_call": "Escreva em ingles o roteiro curto do que voce diria em um telefonema.",
-    "bank": "Escreva em ingles uma mensagem curta explicando um problema com cartao ou conta.",
-    "emergency": "Escreva em ingles uma mensagem curta pedindo ajuda urgente.",
-    "cinema": "Escreva em ingles uma mensagem curta perguntando sobre ingressos ou horarios.",
-    "tourism": "Escreva em ingles uma pergunta curta sobre um passeio ou direcao.",
-    "free_conversation": "Escreva em ingles 4 ou 5 frases sobre sua rotina, opiniao ou um plano futuro.",
-}
 
 LISTENING_SCENARIO_TASKS = {
     "restaurant": "Ouça o audio e transcreva exatamente o pedido feito no restaurante.",
@@ -441,19 +403,13 @@ def guided_session_title(mode, scenario_label):
 
 def scenario_task_for_mode(mode, scenario_key, scenario_label):
     if mode == "speaking":
-        return SPEAKING_SCENARIO_TASKS.get(
-            scenario_key,
-            f"Imagine uma situacao de {scenario_label}. Responda em ingles com 1 ou 2 frases, ou envie um audio.",
-        )
+        return "Vamos preparar uma situação concreta e aprender algumas frases antes de conversar."
     if mode == "listening":
         return LISTENING_SCENARIO_TASKS.get(
             scenario_key,
             f"Ouça o audio em ingles sobre o cenario {scenario_label} e transcreva o que entender.",
         )
-    return WRITING_SCENARIO_TASKS.get(
-        scenario_key,
-        f"Escreva em ingles uma resposta curta relacionada ao cenario {scenario_label}.",
-    )
+    return "Vamos aprender uma estrutura e ver um exemplo antes de escrever."
 
 
 def placeholder_for_expected_input(mode, expected_input, current_task=""):
@@ -558,6 +514,39 @@ def level_assessment_message(question, current_index, total):
 
 
 def kickoff_message(mode, state):
+    if mode == 'writing':
+        from .writing_workflow import mode_prompt
+        return mode_prompt()
+    if mode == 'speaking' and state.get('speaking'):
+        engine = state['speaking']
+        choices = [MODE_ACTION_LIBRARY['speaking']['continue']]
+        choices += [
+            build_choice(f"situation_{s['id']}", s['label'], s['id'], 'situation')
+            for s in engine['plan']['situations'] if s['id'] != engine['situation_id']
+        ]
+        choices.append(MODE_ACTION_LIBRARY['speaking']['change_scenario'])
+        preparing = speaking_preparation.pending(engine)
+        if preparing:
+            situation = speaking.current_situation(engine)
+            text = (
+                f"Boa! {situation['context']}\n\nEu sou {situation['ai_role']} e você é {situation['student_role']}. "
+                f"Vamos {situation['objective']}\n\nVamos aprender uma expressão de cada vez."
+                if state['level'] in {'A1', 'A2'} else
+                f"Great! {situation['context']}\n\nI'll be {situation['ai_role']}; you'll be {situation['student_role']}. "
+                f"Let's {situation['objective']}\n\nLet's learn one expression at a time."
+            )
+        else:
+            text = speaking.opening(engine, state['level'])
+        return text, {
+            **build_guided_metadata(
+                stage='active', choices=choices, expected_input='choice' if preparing else 'audio_or_text',
+                current_task=engine['last_question'], input_placeholder=state['input_placeholder'],
+                helper_text='Pode seguir com essa situação ou escolher outra.' if state['level'] in {'A1', 'A2'}
+                else 'Continue with this situation or choose another one.',
+            ),
+            'pedagogical_phase': engine['phase'], 'situation_id': engine['situation_id'],
+            **({'speaking_activity': speaking_preparation.snapshot(engine, state['level'])} if speaking_preparation.pending(engine) else {}),
+        }
     scenario_label = state.get("scenario_label") or "Conversacao livre"
     level = state.get("level") or state.get("default_level_hint") or "A2"
     current_task = state.get("current_task") or scenario_task_for_mode(mode, state.get("scenario_key"), scenario_label)

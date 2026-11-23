@@ -121,14 +121,44 @@ class GenerateWordSentencesSerializer(serializers.Serializer):
         return unique_words
 
 
+class GenerateVocabularySentencesSerializer(GenerateWordSentencesSerializer):
+    student_id = serializers.UUIDField(required=False)
+
+
 class WordSentenceDraftSerializer(serializers.Serializer):
     source_word = serializers.CharField(max_length=100)
     sentence = serializers.CharField(max_length=255)
     translation = serializers.CharField(max_length=2000)
 
 
+class GenerateSingleWordSentenceSerializer(serializers.Serializer):
+    source_word = serializers.CharField(max_length=100)
+    adjustment = serializers.ChoiceField(choices=['standard', 'easier', 'harder'], default='standard')
+    previous_sentence = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    student_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        if attrs['adjustment'] != 'standard' and not attrs.get('previous_sentence'):
+            raise serializers.ValidationError({'previous_sentence': 'Envie a frase atual para ajustar a dificuldade.'})
+        return attrs
+
+
+class SaveWordSentenceSerializer(WordSentenceDraftSerializer):
+    student_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        from .word_sentences import contains_source_word
+        if not contains_source_word(attrs['sentence'], attrs['source_word']):
+            raise serializers.ValidationError({'sentence': 'A frase precisa manter a palavra original.'})
+        return attrs
+
+
 class ApproveWordSentencesSerializer(serializers.Serializer):
     items = WordSentenceDraftSerializer(many=True, min_length=1, max_length=WORD_SENTENCE_BATCH_LIMIT)
+
+
+class SaveVocabularySentencesSerializer(ApproveWordSentencesSerializer):
+    student_id = serializers.UUIDField(required=False)
 
 
 class VocabularyCategorySerializer(serializers.ModelSerializer):
