@@ -1,3 +1,4 @@
+import tailwindAnimate from "tailwindcss-animate";
 import type { Config } from "tailwindcss";
 
 export default {
@@ -95,5 +96,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindAnimate],
 } satisfies Config;

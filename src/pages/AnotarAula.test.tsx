@@ -14,7 +14,7 @@ vi.mock("@/components/PastLessonSummary", () => ({ default: () => null }));
 vi.mock("@/components/ui/use-toast", () => ({ useToast: () => ({ toast }) }));
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { user_id: "teacher-1", role: "teacher" } }) }));
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn(), patch: vi.fn() } }));
-vi.mock("react-quill", async () => {
+vi.mock("react-quill-new", async () => {
   const { forwardRef, useImperativeHandle, useRef } = await import("react");
   return {
     Quill: { import: () => class { static create() { return document.createElement("div"); } }, register: vi.fn() },
@@ -37,7 +37,7 @@ const Location = () => { const value = useLocation(); return <p data-testid="loc
 function setup(entry = "/app/aulas/current/anotar?from=calendar", items = lessons, respectGroupFilter = true) {
   get.mockImplementation(async (url, config) => {
     if (url === "/accounts/users/") return { data: [] };
-    if (url === "/lessons/") return { data: items.filter((lesson) => respectGroupFilter && config?.params?.group ? lesson.group === config.params.group : true) };
+    if (url === "/lessons/") return { data: items.filter((lesson) => respectGroupFilter && (config?.params as { page?: number; group?: string })?.group ? lesson.group === (config.params as { group?: string }).group : true) };
     const id = String(url).split("/")[2];
     const lesson = items.find((item) => item.id === id);
     if (lesson) return { data: lesson };

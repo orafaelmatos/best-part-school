@@ -32,9 +32,9 @@ const statusLabels: Record<Status, string> = {
   overdue: "Vencido",
 };
 
-const StatusBadge = ({ status }: { status: Status }) => (
-  <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium", statusStyles[status])}>
-    {statusLabels[status]}
+const StatusBadge = ({ status }: { status: string }) => (
+  <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium", statusStyles[status as Status] || "bg-muted text-muted-foreground")}>
+    {statusLabels[status as Status] || status}
   </span>
 );
 

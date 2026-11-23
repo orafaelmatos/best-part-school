@@ -78,7 +78,7 @@ const ScheduleSlotPicker = memo(({ teacherId, value, initialDate, excludeLessonI
   });
 
   const slots: TimeSlot[] = data?.time_slots || [];
-  const availableWeekdays = useMemo(() => new Set((data?.slots || []).map((slot: any) => slot.day_of_week)), [data?.slots]);
+  const availableWeekdays = useMemo(() => new Set((data?.slots || []).map((slot: { day_of_week: number }) => slot.day_of_week)), [data?.slots]);
   const blockedDates = data?.blocked || [];
   const isUnavailableDate = (date: Date) => {
     if (!data?.slots) return false;

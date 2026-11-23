@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 import io
 import json
 import tempfile
@@ -39,10 +40,10 @@ def grade(correct=True, **changes):
 class LessonReviewTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.student = User.objects.create_user(email='review@test.com', role='student', name='Student', level='A2')
-        cls.other = User.objects.create_user(email='other-review@test.com', role='student', name='Other')
-        cls.teacher = User.objects.create_user(email='review-teacher@test.com', role='teacher', name='Teacher')
-        cls.stranger = User.objects.create_user(email='stranger@test.com', role='teacher', name='Stranger')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='review@test.com', role='student', name='Student', level='A2')
+        cls.other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-review@test.com', role='student', name='Other')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='review-teacher@test.com', role='teacher', name='Teacher')
+        cls.stranger = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='stranger@test.com', role='teacher', name='Stranger')
         cls.lesson = Lesson.objects.create(title='Travel', level='A2', student=cls.student, teacher=cls.teacher,
                                           notes='Practiced past tense: I went to the airport yesterday.', status='completed')
 
@@ -220,7 +221,7 @@ class LessonReviewTests(TestCase):
     def test_listening_has_playable_audio_and_hides_transcript(self, tts):
         self.generate.return_value = exercise(prompt='Where did the speaker go?')
         response = self.send(activity='listening')
-        self.assertEqual(response.data['assistant_message']['metadata']['review_audio_url'], '/media/review.mp3')
+        self.assertEqual(urlsplit(response.data['assistant_message']['metadata']['review_audio_url']).path, '/media/review.mp3')
         self.assertNotIn('I went to the airport yesterday.', json.dumps(response.data, default=str))
         tts.assert_called_once_with('I went to the airport yesterday.', timeout=30)
 

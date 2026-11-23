@@ -1,9 +1,9 @@
+import { normalizeList } from "@/lib/schoolTypes";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import FlashcardReview, { ReviewRating, VocabularyCard } from "@/components/FlashcardReview";
 
-const normalizeList = (data: any) => Array.isArray(data) ? data : (data?.results || []);
 
 type Props = {
   onBack: () => void;

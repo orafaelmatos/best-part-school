@@ -1,3 +1,5 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
+import type { SchoolUser } from "@/lib/schoolTypes";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -270,10 +272,10 @@ const AlunoTrilha = () => {
           : "O próximo acesso do aluno ao Praticar com IA vai destacar esse modo.",
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
         title: "Erro ao salvar recomendação",
-        description: error.response?.data?.detail || "Nao foi possivel atualizar o modo recomendado.",
+        description: apiErrorMessage(error, 'Nao foi possivel atualizar o modo recomendado.'),
         variant: "destructive",
       });
     },
@@ -290,11 +292,11 @@ const AlunoTrilha = () => {
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
       toast({ title: "Sequencia atualizada", description: "A ordem futura deste aluno foi sincronizada." });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       setFutureOrderIds(reorderableLessons.map((lesson) => lesson.id));
       toast({
         title: "Erro ao reordenar",
-        description: error.response?.data?.error || "Nao foi possivel salvar a nova ordem.",
+        description: apiErrorMessage(error, 'Nao foi possivel salvar a nova ordem.'),
         variant: "destructive",
       });
     },
@@ -311,10 +313,10 @@ const AlunoTrilha = () => {
       setReschedulingLesson(null);
       setRescheduleDate("");
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
         title: "Erro ao reagendar",
-        description: error.response?.data?.error || "Nao foi possivel reagendar esta aula.",
+        description: apiErrorMessage(error, 'Nao foi possivel reagendar esta aula.'),
         variant: "destructive",
       });
     },
@@ -573,7 +575,7 @@ const AlunoTrilha = () => {
                             <p className="truncate font-semibold text-foreground">{lesson.title}</p>
                             <p className="mt-1 text-sm text-muted-foreground">{formatLessonDate(lesson.date)}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              <StatusBadge status={lesson.status as any} />
+                              <StatusBadge status={lesson.status} />
                               {(lesson.new_words?.length || 0) > 0 && (
                                 <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
                                   +{lesson.new_words?.length} palavras
@@ -836,7 +838,7 @@ const StudentTrackingPanel = ({
   completedCount,
   pendingLessonsCount,
 }: {
-  student: any;
+  student: SchoolUser;
   plannedLessonsCount: number;
   completedCount: number;
   pendingLessonsCount: number;

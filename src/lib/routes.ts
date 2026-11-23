@@ -21,6 +21,8 @@ const withAppBase = (path = "") => {
 
 export const APP_PATHS = {
   dashboard: withAppBase(),
+  study: withAppBase("/estudar"),
+  profile: withAppBase("/perfil"),
   students: withAppBase("/alunos"),
   newStudent: withAppBase("/alunos/novo"),
   studentLessons: (studentId: string) => withAppBase(`/alunos/${studentId}/aulas`),

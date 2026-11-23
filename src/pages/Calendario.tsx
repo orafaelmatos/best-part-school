@@ -1,3 +1,5 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
+import type { SchoolUser, SchoolLesson, LessonSelectOption, AvailabilitySlot } from "@/lib/schoolTypes";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -32,14 +34,14 @@ const jsToPyDay = (jsDay: number) => {
 
 const Calendario = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedLessons, setSelectedLessons] = useState<any[] | null>(null);
-  const [selectedLesson, setSelectedLesson] = useState<any | null>(null);
+  const [selectedLessons, setSelectedLessons] = useState<SchoolLesson[] | null>(null);
+  const [selectedLesson, setSelectedLesson] = useState<SchoolLesson | null>(null);
 
   // Novo modo de reagendamento direto no calendário
-  const [reschedulingLesson, setReschedulingLesson] = useState<any | null>(null);
+  const [reschedulingLesson, setReschedulingLesson] = useState<SchoolLesson | null>(null);
   const [selectedRescheduleDate, setSelectedRescheduleDate] = useState<Date | null>(null);
   const [selectedRescheduleDateTime, setSelectedRescheduleDateTime] = useState("");
-  const [startingLesson, setStartingLesson] = useState<any | null>(null);
+  const [startingLesson, setStartingLesson] = useState<SchoolLesson | null>(null);
   const [startingSequenceLessonId, setStartingSequenceLessonId] = useState("");
   const [startingCustomLessonTitle, setStartingCustomLessonTitle] = useState("");
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
@@ -69,8 +71,8 @@ const Calendario = () => {
     queryKey: ["students-for-extra-lesson"],
     enabled: user?.role === "teacher",
     queryFn: async () => {
-      const usersData = await fetchAllPages<any>("/accounts/users/");
-      return usersData.filter((item: any) => item.role === "student");
+      const usersData = await fetchAllPages<SchoolUser>("/accounts/users/");
+      return usersData.filter((item: SchoolUser) => item.role === "student");
     },
   });
 
@@ -90,8 +92,8 @@ const Calendario = () => {
         Array.isArray(res.data) ? res.data : res.data.results || [],
       );
       return studentLessons
-        .filter((lesson: any) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
-        .map((lesson: any) => ({
+        .filter((lesson: SchoolLesson) => !lesson.is_extra && !["completed", "canceled", "missed"].includes(lesson.status))
+        .map((lesson: SchoolLesson) => ({
           label: formatSequenceOptionLabel(lesson),
           value: lesson.id,
           title: lesson.title,
@@ -193,17 +195,17 @@ const Calendario = () => {
       toast({ title: "Aula extra criada", description: "Ela entrou no calendário sem alterar a sequência da trilha." });
       closeExtraLessonModal();
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: "Erro ao criar aula extra",
-        description: err.response?.data?.error || "Não foi possível criar a aula extra.",
+        description: apiErrorMessage(err, 'Não foi possível criar a aula extra.'),
         variant: "destructive",
       });
     },
   });
 
   const actionMutation = useMutation({
-    mutationFn: async ({ id, action, payload }: { id: string; action: string; payload?: any }) => {
+    mutationFn: async ({ id, action, payload }: { id: string; action: string; payload?: Record<string, unknown> }) => {
       if (action === "cancel") return api.patch(`/lessons/${id}/cancel_lesson/`);
       if (action === "miss") return api.patch(`/lessons/${id}/mark_missed/`);
       if (action === "reschedule") return api.patch(`/lessons/${id}/reschedule/`, payload);
@@ -220,10 +222,10 @@ const Calendario = () => {
       setSelectedRescheduleDate(null);
       setSelectedRescheduleDateTime("");
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: "Erro na operação",
-        description: err.response?.data?.error || "Não foi possível concluir a ação no calendário.",
+        description: apiErrorMessage(err, 'Não foi possível concluir a ação no calendário.'),
         variant: "destructive"
       });
     }
@@ -252,10 +254,10 @@ const Calendario = () => {
       setSelectedLesson(null);
       navigate(`${APP_PATHS.annotateLesson(res.data.id)}?from=calendar`);
     },
-    onError: (err: any) => {
+    onError: (err: unknown) => {
       toast({
         title: "Erro ao iniciar aula",
-        description: err.response?.data?.error || "Não foi possível iniciar a aula.",
+        description: apiErrorMessage(err, 'Não foi possível iniciar a aula.'),
         variant: "destructive",
       });
     },
@@ -271,7 +273,7 @@ const Calendario = () => {
 
   const getLessonsForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    return lessons.filter((l: any) => l.date && l.date.split("T")[0] === dateStr && l.status !== "pending");
+    return lessons.filter((l: SchoolLesson) => l.date && l.date.split("T")[0] === dateStr && l.status !== "pending");
   };
 
   const getLessonColor = (status: string, isExtra?: boolean) => {
@@ -322,12 +324,12 @@ const Calendario = () => {
     navigate(`${APP_PATHS.annotateLesson(lesson.id)}?planning=true&from_calendar=1`);
   };
 
-  const completedCount = lessons.filter((l: any) => l.status === "completed").length;
-  const upcomingCount = lessons.filter((l: any) => l.status === "scheduled" || l.status === "rescheduled" || l.status === "in_progress").length;
+  const completedCount = lessons.filter((l: SchoolLesson) => l.status === "completed").length;
+  const upcomingCount = lessons.filter((l: SchoolLesson) => l.status === "scheduled" || l.status === "rescheduled" || l.status === "in_progress").length;
   const upcomingLessons = lessons
-    .filter((l: any) => l.status === "scheduled" || l.status === "rescheduled")
-    .map((l: any) => new Date(l.date))
-    .sort((a: any, b: any) => a - b);
+    .filter((l: SchoolLesson) => l.status === "scheduled" || l.status === "rescheduled")
+    .map((l: SchoolLesson) => new Date(l.date))
+    .sort((a: Date, b: Date) => a.getTime() - b.getTime());
 
   let periodText = "Nenhuma aula pendente.";
   if (upcomingLessons.length === 1) {
@@ -360,7 +362,7 @@ const Calendario = () => {
 
     if (reschedulingLesson) {
       if (!isPastDate) {
-        const hasAvail = availableSlots.some((av: any) => av.day_of_week === pyDay);
+        const hasAvail = availableSlots.some((av: AvailabilitySlot) => av.day_of_week === pyDay);
         if (hasAvail && !teacherIsBlocked) isVerde = true;
         else isVermelho = true;
       }
@@ -427,7 +429,7 @@ const Calendario = () => {
 
         {!reschedulingLesson && dayLessons.length > 0 && (
           <div className="flex flex-col gap-1 overflow-y-auto pr-1 flex-1 hide-scrollbar">
-            {dayLessons.slice(0, 3).map((l: any) => (
+            {dayLessons.slice(0, 3).map((l: SchoolLesson) => (
               <div
                 key={l.id}
                 onClick={(e) => {
@@ -629,9 +631,6 @@ const Calendario = () => {
                 {user?.role === 'teacher' && selectedLesson.student_name && (
                   <p className="text-sm text-primary mt-1 font-medium">Aluno: {selectedLesson.student_name}</p>
                 )}
-                {user?.role === 'student' && selectedLesson.teacher_name && (
-                  <p className="text-sm text-primary mt-1 font-medium">Professor: {selectedLesson.teacher_name}</p>
-                )}
               </div>
               <button onClick={() => {
                 setSelectedLesson(null);
@@ -818,7 +817,7 @@ const Calendario = () => {
                   onChange={(event) => setExtraLessonStudentId(event.target.value)}
                 >
                   <option value="">Selecione um aluno</option>
-                  {extraLessonStudents.map((student: any) => (
+                  {extraLessonStudents.map((student: SchoolUser) => (
                     <option key={student.id} value={student.id}>
                       {student.name || student.email}
                     </option>
@@ -921,7 +920,7 @@ const Calendario = () => {
               value={
                 startingCustomLessonTitle
                   ? { label: startingCustomLessonTitle, value: "__custom__", title: startingCustomLessonTitle }
-                  : startingLessonOptions.find((option: any) => option.value === startingSequenceLessonId) || null
+                  : startingLessonOptions.find((option: LessonSelectOption) => option.value === startingSequenceLessonId) || null
               }
               onCreateOption={(inputValue) => {
                 const title = inputValue.trim();
@@ -929,7 +928,7 @@ const Calendario = () => {
                 setStartingCustomLessonTitle(title);
                 setStartingSequenceLessonId("");
               }}
-              onChange={(option: any) => {
+              onChange={(option: LessonSelectOption) => {
                 setStartingCustomLessonTitle("");
                 setStartingSequenceLessonId(option?.value || "");
               }}

@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+import ReactQuill from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
 
 type RichTextEditorProps = {
   value: string;
@@ -30,7 +30,7 @@ const RichTextEditor = ({ value, onChange, placeholder, minHeight = 120 }: RichT
 
   return (
     <div className="rich-text-editor" style={{ "--rich-text-min-height": `${minHeight}px` } as CSSProperties}>
-      <ReactQuill
+      <ReactQuill useSemanticHTML={false}
         theme="snow"
         value={value}
         onChange={onChange}

@@ -9,6 +9,8 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import NotFound, PermissionDenied
+from accounts.access import IsSchoolManager, SchoolManagerOrReadOnly, is_admin, managed_students
 
 from .models import FinancialSettings, StudentFinanceProfile, Payment, PaymentReceipt, FinancialTimelineEntry
 from .serializers import (
@@ -119,7 +121,7 @@ def generate_monthly_payments(profile, months_ahead=3):
 
 
 class FinancialSettingsAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsSchoolManager]
 
     def get(self, request):
         settings_obj, _ = FinancialSettings.objects.get_or_create(teacher=request.user)
@@ -133,9 +135,28 @@ class FinancialSettingsAPIView(APIView):
         return Response(serializer.data)
 
 
-class StudentFinanceProfileViewSet(viewsets.ModelViewSet):
+class FinanceWriteScope:
+    def validate_finance_target(self, serializer):
+        user = self.request.user
+        if is_admin(user):
+            return
+        student = serializer.validated_data.get('student') or getattr(serializer.instance, 'student', None)
+        if student and not managed_students(user).filter(pk=student.pk).exists():
+            raise PermissionDenied('Aluno fora do seu vínculo financeiro.')
+        if serializer.instance and student and serializer.instance.student_id != student.pk:
+            raise PermissionDenied('O aluno de um registro financeiro não pode ser substituído.')
+        teacher = serializer.validated_data.get('teacher')
+        if teacher and teacher.pk != user.pk:
+            raise PermissionDenied('Não é permitido transferir registros financeiros.')
+
+    def perform_update(self, serializer):
+        self.validate_finance_target(serializer)
+        serializer.save()
+
+
+class StudentFinanceProfileViewSet(FinanceWriteScope, viewsets.ModelViewSet):
     serializer_class = StudentFinanceProfileSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
 
     def get_queryset(self):
         user = self.request.user
@@ -147,12 +168,18 @@ class StudentFinanceProfileViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        self.validate_finance_target(serializer)
         serializer.save(teacher=self.request.user)
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
+class PaymentViewSet(FinanceWriteScope, viewsets.ModelViewSet):
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [SchoolManagerOrReadOnly]
+
+    def get_permissions(self):
+        if self.action == 'upload_receipt':
+            return [permissions.IsAuthenticated()]
+        return super().get_permissions()
 
     def get_queryset(self):
         user = self.request.user
@@ -168,6 +195,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        self.validate_finance_target(serializer)
         student = serializer.validated_data['student']
         profile = StudentFinanceProfile.objects.filter(student=student).first()
         serializer.save(
@@ -272,7 +300,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
 
 class TeacherFinanceDashboardAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsSchoolManager]
 
     def get(self, request):
         user = request.user
@@ -335,6 +363,8 @@ class StudentFinanceDetailAPIView(APIView):
         profile = StudentFinanceProfile.objects.select_related('student', 'teacher').filter(student_id=student_id).first()
         if not profile:
             return Response({'error': 'Perfil financeiro nao encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        if not is_admin(request.user) and request.user.pk not in [profile.student_id, profile.teacher_id]:
+            raise NotFound('Perfil financeiro não encontrado.')
         payments = Payment.objects.filter(student_id=student_id, due_date__isnull=False).select_related('student', 'teacher', 'finance_profile').prefetch_related('receipts', 'timeline_entries')
         for payment in payments:
             payment.sync_status()

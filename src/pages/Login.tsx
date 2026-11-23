@@ -1,11 +1,15 @@
 import { useState } from "react";
-import type { AxiosError } from "axios";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { User, Lock, ArrowRight, Eye, EyeOff, Globe2, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { APP_PATHS, LANDING_PATH } from "@/lib/routes";
+import { APP_TARGET, PUBLIC_SITE_URL } from "@/apps/target";
+import { SessionStorageError } from "@/lib/session";
+import StudentLogin from "@/components/student/StudentLogin";
+import { USE_LOCAL_API } from "@/lib/config";
+import { describeLoginError } from "@/lib/loginError";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -31,36 +35,45 @@ const Login = () => {
       const response = await api.post("/accounts/login/", {
         email: email.trim(),
         password,
-      });
-      const { access } = response.data;
-      login(access);
+      }, { timeout: 15_000 });
+      const { access, refresh } = response.data;
+      await login(access, refresh);
       toast({
         title: "Login efetuado com sucesso!",
         description: "Bem vindo ao BPS Connect Hub.",
       });
       navigate(APP_PATHS.dashboard);
     } catch (err) {
-      const error = err as AxiosError<{ detail?: string }>;
       toast({
         variant: "destructive",
         title: "Erro ao fazer login",
-        description: error.response?.data?.detail || "Email ou senha incorretos.",
+        description: err instanceof SessionStorageError ? err.message : describeLoginError(err, USE_LOCAL_API),
       });
     } finally {
       setIsLoading(false);
     }
   };
 
+  if (APP_TARGET === "student") return <StudentLogin email={email} password={password} onEmailChange={setEmail} onPasswordChange={setPassword} isLoading={isLoading} onSubmit={handleLogin} />;
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#203b71_0%,#18243c_34%,#0f172a_100%)] p-4">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.16),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.14),transparent_30%)]" />
-      <Link
+      {APP_TARGET === "legacy" ? <Link
         to={LANDING_PATH}
         className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/16"
       >
         <Globe2 className="h-4 w-4" />
         Visitar site
-      </Link>
+      </Link> : PUBLIC_SITE_URL ? <a
+        href={PUBLIC_SITE_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/16"
+      >
+        <Globe2 className="h-4 w-4" />
+        Visitar site
+      </a> : null}
       <div className="relative mx-auto flex min-h-[calc(100vh_-_2rem)] w-full max-w-6xl items-center justify-center">
         <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/10 bg-white/6 shadow-[0_30px_90px_-40px_rgba(15,23,42,0.95)] backdrop-blur xl:grid-cols-[1.05fr_0.95fr]">
           <section className="relative hidden min-h-[680px] overflow-hidden border-r border-white/10 p-10 text-white xl:flex xl:flex-col xl:justify-between">
@@ -125,6 +138,10 @@ const Login = () => {
                     </div>
                     <input
                       type="email"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      inputMode="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
@@ -147,6 +164,7 @@ const Login = () => {
                     </div>
                     <input
                       type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required

@@ -1,3 +1,4 @@
+from django.utils import timezone
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -20,10 +21,10 @@ DRAFTS = [
 class WordSentenceWorkflowTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.teacher = User.objects.create_user(email='sentences-teacher@test.com', role='teacher', name='Teacher')
-        cls.other_teacher = User.objects.create_user(email='sentences-other@test.com', role='teacher', name='Other')
-        cls.admin = User.objects.create_user(email='sentences-admin@test.com', role='admin', name='Admin')
-        cls.student = User.objects.create_user(email='sentences-student@test.com', role='student', name='Student')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sentences-teacher@test.com', role='teacher', name='Teacher')
+        cls.other_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sentences-other@test.com', role='teacher', name='Other')
+        cls.admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sentences-admin@test.com', role='admin', name='Admin')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sentences-student@test.com', role='student', name='Student')
         cls.lesson = Lesson.objects.create(title='Travel', level='A2', teacher=cls.teacher, student=cls.student)
 
     def setUp(self):
@@ -168,7 +169,7 @@ class WordSentenceWorkflowTests(TestCase):
         self.assertEqual(word.meaning, 'Tradução do professor')
 
     def test_approval_for_group_lesson_creates_cards_for_every_student(self):
-        second_student = User.objects.create_user(email='sentences-second@test.com', role='student', name='Second')
+        second_student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='sentences-second@test.com', role='student', name='Second')
         group = StudentGroup.objects.create(name='Travel group', teacher=self.teacher)
         group.students.add(self.student, second_student)
         self.lesson.student = None
@@ -330,10 +331,10 @@ class WordSentenceGenerationTests(SimpleTestCase):
 class PersonalWordSentenceTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.student = User.objects.create_user(email='personal-word@test.com', role='student', name='Aluno', level='A1')
-        cls.other = User.objects.create_user(email='personal-other@test.com', role='student', name='Outro', level='B2')
-        cls.teacher = User.objects.create_user(email='personal-teacher@test.com', role='teacher', name='Professor')
-        cls.unrelated_teacher = User.objects.create_user(email='personal-unrelated@test.com', role='teacher', name='Outro professor')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='personal-word@test.com', role='student', name='Aluno', level='A1')
+        cls.other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='personal-other@test.com', role='student', name='Outro', level='B2')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='personal-teacher@test.com', role='teacher', name='Professor')
+        cls.unrelated_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='personal-unrelated@test.com', role='teacher', name='Outro professor')
         cls.lesson = Lesson.objects.create(title='Travel', level='B2', teacher=cls.teacher, student=cls.student)
 
     def setUp(self):
@@ -451,11 +452,11 @@ class PersonalWordSentenceTests(TestCase):
 class VocabularyBatchSentenceTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.student = User.objects.create_user(email='batch-student@test.com', role='student', name='Ana', level='A1')
-        cls.other = User.objects.create_user(email='batch-other@test.com', role='student', name='Bruno', level='B2')
-        cls.teacher = User.objects.create_user(email='batch-teacher@test.com', role='teacher', name='Professor', level='C1')
-        cls.unrelated_teacher = User.objects.create_user(email='batch-unrelated@test.com', role='teacher', name='Outro professor')
-        cls.admin = User.objects.create_user(email='batch-admin@test.com', role='admin', name='Admin')
+        cls.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='batch-student@test.com', role='student', name='Ana', level='A1')
+        cls.other = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='batch-other@test.com', role='student', name='Bruno', level='B2')
+        cls.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='batch-teacher@test.com', role='teacher', name='Professor', level='C1')
+        cls.unrelated_teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='batch-unrelated@test.com', role='teacher', name='Outro professor')
+        cls.admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='batch-admin@test.com', role='admin', name='Admin')
         Lesson.objects.create(title='Travel', level='B2', teacher=cls.teacher, student=cls.student)
 
     def setUp(self):

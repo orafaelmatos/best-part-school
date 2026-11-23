@@ -1,4 +1,5 @@
 from django.contrib import admin
+from . import content_reports  # Registers the moderation queue.
 from .models import (
     AIContextLesson,
     AIConversationMessage,

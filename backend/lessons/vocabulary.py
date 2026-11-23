@@ -50,6 +50,10 @@ def default_vocabulary_category():
 
 
 def ensure_vocabulary_card_audio(card, force=False, raise_errors=False):
+    from accounts.privacy import has_ai_consent
+    owner = card.student or card.teacher
+    if owner and not has_ai_consent(owner):
+        return card.audio_url or ''
     if not card:
         return ''
 

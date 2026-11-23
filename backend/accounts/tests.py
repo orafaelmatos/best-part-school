@@ -39,6 +39,8 @@ class StudentRegistrationScheduleTests(TestCase):
             end_time=datetime.time(22, 0),
         )
         
+        self.client.force_authenticate(self.teacher)
+
         # Cria alguns templates pra serem gerados
         Lesson.objects.create(title='T1 A1/A2', level='A1/A2', is_template=True, status='pending', order=1)
         Lesson.objects.create(title='T2 A1/A2', level='A1/A2', is_template=True, status='pending', order=2)
@@ -50,7 +52,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': 'student_nosched@test.com',
             'name': 'No Sched',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'A1/A2'
         })
@@ -67,7 +69,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': '  student_trimmed@test.com  ',
             'name': 'Trimmed Email',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'A1/A2',
         })
@@ -76,7 +78,7 @@ class StudentRegistrationScheduleTests(TestCase):
 
         login_response = self.client.post('/api/accounts/login/', {
             'email': ' student_trimmed@test.com ',
-            'password': '123',
+            'password': 'Student-Access-49!',
         })
         self.assertEqual(login_response.status_code, status.HTTP_200_OK)
         self.assertIn('access', login_response.data)
@@ -87,7 +89,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': 'student_sched@test.com',
             'name': 'Sched',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'B1',
             'schedule_day': 4, # Quinta
@@ -120,7 +122,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': 'student_photo@test.com',
             'name': 'Photo Student',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'A1/A2',
             'photo': sample_photo('student-photo.png'),
@@ -134,7 +136,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': 'student_plan@test.com',
             'name': 'Plan Student',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'A1/A2',
             'planned_lessons_count': 5,
@@ -170,7 +172,7 @@ class StudentRegistrationScheduleTests(TestCase):
         response = self.client.post('/api/accounts/register/', {
             'email': 'student_midtrack@test.com',
             'name': 'Mid Track',
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'B1',
             'planned_lessons_count': 4,
@@ -222,7 +224,7 @@ class StudentRegistrationScheduleTests(TestCase):
             response = self.client.post('/api/accounts/register/', {
                 'email': 'student_manual_first@test.com',
                 'name': 'Manual First',
-                'password': '123',
+                'password': 'Student-Access-49!',
                 'role': 'student',
                 'level': 'B1',
                 'planned_lessons_count': 3,
@@ -256,7 +258,7 @@ class StudentRegistrationScheduleTests(TestCase):
         group_id = group_response.data['id']
 
         base_payload = {
-            'password': '123',
+            'password': 'Student-Access-49!',
             'role': 'student',
             'level': 'A1/A2',
             'teacher_id': str(self.teacher.id),
@@ -303,9 +305,12 @@ class UserPhotoUpdateTests(TestCase):
         self.client = APIClient()
         self.teacher = User.objects.create_user(email='teacher-update@test.com', password='123', role='teacher', name='Teacher')
         self.student = User.objects.create_user(email='student-update@test.com', password='123', role='student', name='Student')
+        from payments.models import StudentFinanceProfile
+        StudentFinanceProfile.objects.create(student=self.student, teacher=self.teacher, monthly_fee=0, due_day=10)
         self.client.force_authenticate(self.teacher)
 
     def test_user_photo_can_be_updated_and_removed(self):
+        self.client.force_authenticate(self.student)
         update_response = self.client.patch(
             f'/api/accounts/users/{self.student.id}/',
             {'photo': sample_photo()},

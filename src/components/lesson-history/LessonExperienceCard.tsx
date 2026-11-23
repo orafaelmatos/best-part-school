@@ -135,7 +135,7 @@ const LessonExperienceCard = ({
                     Aula extra
                   </span>
                 )}
-                <StatusBadge status={lesson.status as any} />
+                <StatusBadge status={lesson.status} />
                 {lesson.schedule_exception && (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">
                     Alteração pontual
@@ -188,7 +188,7 @@ const LessonExperienceCard = ({
         <div className="border-t border-border/70 bg-background/70 px-5 py-5 sm:px-6">
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">
-              {isTeacher && lesson.student && <PastLessonSummary currentLesson={lesson as any} compact buttonVariant="ghost" />}
+              {isTeacher && lesson.student && <PastLessonSummary currentLesson={lesson} compact buttonVariant="ghost" />}
               {lesson.meeting_url && (
                 <a
                   href={lesson.meeting_url}

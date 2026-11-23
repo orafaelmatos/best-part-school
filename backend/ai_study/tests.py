@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 from datetime import timedelta
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -17,10 +18,10 @@ from .test_speaking import make_plan
 class AIStudyAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.teacher = User.objects.create_user(email='teacher-ai@test.com', password='123', role='teacher', name='Teacher')
-        self.student = User.objects.create_user(email='student-ai@test.com', password='123', role='student', name='Student', level='B1')
-        self.other_student = User.objects.create_user(email='other-ai@test.com', password='123', role='student', name='Other', level='B1')
-        self.admin = User.objects.create_user(email='admin-ai@test.com', password='123', role='admin', name='Admin')
+        self.teacher = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='teacher-ai@test.com', password='123', role='teacher', name='Teacher')
+        self.student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='student-ai@test.com', password='123', role='student', name='Student', level='B1')
+        self.other_student = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='other-ai@test.com', password='123', role='student', name='Other', level='B1')
+        self.admin = User.objects.create_user(ai_consent_version='2026-11-23', ai_consent_at=timezone.now(), email='admin-ai@test.com', password='123', role='admin', name='Admin')
         self.lesson = Lesson.objects.create(
             title='Past lesson',
             level='B1',
@@ -106,7 +107,7 @@ class AIStudyAPITests(TestCase):
         self.assertEqual(journey['steps'][0]['label'], 'Chegada ao aeroporto')
         self.assertEqual(journey['current_step_index'], 0)
         exercise = response.data['messages'][0]['metadata']['interpreter_exercise']
-        self.assertEqual(exercise['tts_audio_url'], '/media/ai_study/tts/listening-test.mp3')
+        self.assertEqual(urlsplit(exercise['tts_audio_url']).path, '/media/ai_study/tts/listening-test.mp3')
         self.assertEqual(len(exercise['options']), 4)
         self.assertEqual(exercise['correct_option_id'], 'option-1')
         self.assertEqual(exercise['step_title'], 'Chegada ao aeroporto')
@@ -320,7 +321,7 @@ class AIStudyAPITests(TestCase):
         self.assertIsNotNone(response.data['follow_up_message'])
         self.assertEqual(response.data['follow_up_message']['metadata']['interpreter_exercise']['step_index'], 2)
         self.assertEqual(
-            response.data['follow_up_message']['metadata']['interpreter_exercise']['tts_audio_url'],
+            urlsplit(response.data['follow_up_message']['metadata']['interpreter_exercise']['tts_audio_url']).path,
             '/media/ai_study/tts/listening-step-2.mp3',
         )
 
@@ -346,7 +347,7 @@ class AIStudyAPITests(TestCase):
         response = self.client.post(f'/api/ai-study/sessions/{session.id}/listening/next/')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['tts_audio_url'], '/media/ai_study/tts/listening-next.mp3')
+        self.assertEqual(urlsplit(response.data['assistant_message']['metadata']['interpreter_exercise']['tts_audio_url']).path, '/media/ai_study/tts/listening-next.mp3')
         self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['step_title'], 'Chegada ao aeroporto')
         self.assertEqual(response.data['assistant_message']['metadata']['interpreter_exercise']['step_total'], 10)
         self.assertEqual(response.data['session']['mode'], 'listening')

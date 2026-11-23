@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Best Part School</string>
+    <string name="title_activity_main">Best Part School</string>
+    <string name="package_name">com.bestpartschool.student</string>
+    <string name="custom_url_scheme">com.bestpartschool.student</string>
+</resources>

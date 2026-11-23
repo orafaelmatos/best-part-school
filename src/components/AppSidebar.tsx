@@ -1,3 +1,4 @@
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,6 +37,7 @@ import {
   isAiWorkspacePath,
 } from "@/lib/appSidebar";
 import { APP_PATHS, LANDING_PATH, LOGIN_PATH } from "@/lib/routes";
+import { APP_TARGET, PUBLIC_SITE_URL } from "@/apps/target";
 
 type BadgeKey = "homework" | "learned_words" | "finance";
 
@@ -218,10 +220,10 @@ const AppSidebar = () => {
       queryClient.invalidateQueries({ queryKey: ["current-user-profile", user?.user_id] });
       toast({ title: "Foto atualizada" });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
         title: "Erro ao atualizar foto",
-        description: error.response?.data?.photo?.[0] || "Nao foi possivel salvar a imagem agora.",
+        description: apiErrorMessage(error, 'Nao foi possivel salvar a imagem agora.'),
         variant: "destructive",
       });
     },
@@ -560,14 +562,14 @@ const SidebarContent = ({
           </span>
         </button>
 
-        <Link
-          to={LANDING_PATH}
+        {(APP_TARGET === "legacy" || PUBLIC_SITE_URL) && <Link
+          to={PUBLIC_SITE_URL || LANDING_PATH}
           onClick={onNavigate}
           className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/12 bg-white/6 px-3 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/12 hover:text-white"
         >
           <Globe2 className="h-4 w-4" />
           Visitar site
-        </Link>
+        </Link>}
 
         <button
           type="button"
@@ -606,7 +608,6 @@ const StudentAiHighlights = ({
           <FeaturedSidebarLink
             key={item.path}
             active={isItemActive(item.path)}
-            description={item.description}
             icon={item.icon}
             label={item.label}
             onNavigate={onNavigate}

@@ -1,5 +1,6 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+from .content_reports import ContentReportView
 from .views import (
     AIStudyProgressOverviewAPIView,
     AIStudyRecommendationAPIView,
@@ -17,6 +18,7 @@ router.register(r'speaking-reports', SpeakingSessionReportViewSet, basename='spe
 router.register(r'writing-reports', WritingSessionReportViewSet, basename='writing-report')
 
 urlpatterns = [
+    path('content-reports/', ContentReportView.as_view(), name='ai-content-report'),
     path('context-lessons/', ContextLessonsAPIView.as_view(), name='ai-study-context-lessons'),
     path('progress/overview/', AIStudyProgressOverviewAPIView.as_view(), name='ai-study-progress-overview'),
     path('recommendations/current/', AIStudyRecommendationAPIView.as_view(), name='ai-study-recommendation-current'),

@@ -1,5 +1,6 @@
 from django.utils import timezone
 from rest_framework import serializers
+from bps_core.media import signed_generated_media, signed_media_url
 from lessons.models import Lesson
 from .models import (
     AIContextLesson,
@@ -48,6 +49,13 @@ class AIContextLessonSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='lesson.teacher.name', read_only=True)
     lesson_detail = LessonReferenceSerializer(source='lesson', read_only=True)
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        for attachment in (data.get('snapshot') or {}).get('attachments', []):
+            if isinstance(attachment, dict) and isinstance(attachment.get('url'), str):
+                attachment['url'] = signed_media_url(attachment['url'])
+        return data
+
     class Meta:
         model = AIContextLesson
         fields = ['id', 'lesson', 'lesson_title', 'lesson_date', 'teacher_name', 'lesson_detail', 'snapshot', 'created_at']
@@ -91,6 +99,8 @@ class SpeakingFeedbackSerializer(serializers.ModelSerializer):
         data['error_details'] = []
         if (instance.raw_response or {}).get('tts_text') != sentence(instance):
             data['tts_audio_url'] = None
+        else:
+            data['tts_audio_url'] = signed_media_url(data['tts_audio_url'])
         return data
 
     class Meta:
@@ -125,6 +135,11 @@ class AIConversationMessageSerializer(serializers.ModelSerializer):
     writing_feedback_detail = WritingFeedbackSerializer(source='writing_feedback', read_only=True)
     audio_detail = SpeakingAudioSerializer(source='audio', read_only=True)
     audio_url = serializers.FileField(source='audio.audio', read_only=True)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['metadata'] = signed_generated_media(data['metadata'])
+        return data
 
     class Meta:
         model = AIConversationMessage

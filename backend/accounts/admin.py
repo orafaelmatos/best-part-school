@@ -1,6 +1,18 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, StudentGroup
+from .models import User, StudentGroup, AIConsentRecord
+
+
+@admin.register(AIConsentRecord)
+class AIConsentRecordAdmin(admin.ModelAdmin):
+    list_display = ['user', 'version', 'accepted', 'created_at']
+    readonly_fields = ['user', 'version', 'accepted', 'provider', 'created_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):

@@ -1,0 +1,56 @@
+name: Native mobile validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to compile without distribution credentials
+        type: choice
+        options: [all, android, ios]
+        default: all
+
+permissions:
+  contents: read
+
+env:
+  VITE_API_URL: https://api.example.test/api/
+  VITE_MEDIA_BASE_URL: https://api.example.test
+  VITE_PUBLIC_SITE_URL: https://example.test
+
+jobs:
+  android:
+    if: inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run build:student
+      - run: npx cap sync android
+      - name: Compile and lint Android Release (unsigned)
+        working-directory: android
+        run: ./gradlew :app:bundleRelease :app:lintRelease
+
+  ios:
+    if: inputs.platform == 'all' || inputs.platform == 'ios'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:student
+      - run: npx cap sync ios
+      - name: Compile iOS Release (unsigned)
+        run: xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/bps-ios" CODE_SIGNING_ALLOWED=NO build

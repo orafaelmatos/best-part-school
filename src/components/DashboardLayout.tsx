@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import AppSidebar from "./AppSidebar";
+import StudentLayout from "./student/StudentLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
@@ -13,6 +14,8 @@ const DashboardLayout = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
   const { user } = useAuth();
   const isAiWorkspace = user?.role === "student" && isAiWorkspacePath(location.pathname);
+
+  if (user?.role === "student") return <StudentLayout>{children}</StudentLayout>;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
