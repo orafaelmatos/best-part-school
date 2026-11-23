@@ -442,6 +442,11 @@ class HomeworkViewSet(viewsets.ModelViewSet):
             return
         serializer.save()
 
+    def perform_destroy(self, instance):
+        if self.request.user.role not in ['teacher', 'admin']:
+            raise exceptions.PermissionDenied('Somente professores e administradores podem excluir homeworks.')
+        super().perform_destroy(instance)
+
     def _clone_homework_for_student(self, source, student):
         clone = Homework.objects.create(
             title=source.title,

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
+import { DeleteHomeworkButton } from "@/components/DeleteHomeworkButton";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -1093,6 +1094,7 @@ const HomeworkCard = ({ homework, isTeacher, isStudent, showStudentName, onEdit,
             </Button>
             <Button variant="outline" size="sm" onClick={onDuplicate}><Copy className="mr-2 h-4 w-4" />Duplicar</Button>
             <Button variant="outline" size="sm" onClick={onSaveTemplate}>Salvar modelo</Button>
+            <DeleteHomeworkButton homework={homework} onDeleted={onRefresh} />
           </div>
         )}
       </div>
