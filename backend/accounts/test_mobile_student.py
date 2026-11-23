@@ -55,4 +55,3 @@ class LocalMobileStudentTests(TestCase):
         response = self.client.get('/api/local/health/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'mode': 'mobile-local', 'database': 'sqlite-local'})
-

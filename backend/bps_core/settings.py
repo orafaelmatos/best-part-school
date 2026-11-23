@@ -22,7 +22,7 @@ def env_list(name, default=""):
 
 
 def get_database_config():
-    database_url = os.getenv("DATABASE_URL") 
+    database_url = os.getenv("DATABASE_URL")
     if database_url:
         parsed = urlparse(database_url)
         scheme = parsed.scheme.split("+", 1)[0]
@@ -209,7 +209,7 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 10,
 }
 
-# Simple JWT 
+# Simple JWT
 SIMPLE_JWT = {
     'CHECK_REVOKE_TOKEN': True,
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),

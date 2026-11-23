@@ -209,4 +209,3 @@ def seed_mobile_demo():
 
         result['lessons'] = Lesson.objects.filter(student__in=result['students'], is_template=False).count()
         return result
-

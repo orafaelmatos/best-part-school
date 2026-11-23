@@ -58,4 +58,3 @@ class Command(BaseCommand):
             is_superuser=False,
         )
         self.stdout.write(self.style.SUCCESS('Aluno local criado. Use o e-mail e a senha escolhidos no app.'))
-

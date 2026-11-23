@@ -11,4 +11,3 @@ def local_health(request):
 
 
 urlpatterns = [path('api/local/health/', local_health), *application_urls]
-

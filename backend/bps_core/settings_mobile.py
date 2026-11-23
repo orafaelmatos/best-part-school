@@ -55,4 +55,3 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # a closed local port rather than using credentials inherited from backend/.env.
 os.environ['OPENAI_API_KEY'] = 'local-mobile-disabled'
 os.environ['OPENAI_BASE_URL'] = 'http://127.0.0.1:9/v1'
-
