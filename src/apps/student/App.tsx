@@ -8,6 +8,7 @@ import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
 import { APP_PATHS, LOGIN_PATH } from "@/lib/routes";
 import AppProviders from "../AppProviders";
+import { useStudentTheme } from "@/design-system/theme";
 import { accountPaths, accountRoutes } from "../shared/accountRoutes";
 import { legacyRedirectRoutes } from "../shared/redirects";
 import { studentPaths, studentRoutes } from "./routes";
@@ -29,6 +30,7 @@ export function StudentRoutes() {
 }
 
 export default function StudentApp() {
+  useStudentTheme();
   return (
     <AppProviders>
       <HashRouter>

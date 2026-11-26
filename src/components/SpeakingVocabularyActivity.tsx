@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Mic } from "lucide-react";
+import { ChevronDown, Mic } from "lucide-react";
+import { Button, ProgressBar, StudyBlock } from "@/components/student/ui";
 import VocabularyAudioButton from "@/components/VocabularyAudioButton";
 import { api } from "@/lib/api";
 import type { SpeakingVocabularyActivity as Activity } from "@/lib/aiStudy";
@@ -31,67 +32,74 @@ const SpeakingVocabularyActivity = ({ activity, sessionId, messageId, instructio
     instruction === `${activity.item.example} — ${activity.item.example_translation}`;
 
   return (
-    <section aria-label="Atividade de vocabulário" data-speaking-focus={activity.step === "FEEDBACK" ? true : undefined} className="space-y-3">
+    <section aria-label="Atividade de vocabulário" data-speaking-focus={activity.step === "FEEDBACK" ? true : undefined} className="min-w-0 space-y-4 break-words">
       {instruction && !isSimpleItemText && activity.step !== "GUIDED" ? (
-        <div className={activity.step === "FEEDBACK" ? "rounded-xl border border-primary/15 bg-primary/5 p-3" : ""}>
-          {activity.step === "FEEDBACK" ? <p className="mb-1 text-xs font-semibold text-primary">Sobre sua resposta</p> : null}
-          <p className="whitespace-pre-line">{instruction}</p>
-        </div>
+        activity.step === "FEEDBACK"
+          ? <StudyBlock kind="tip" title="Sobre sua resposta"><p className="whitespace-pre-line">{instruction}</p></StudyBlock>
+          : <p className="whitespace-pre-line text-body-lg text-ink">{instruction}</p>
       ) : null}
       {activity.step === "GUIDED" && activity.task ? <section aria-label="Pergunta da prática guiada" data-speaking-focus className="space-y-3">
-        <p className="text-sm text-muted-foreground">{activity.task.instruction}</p>
-        <p lang="en" className="text-lg font-semibold">{activity.task.question}</p>
+        <p className="text-body-lg text-ink">{activity.task.instruction}</p>
+        <p lang="en" className="text-h4 text-ink">{activity.task.question}</p>
         <SpeakingUtteranceAudio sessionId={sessionId} messageId={messageId} part="question" text={activity.task.question} label="Ouvir pergunta guiada" />
-        <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">Ver tradução da pergunta</summary><p lang="pt-BR" className="mt-2">{activity.task.question_translation}</p></details>
+        <details className="group/question">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md text-body font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">Ver tradução da pergunta
+            <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/question:rotate-180" />
+          </summary>
+          <p lang="pt-BR" className="mt-1 rounded-lg bg-surface-muted px-4 py-3 text-body-lg text-ink">{activity.task.question_translation}</p>
+        </details>
       </section> : null}
-      <p className="text-xs font-medium text-muted-foreground">
-        Expressão {activity.item_index + 1} de {activity.total_items}
-      </p>
-      <div data-speaking-focus={["WORD", "EXAMPLE"].includes(activity.step) ? true : undefined} className="space-y-3 rounded-2xl border border-border bg-muted/30 p-4">
+      <div className="space-y-2">
+        <p className="text-caption text-ink-secondary">
+          Expressão {activity.item_index + 1} de {activity.total_items}
+        </p>
+        <ProgressBar value={activity.item_index + 1} max={activity.total_items} label={`Expressão ${activity.item_index + 1} de ${activity.total_items}`} />
+      </div>
+      <div data-speaking-focus={["WORD", "EXAMPLE"].includes(activity.step) ? true : undefined} className="space-y-3 rounded-lg bg-surface-muted p-4">
         <div>
-          <p className="font-semibold">{activity.item.expression}</p>
-          {showTranslations ? <p className="text-sm text-muted-foreground">{activity.item.translation}</p> : null}
+          <p lang="en" className="text-h4 text-ink">{activity.item.expression}</p>
+          {showTranslations ? <p className="text-body text-ink">{activity.item.translation}</p> : null}
         </div>
-        <VocabularyAudioButton text={activity.item.expression} label="Ouvir palavra ou expressão" requestAudio={wordAudio} />
+        <VocabularyAudioButton text={activity.item.expression} label="Ouvir palavra ou expressão" requestAudio={wordAudio} className="min-h-11" />
         {showExample ? (
-          <div data-speaking-focus={activity.step === "REPEAT" ? true : undefined} className="space-y-2 border-t border-border pt-3">
-            <p>{activity.item.example}</p>
-            {showTranslations ? <p className="text-sm text-muted-foreground">{activity.item.example_translation}</p> : null}
-            <VocabularyAudioButton text={activity.item.example} label="Ouvir frase" requestAudio={exampleAudio} />
+          <div data-speaking-focus={activity.step === "REPEAT" ? true : undefined} className="space-y-2 border-t border-line pt-3">
+            <p lang="en" className="text-body-lg text-ink">{activity.item.example}</p>
+            {showTranslations ? <p className="text-body text-ink">{activity.item.example_translation}</p> : null}
+            <VocabularyAudioButton text={activity.item.example} label="Ouvir frase" requestAudio={exampleAudio} className="min-h-11" />
           </div>
         ) : null}
       </div>
       {activity.task ? (
-        <div className="space-y-1 rounded-2xl bg-muted/40 p-3">
-          <p className="text-xs font-medium text-muted-foreground">Você pode responder assim:</p>
-          <p>{activity.task.model_answer}</p>
-          {showTranslations ? <p className="text-sm text-muted-foreground">{activity.task.model_answer_translation}</p> : null}
-          <SpeakingUtteranceAudio sessionId={sessionId} messageId={messageId} part="model_answer" text={activity.task.model_answer} label="Ouvir resposta modelo" />
-        </div>
+        <StudyBlock kind="example" title="Você pode responder assim:">
+          <p lang="en">{activity.task.model_answer}</p>
+          {showTranslations ? <p className="mt-1 text-body text-ink">{activity.task.model_answer_translation}</p> : null}
+          <div className="mt-3">
+            <SpeakingUtteranceAudio sessionId={sessionId} messageId={messageId} part="model_answer" text={activity.task.model_answer} label="Ouvir resposta modelo" />
+          </div>
+        </StudyBlock>
       ) : null}
       {!activity.show_translations ? (
-        <button type="button" onClick={() => setShowTranslations((current) => !current)} className="text-xs underline">
+        <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={() => setShowTranslations((current) => !current)}>
           {showTranslations ? "Ocultar traduções" : "Ver traduções do vocabulário"}
-        </button>
+        </Button>
       ) : null}
-      {activity.hint ? <p className="rounded-xl bg-muted/60 p-3 text-sm">{activity.hint}</p> : null}
-      {activity.feedback && activity.step !== "FEEDBACK" ? <p className="text-sm">{activity.feedback}</p> : null}
+      {activity.hint ? <StudyBlock kind="tip" title="Dica"><p className="whitespace-pre-line">{activity.hint}</p></StudyBlock> : null}
+      {activity.feedback && activity.step !== "FEEDBACK" ? <p className="text-body-lg text-ink">{activity.feedback}</p> : null}
       {activity.step === "FEEDBACK" && activity.assessment_source ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-ink-secondary">
           {activity.assessment_source === "transcript" ? "Feedback sobre a resposta transcrita." : "Feedback sobre sua resposta escrita."}
         </p>
       ) : null}
       {interactive && awaitingAnswer ? (
         <div className="space-y-2">
-          <button type="button" disabled={disabled} onClick={onRecord}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
-            <Mic className="h-4 w-4" />
+          <Button type="button" disabled={disabled} onClick={onRecord}>
+            <Mic aria-hidden="true" />
             {activity.step === "REPEAT" ? "Repetir pelo microfone" : "Responder pelo microfone"}
-          </button>
-          <p className="text-xs text-muted-foreground">Se o microfone estiver indisponível, responda pelo campo de texto.</p>
+          </Button>
+          <p className="text-caption text-ink-secondary">Se o microfone estiver indisponível, responda pelo campo de texto.</p>
         </div>
       ) : null}
-      {activity.review_count ? <p className="text-xs text-muted-foreground">Expressões para revisar: {activity.review_count}.</p> : null}
+      {activity.review_count ? <p className="text-caption text-ink-secondary">Expressões para revisar: {activity.review_count}.</p> : null}
     </section>
   );
 };

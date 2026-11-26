@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
+import { useMemo, useState, type ReactNode } from "react";
+import { CheckCircle2, FileText, Lightbulb, Sparkles, XCircle } from "lucide-react";
+import { Badge, Card, Chip, CircularProgress, IconTile, ProgressBar, StudyBlock } from "@/components/student/ui";
+import { iconStroke } from "@/design-system/tokens";
 
 export type WritingFeedback = {
   id: string;
@@ -31,14 +33,18 @@ export type WritingFeedback = {
 
 const WRITING_LEVELS = ["B1", "B2", "C1", "C2"] as const;
 
-const ScorePill = ({ label, value }: { label: string; value?: number }) => (
-  <div className="rounded-2xl border border-border/70 bg-background/90 px-3 py-2.5">
-    <div className="flex items-center justify-between gap-3 text-[11px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold">{Math.max(0, Math.min(100, Number(value) || 0))}/100</span>
+const ScoreRow = ({ label, value }: { label: string; value?: number }) => {
+  const score = Math.max(0, Math.min(100, Number(value) || 0));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3 text-body">
+        <span className="text-ink-secondary">{label}</span>
+        <span className="font-semibold text-ink">{score}/100</span>
+      </div>
+      <ProgressBar value={score} max={100} label={`${label}: ${score} de 100`} />
     </div>
-  </div>
-);
+  );
+};
 
 const labelByType: Record<WritingFeedback["text_type"], string> = {
   free: "Livre",
@@ -48,174 +54,191 @@ const labelByType: Record<WritingFeedback["text_type"], string> = {
   storytelling: "Storytelling",
 };
 
+const Section = ({ title, description, children }: { title: string; description?: string; children: ReactNode }) => (
+  <section className="space-y-3 border-t border-line pt-5">
+    <div>
+      <h4 className="text-body-lg font-semibold text-ink">{title}</h4>
+      {description ? <p className="mt-0.5 text-body text-ink-secondary">{description}</p> : null}
+    </div>
+    {children}
+  </section>
+);
+
+const itemListClass = "divide-y divide-line text-body-lg text-ink [&>li]:py-2 [&>li:first-child]:pt-0 [&>li:last-child]:pb-0";
+
 const WritingFeedbackCard = ({ feedback }: { feedback: WritingFeedback }) => {
   const availableLevels = useMemo(
     () => WRITING_LEVELS.filter((level) => (feedback.rewrites?.[level] || "").trim()),
     [feedback.rewrites],
   );
   const [selectedRewriteLevel, setSelectedRewriteLevel] = useState<string>(availableLevels[0] || "B1");
+  const level = feedback.estimated_level || "A2";
+  const rewrite = feedback.rewrites?.[selectedRewriteLevel];
 
   return (
-    <div className="space-y-4 rounded-[28px] border border-border/70 bg-card/95 p-4 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-foreground">Análise de writing</p>
-          <p className="text-xs text-muted-foreground">
-            {labelByType[feedback.text_type]} · nível estimado {feedback.estimated_level || "A2"}
+    <Card className="min-w-0 space-y-5 break-words">
+      <div className="flex items-start gap-3">
+        <IconTile icon={Sparkles} tone="ai" size="sm" />
+        <div className="min-w-0">
+          <h3 className="text-h4 text-ink">Análise de writing</h3>
+          <p className="text-caption text-ink-muted">
+            {labelByType[feedback.text_type]} · nível estimado {level}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">
-              Writing Score {feedback.writing_score}/100
-            </span>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
-              CEFR {feedback.estimated_level || "A2"}
-            </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+        <div className="flex items-center gap-4">
+          <CircularProgress value={Math.max(0, Math.min(100, feedback.writing_score))} max={100} size={72}
+            label={`Writing Score: ${feedback.writing_score} de 100`}>
+            <span className="text-h4">{feedback.writing_score}</span>
+          </CircularProgress>
+          <div className="space-y-1.5">
+            <p className="text-body font-semibold text-ink">Writing Score {feedback.writing_score}/100</p>
+            <Badge tone="primary">CEFR {level}</Badge>
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-          <ScorePill label="Gramática" value={feedback.sub_scores?.grammar} />
-          <ScorePill label="Vocabulário" value={feedback.sub_scores?.vocabulary} />
-          <ScorePill label="Naturalidade" value={feedback.sub_scores?.naturality} />
-          <ScorePill label="Coerência" value={feedback.sub_scores?.coherence} />
-          <ScorePill label="Complexidade" value={feedback.sub_scores?.complexity} />
+        <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+          <ScoreRow label="Gramática" value={feedback.sub_scores?.grammar} />
+          <ScoreRow label="Vocabulário" value={feedback.sub_scores?.vocabulary} />
+          <ScoreRow label="Naturalidade" value={feedback.sub_scores?.naturality} />
+          <ScoreRow label="Coerência" value={feedback.sub_scores?.coherence} />
+          <ScoreRow label="Complexidade" value={feedback.sub_scores?.complexity} />
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Resumo</p>
-          <p className="mt-2 text-sm leading-6 text-foreground">{feedback.general_feedback}</p>
+      <Section title="Resumo">
+        <p className="text-body-lg leading-7 text-ink">{feedback.general_feedback}</p>
+        <StudyBlock kind="tip" title="Evolução de nível">
+          <p className="leading-7">{feedback.level_progress_feedback}</p>
+        </StudyBlock>
+      </Section>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg bg-surface-muted px-4 py-3">
+          <p className="flex items-center gap-1.5 text-label text-ink">
+            <FileText size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />Texto original
+          </p>
+          <p className="mt-1 whitespace-pre-line text-body-lg leading-7 text-ink">{feedback.original_text}</p>
         </div>
-        <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">Evolução de nível</p>
-          <p className="mt-2 text-sm leading-6 text-amber-950">{feedback.level_progress_feedback}</p>
+        <div className="rounded-lg bg-success-soft px-4 py-3">
+          <p className="flex items-center gap-1.5 text-label text-success">
+            <CheckCircle2 size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />Texto corrigido
+          </p>
+          <p className="mt-1 whitespace-pre-line text-body-lg leading-7 text-ink">{feedback.corrected_text}</p>
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-2xl bg-muted/60 p-3.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Texto original</p>
-          <p className="mt-2 whitespace-pre-line text-sm leading-6">{feedback.original_text}</p>
-        </div>
-        <div className="rounded-2xl bg-emerald-50/70 p-3.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Texto corrigido</p>
-          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-emerald-950">{feedback.corrected_text}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Pontos fortes</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.strengths || []).map((item) => (
-              <li key={item} className="rounded-xl bg-muted px-3 py-2">
-                {item}
-              </li>
-            ))}
-            {!feedback.strengths?.length && <li className="text-muted-foreground">Sem destaques registrados.</li>}
-          </ul>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Como subir de nível</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.improvement_tips || []).map((item) => (
-              <li key={item} className="rounded-xl bg-muted px-3 py-2">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explicações gramaticais</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.grammar_breakdown || []).map((item) => (
-              <li key={item} className="rounded-xl bg-muted px-3 py-2">
-                {item}
-              </li>
-            ))}
-            {!feedback.grammar_breakdown?.length && <li className="text-muted-foreground">Sem observações extras.</li>}
-          </ul>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Erros explicados</p>
-        <div className="grid gap-3 xl:grid-cols-2">
-          {(feedback.error_explanations || []).map((item, index) => (
-            <div key={`${item.excerpt || "error"}-${index}`} className="rounded-2xl bg-muted/70 p-3">
-              <p className="text-xs font-semibold text-foreground">{item.category || "Correção"}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{item.excerpt || "Trecho original não informado."}</p>
-              <p className="mt-1 text-sm font-medium text-foreground">{item.corrected || "Correção não informada."}</p>
-              <p className="mt-2 text-sm leading-6">{item.explanation || "Sem explicação adicional."}</p>
-            </div>
+      <Section title="Pontos fortes">
+        <ul className="space-y-2 text-body-lg text-ink">
+          {(feedback.strengths || []).map((item) => (
+            <li key={item} className="flex gap-2">
+              <CheckCircle2 size={20} strokeWidth={iconStroke} aria-hidden="true" className="mt-0.5 shrink-0 text-success" />
+              <span className="min-w-0">{item}</span>
+            </li>
           ))}
-        </div>
-      </div>
+          {!feedback.strengths?.length && <li className="text-body text-ink-secondary">Sem destaques registrados.</li>}
+        </ul>
+      </Section>
 
-      <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Reescritas automáticas</p>
-            <p className="mt-1 text-sm text-muted-foreground">Compare seu texto com versões mais avançadas.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {availableLevels.map((level) => (
-              <button
-                key={level}
-                type="button"
-                onClick={() => setSelectedRewriteLevel(level)}
-                className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                  selectedRewriteLevel === level
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-border bg-white text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Reescrever em {level}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mt-4 rounded-2xl bg-muted/60 p-4">
-          <p className="whitespace-pre-line text-sm leading-6">{feedback.rewrites?.[selectedRewriteLevel] || "Sem reescrita disponível."}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Criar exercícios com meus erros</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.exercises || []).map((item) => (
-              <li key={item} className="rounded-xl bg-muted px-3 py-2">
-                {item}
+      {feedback.improvement_tips?.length ? (
+        <Section title="Como subir de nível">
+          <ul className="space-y-2 text-body-lg text-ink">
+            {feedback.improvement_tips.map((item) => (
+              <li key={item} className="flex gap-2">
+                <Lightbulb size={20} strokeWidth={iconStroke} aria-hidden="true" className="mt-0.5 shrink-0 text-ai" />
+                <span className="min-w-0">{item}</span>
               </li>
             ))}
           </ul>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Explicar erros gramaticais</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.error_explanations || []).map((item, index) => (
-              <li key={`${item.category || "grammar"}-${index}`} className="rounded-xl bg-muted px-3 py-2">
+        </Section>
+      ) : null}
+
+      <Section title="Explicações gramaticais">
+        <ul className={itemListClass}>
+          {(feedback.grammar_breakdown || []).map((item) => <li key={item}>{item}</li>)}
+          {!feedback.grammar_breakdown?.length && <li className="text-body text-ink-secondary">Sem observações extras.</li>}
+        </ul>
+      </Section>
+
+      {feedback.error_explanations?.length ? (
+        <Section title="Erros explicados">
+          <ul className="space-y-5">
+            {feedback.error_explanations.map((item, index) => (
+              <li key={`${item.excerpt || "error"}-${index}`} className="space-y-2">
+                <Badge>{item.category || "Correção"}</Badge>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-lg bg-danger-soft px-4 py-3">
+                    <p className="flex items-center gap-1.5 text-label text-ink">
+                      <XCircle size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-danger" />Você escreveu
+                    </p>
+                    <p className="mt-1 text-body-lg text-ink">{item.excerpt || "Trecho original não informado."}</p>
+                  </div>
+                  <div className="rounded-lg bg-success-soft px-4 py-3">
+                    <p className="flex items-center gap-1.5 text-label text-success">
+                      <CheckCircle2 size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />Forma correta
+                    </p>
+                    <p className="mt-1 text-body-lg font-medium text-ink">{item.corrected || "Correção não informada."}</p>
+                  </div>
+                </div>
+                <p className="text-body-lg leading-7 text-ink">{item.explanation || "Sem explicação adicional."}</p>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      <Section title="Reescritas automáticas" description="Compare seu texto com versões mais avançadas.">
+        {availableLevels.length ? (
+          <div role="group" aria-label="Nível da reescrita" className="flex flex-wrap gap-2">
+            {availableLevels.map((option) => (
+              <Chip key={option} selected={selectedRewriteLevel === option} onClick={() => setSelectedRewriteLevel(option)}>
+                Reescrever em {option}
+              </Chip>
+            ))}
+          </div>
+        ) : null}
+        {rewrite ? (
+          <StudyBlock kind="example" title={`Versão ${selectedRewriteLevel}`}>
+            <p lang="en" className="whitespace-pre-line leading-7">{rewrite}</p>
+          </StudyBlock>
+        ) : <p className="text-body text-ink-secondary">Sem reescrita disponível.</p>}
+      </Section>
+
+      {feedback.exercises?.length ? (
+        <Section title="Criar exercícios com meus erros">
+          <ul className={itemListClass}>
+            {feedback.exercises.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </Section>
+      ) : null}
+
+      {feedback.error_explanations?.length ? (
+        <Section title="Explicar erros gramaticais">
+          <ul className={itemListClass}>
+            {feedback.error_explanations.map((item, index) => (
+              <li key={`${item.category || "grammar"}-${index}`}>
                 {item.category || "Correção"}: {item.explanation || "Sem detalhe."}
               </li>
             ))}
           </ul>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Gerar flashcards do novo vocabulário</p>
-          <ul className="space-y-2 text-sm">
-            {(feedback.vocabulary_flashcards || []).map((item, index) => (
-              <li key={`${item.term || "flashcard"}-${index}`} className="rounded-xl bg-muted px-3 py-2">
-                <p className="font-medium">{item.term || "Termo"}</p>
-                <p className="text-muted-foreground">{item.meaning || "Sem significado."}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{item.example || "Sem exemplo."}</p>
+        </Section>
+      ) : null}
+
+      {feedback.vocabulary_flashcards?.length ? (
+        <Section title="Gerar flashcards do novo vocabulário">
+          <ul className={itemListClass}>
+            {feedback.vocabulary_flashcards.map((item, index) => (
+              <li key={`${item.term || "flashcard"}-${index}`}>
+                <p lang="en" className="font-medium">{item.term || "Termo"}</p>
+                <p className="text-body text-ink-secondary">{item.meaning || "Sem significado."}</p>
+                <p className="mt-1 text-caption text-ink-muted">{item.example || "Sem exemplo."}</p>
               </li>
             ))}
           </ul>
-        </div>
-      </div>
-    </div>
+        </Section>
+      ) : null}
+    </Card>
   );
 };
 

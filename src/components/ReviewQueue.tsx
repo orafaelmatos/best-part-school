@@ -2,8 +2,8 @@ import { normalizeList } from "@/lib/schoolTypes";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { Alert, Button, SkeletonCard } from "@/components/student/ui";
 import FlashcardReview, { ReviewRating, VocabularyCard } from "@/components/FlashcardReview";
-
 
 type Props = {
   onBack: () => void;
@@ -13,7 +13,7 @@ const ReviewQueue = ({ onBack }: Props) => {
   const queryClient = useQueryClient();
   const [reviewedIds, setReviewedIds] = useState<string[]>([]);
 
-  const { data: queue = [], isLoading } = useQuery({
+  const { data: queue = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["vocabulary-review-queue"],
     queryFn: async () => {
       const res = await api.get("/vocabulary-cards/queue/?limit=60");
@@ -38,7 +38,23 @@ const ReviewQueue = ({ onBack }: Props) => {
   });
 
   if (isLoading) {
-    return <p className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">Preparando sua fila de revisão...</p>;
+    return <SkeletonCard label="Preparando sua fila de revisão" lines={3} />;
+  }
+
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <Alert
+          tone="danger"
+          role="alert"
+          title="Não carregamos sua fila de revisão."
+          action={<Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>Tentar novamente</Button>}
+        >
+          Suas palavras continuam salvas. Tente novamente.
+        </Alert>
+        <Button type="button" variant="ghost" onClick={onBack}>Voltar ao painel</Button>
+      </div>
+    );
   }
 
   return (

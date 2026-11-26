@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Flame, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, CheckCircle2, Keyboard } from "lucide-react";
+import { Badge, Button, Card, EmptyState, ProgressBar, StudyBlock, cardVariants } from "@/components/student/ui";
 import VocabularyAudioButton from "@/components/VocabularyAudioButton";
+import { cn } from "@/lib/utils";
 
 export type ReviewRating = "very_hard" | "hard" | "good" | "easy";
 
@@ -44,37 +45,18 @@ const ratingOptions: Array<{
   description: string;
   schedule: string;
 }> = [
-  {
-    rating: "very_hard",
-    label: "Errei 😵",
-    description: "Essa ainda não entrou na cabeça.",
-    schedule: "Volta em 10 minutos",
-  },
-  {
-    rating: "hard",
-    label: "Difícil 😬",
-    description: "Lembrei, mas sofri.",
-    schedule: "Volta em 1 dia",
-  },
-  {
-    rating: "good",
-    label: "Boa 👍",
-    description: "Consegui lembrar de boa.",
-    schedule: "Volta em 3 dias",
-  },
-  {
-    rating: "easy",
-    label: "Fácil 😎",
-    description: "Essa já tá tranquila.",
-    schedule: "Volta em 7 dias",
-  },
+  { rating: "very_hard", label: "Errei", description: "Ainda não lembrei.", schedule: "Volta em 10 minutos" },
+  { rating: "hard", label: "Difícil", description: "Lembrei com esforço.", schedule: "Volta em 1 dia" },
+  { rating: "good", label: "Boa", description: "Lembrei bem.", schedule: "Volta em 3 dias" },
+  { rating: "easy", label: "Fácil", description: "Lembrei na hora.", schedule: "Volta em 7 dias" },
 ];
 
-const ratingStyles: Record<ReviewRating, string> = {
-  very_hard: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
-  hard: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
-  good: "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
-  easy: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+// Small color cue next to the label; the words carry the meaning.
+const ratingDot: Record<ReviewRating, string> = {
+  very_hard: "bg-danger",
+  hard: "bg-warning",
+  good: "bg-primary",
+  easy: "bg-success",
 };
 
 const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }: Props) => {
@@ -83,7 +65,6 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
   const activeCard = cards[index];
   const remaining = cards.length;
   const total = reviewedCount + remaining;
-  const progress = total ? Math.round((reviewedCount / total) * 100) : 0;
 
   useEffect(() => {
     setRevealed(false);
@@ -116,93 +97,97 @@ const FlashcardReview = ({ cards, reviewedCount, onBack, onReview, isReviewing }
 
   if (!activeCard) {
     return (
-      <div className="mx-auto flex min-h-[420px] max-w-2xl flex-col items-center justify-center rounded-lg border border-border bg-card p-8 text-center">
-        <CheckCircle2 className="mb-4 h-10 w-10 text-emerald-600" />
-        <h2 className="text-2xl font-semibold">Fila concluída</h2>
-        <p className="mt-2 text-sm text-muted-foreground">As próximas revisões aparecem quando o algoritmo agendar novas palavras.</p>
-        <Button className="mt-6" onClick={onBack}>Voltar ao painel</Button>
-      </div>
+      <Card className="mx-auto max-w-2xl">
+        <EmptyState
+          icon={CheckCircle2}
+          title="Fila concluída"
+          description="As próximas revisões aparecem quando o algoritmo agendar novas palavras."
+          action={<Button type="button" onClick={onBack}>Voltar ao painel</Button>}
+        />
+      </Card>
     );
   }
 
+  const wordSize = activeCard.word.length > 40 ? "text-h3" : activeCard.word.length > 18 ? "text-h2" : "text-display";
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Sair
+    <div className="mx-auto max-w-2xl space-y-4">
+      <div className="flex items-center gap-3">
+        <Button type="button" variant="ghost" size="sm" className="-ml-2 shrink-0" onClick={onBack}>
+          <ArrowLeft aria-hidden="true" /> Sair
         </Button>
-        <div className="flex min-w-[220px] items-center gap-3 text-sm text-muted-foreground">
-          <span>{reviewedCount}/{total}</span>
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-          </div>
-        </div>
+        <ProgressBar value={reviewedCount} max={total} label="Progresso da revisão" className="min-w-0 flex-1" />
+        <span className="shrink-0 text-body text-ink-secondary">{reviewedCount} de {total}</span>
       </div>
 
-      <section className="perspective-1000">
-        <div
-          className={`relative min-h-[430px] rounded-lg border border-border bg-card p-5 shadow-sm transition-transform duration-500 sm:p-8 ${revealed ? "scale-[1.01]" : ""}`}
-        >
-          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span className="rounded-md bg-muted px-2 py-1">{activeCard.category_name || activeCard.custom_category || "Vocabulary"}</span>
-            <span className="inline-flex items-center gap-1"><Flame className="h-3.5 w-3.5" /> confiança {activeCard.confidence_level}%</span>
-          </div>
+      <Card as="section" aria-label="Card de revisão" className="sm:p-8">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Badge>{activeCard.category_name || activeCard.custom_category || "Vocabulário"}</Badge>
+          <span className="text-caption text-ink-muted">Confiança {activeCard.confidence_level}%</span>
+        </div>
 
-          <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
-            <p className="text-xs uppercase text-muted-foreground">Frente</p>
-            <h2 className="mt-4 max-w-full break-words text-4xl font-bold sm:text-5xl">{activeCard.word}</h2>
+        <div className="flex min-h-56 flex-col items-center justify-center py-8 text-center">
+          <p className="text-label text-ink-muted">Frente</p>
+          <h2 lang="en" className={cn("mt-3 max-w-full break-words text-ink", wordSize)}>{activeCard.word}</h2>
+          <div className="mt-5 flex flex-col items-center gap-2">
             <VocabularyAudioButton
               cardId={activeCard.id}
               audioUrl={activeCard.audio_url}
               audioFileUrl={activeCard.audio_file_url}
               text={activeCard.word}
-              className="mt-4"
+              iconOnly
             />
           </div>
+        </div>
 
-          {!revealed ? (
-            <div className="flex justify-center">
-              <Button size="lg" onClick={() => setRevealed(true)}>Revelar resposta</Button>
+        {!revealed ? (
+          <Button type="button" size="lg" fullWidth className="sm:mx-auto sm:flex sm:w-auto" onClick={() => setRevealed(true)}>
+            Revelar resposta
+          </Button>
+        ) : (
+          <div className="space-y-6 border-t border-line pt-6">
+            <div className="space-y-3 text-center">
+              <p className="text-label text-ink-muted">Verso</p>
+              <h3 className="break-words text-h3 text-ink">{activeCard.translation}</h3>
+              {activeCard.explanation && <p className="text-body-lg text-ink-secondary">{activeCard.explanation}</p>}
             </div>
-          ) : (
-            <div className="space-y-5 border-t border-border pt-5">
-              <div className="mx-auto max-w-2xl space-y-3 text-center">
-                <h3 className="text-2xl font-semibold">{activeCard.translation}</h3>
-                {activeCard.explanation && <p className="text-sm leading-6 text-muted-foreground">{activeCard.explanation}</p>}
-                {activeCard.example_sentence && <p className="rounded-lg bg-muted p-3 text-sm italic">{activeCard.example_sentence}</p>}
-                <div className="flex justify-center">
-                  <VocabularyAudioButton
-                    cardId={activeCard.id}
-                    audioUrl={activeCard.audio_url}
-                    audioFileUrl={activeCard.audio_file_url}
-                    text={activeCard.word}
-                  />
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {activeCard.example_sentence && (
+              <StudyBlock kind="example" title="Exemplo">
+                <span lang="en">{activeCard.example_sentence}</span>
+              </StudyBlock>
+            )}
+            <div role="group" aria-label="Como foi lembrar desta palavra?" className="space-y-3">
+              <p className="text-body font-medium text-ink">Como foi lembrar?</p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {ratingOptions.map((option) => (
-                  <Button
+                  <button
                     key={option.rating}
-                    variant="outline"
+                    type="button"
                     disabled={isReviewing}
-                    className={`h-auto min-h-[118px] flex-col items-start justify-start gap-2 whitespace-normal rounded-xl px-3 py-3 text-left ${ratingStyles[option.rating]}`}
+                    className={cn(
+                      cardVariants({ interactive: true, padding: "none" }),
+                      "flex min-h-24 w-full flex-col items-start gap-1 rounded-lg p-3 text-left disabled:pointer-events-none disabled:opacity-50",
+                    )}
                     onClick={() => submitReview(option.rating)}
                   >
-                    <span className="text-sm font-semibold leading-5">{option.label}</span>
-                    <span className="text-xs font-normal leading-5 opacity-85">{option.description}</span>
-                    <span className="text-[11px] font-semibold leading-4 opacity-80">{option.schedule}</span>
-                  </Button>
+                    <span className="flex items-center gap-1.5 text-body font-semibold text-ink">
+                      <span className={cn("size-2 shrink-0 rounded-full", ratingDot[option.rating])} aria-hidden="true" />
+                      {option.label}
+                    </span>
+                    <span className="text-caption text-ink-secondary">{option.description}</span>
+                    <span className="text-caption text-ink-muted">{option.schedule}</span>
+                  </button>
                 ))}
               </div>
             </div>
-          )}
-        </div>
-      </section>
+          </div>
+        )}
+      </Card>
 
-      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-        <RotateCcw className="h-3.5 w-3.5" />
+      <p className="hidden items-center justify-center gap-2 text-caption text-ink-secondary sm:flex">
+        <Keyboard size={16} aria-hidden="true" />
         Espaço revela. Depois use 1, 2, 3 ou 4 para responder.
-      </div>
+      </p>
     </div>
   );
 };

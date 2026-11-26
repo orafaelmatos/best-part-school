@@ -1,58 +1,82 @@
-import { CheckCircle2, Clock3, Target, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, Target, XCircle } from "lucide-react";
+import { Card, ProgressBar, StudyBlock } from "@/components/student/ui";
+import { iconStroke } from "@/design-system/tokens";
 import type { LessonReviewReport } from "@/lib/aiStudy";
 
 export default function LessonReviewReportCard({ report }: { report: LessonReviewReport }) {
   const total = report.correct_count + report.incorrect_count;
   const duration = `${Math.floor(report.duration_seconds / 60)}min ${report.duration_seconds % 60}s`;
   return (
-    <section className="rounded-3xl border border-sky-200 bg-sky-50/60 p-4 sm:p-6" aria-label="Relatório da revisão">
+    <Card as="section" className="min-w-0 space-y-5 break-words" aria-label="Relatório da revisão">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="font-semibold text-slate-900">Relatório da revisão</h3>
-          <p className="mt-1 text-sm text-slate-700">{report.lesson_title}</p>
+        <div className="min-w-0">
+          <h3 className="text-h4 text-ink">Relatório da revisão</h3>
+          <p className="mt-0.5 text-body text-ink-secondary">{report.lesson_title}</p>
         </div>
-        <time className="text-xs text-slate-500" dateTime={report.completed_at}>
+        <time className="text-caption text-ink-muted" dateTime={report.completed_at}>
           {new Date(report.completed_at).toLocaleString("pt-BR")}
         </time>
       </div>
-      <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: "Acertos", value: report.correct_count, icon: CheckCircle2, color: "text-emerald-700" },
-          { label: "Erros", value: report.incorrect_count, icon: XCircle, color: "text-rose-700" },
-          { label: "Aproveitamento", value: total ? `${Math.round(report.correct_count / total * 100)}%` : "—", icon: Target, color: "text-sky-700" },
-          { label: "Tempo de prática", value: duration, icon: Clock3, color: "text-slate-700" },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="rounded-2xl bg-white p-3">
-            <dt className="flex items-center gap-1.5 text-xs text-slate-600"><Icon className={`h-4 w-4 ${color}`} />{label}</dt>
-            <dd className={`mt-2 text-xl font-semibold ${color}`}>{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-4 text-xs text-slate-500">O tempo considera a prática ativa. Atividades sem resposta não contam como erro.</p>
-      <h4 className="mt-5 text-sm font-semibold">Principais dificuldades</h4>
-      {report.difficulties.length ? (
-        <ul className="mt-2 space-y-1 text-sm text-slate-700">
-          {report.difficulties.map(({ topic, count }) => <li key={topic}>{topic} · {count} {count === 1 ? "ocorrência" : "ocorrências"}</li>)}
-        </ul>
-      ) : <p className="mt-2 text-sm text-slate-600">{total ? "Nenhuma dificuldade registrada nas respostas avaliadas." : "Nenhuma resposta avaliada nesta revisão."}</p>}
+      <div className="space-y-3">
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "Acertos", value: report.correct_count, icon: CheckCircle2, color: "text-success" },
+            { label: "Erros", value: report.incorrect_count, icon: XCircle, color: "text-danger" },
+            { label: "Aproveitamento", value: total ? `${Math.round(report.correct_count / total * 100)}%` : "—", icon: Target, color: "text-primary" },
+            { label: "Tempo de prática", value: duration, icon: Clock3, color: "text-ink-secondary" },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <div key={label} className="rounded-lg bg-surface-muted p-3">
+              <dt className="flex items-center gap-1.5 text-caption text-ink">
+                <Icon size={16} strokeWidth={iconStroke} aria-hidden="true" className={`shrink-0 ${color}`} />{label}
+              </dt>
+              <dd className="mt-1 text-h3 text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {total ? <ProgressBar value={report.correct_count} max={total} tone="success"
+          label={`Aproveitamento: ${report.correct_count} de ${total} respostas corretas`} /> : null}
+        <p className="text-caption text-ink-secondary">O tempo considera a prática ativa. Atividades sem resposta não contam como erro.</p>
+      </div>
+      <div>
+        <h4 className="text-body font-semibold text-ink">Principais dificuldades</h4>
+        {report.difficulties.length ? (
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-body-lg text-ink marker:text-ink-muted">
+            {report.difficulties.map(({ topic, count }) => <li key={topic}>{topic} · {count} {count === 1 ? "ocorrência" : "ocorrências"}</li>)}
+          </ul>
+        ) : <p className="mt-1 text-body text-ink-secondary">{total ? "Nenhuma dificuldade registrada nas respostas avaliadas." : "Nenhuma resposta avaliada nesta revisão."}</p>}
+      </div>
       {report.attempts.length > 0 && (
-        <details className="mt-5 rounded-2xl border border-sky-100 bg-white p-4">
-          <summary className="cursor-pointer text-sm font-medium">Ver respostas e correções ({total})</summary>
-          <ol className="mt-4 space-y-4">
+        <details className="group/attempts border-t border-line pt-2">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md text-body font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">Ver respostas e correções ({total})
+            <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/attempts:rotate-180" />
+          </summary>
+          <ol className="mt-2 divide-y divide-line">
             {report.attempts.map((attempt, index) => (
-              <li key={attempt.exercise_id} className="border-t border-slate-100 pt-3 text-sm">
-                <p className="font-medium">{index + 1}. {attempt.question}</p>
-                <p className="mt-2">Resposta: {attempt.answer}</p>
-                <p className={`mt-1 font-medium ${attempt.is_correct ? "text-emerald-700" : "text-rose-700"}`}>{attempt.is_correct ? "Correta" : "Precisa de revisão"}</p>
-                {attempt.error && !attempt.is_correct && <p className="mt-2">O que ajustar: {attempt.error}</p>}
-                <p className="mt-2 text-slate-600">{attempt.explanation}</p>
-                {!attempt.is_correct && <p className="mt-1">Forma correta: {attempt.correct_answer}</p>}
-                {attempt.pronunciation_feedback && <p className="mt-2 whitespace-pre-line">Pronúncia e fluência: {attempt.pronunciation_feedback}</p>}
+              <li key={attempt.exercise_id} className="space-y-2 py-4 first:pt-2">
+                <p className="text-body-lg font-medium text-ink">{index + 1}. {attempt.question}</p>
+                <p className="text-body-lg text-ink">Resposta: {attempt.answer}</p>
+                <p className="flex items-center gap-1.5 text-body font-semibold text-ink">
+                  {attempt.is_correct
+                    ? <CheckCircle2 size={20} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-success" />
+                    : <XCircle size={20} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-danger" />}
+                  {attempt.is_correct ? "Correta" : "Precisa de revisão"}
+                </p>
+                {attempt.error && !attempt.is_correct && <StudyBlock kind="correction" title="O que ajustar">{attempt.error}</StudyBlock>}
+                <p className="text-body text-ink-secondary">{attempt.explanation}</p>
+                {!attempt.is_correct && (
+                  <div className="rounded-lg bg-success-soft px-4 py-3">
+                    <p className="flex items-center gap-1.5 text-label text-success">
+                      <CheckCircle2 size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />Forma correta
+                    </p>
+                    <p className="mt-1 text-body-lg text-ink">{attempt.correct_answer}</p>
+                  </div>
+                )}
+                {attempt.pronunciation_feedback && <StudyBlock kind="tip" title="Pronúncia e fluência"><p className="whitespace-pre-line">{attempt.pronunciation_feedback}</p></StudyBlock>}
               </li>
             ))}
           </ol>
         </details>
       )}
-    </section>
+    </Card>
   );
 }

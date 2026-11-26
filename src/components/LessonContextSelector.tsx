@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Check, Search } from "lucide-react";
+import { CalendarDays, Check } from "lucide-react";
 import { api } from "@/lib/api";
+import { Badge, Button, SearchBar, inputClasses } from "@/components/student/ui";
+import { cn } from "@/lib/utils";
 
 export type LessonContextOption = {
   id: string;
@@ -77,57 +79,42 @@ const LessonContextSelector = ({
   };
 
   return (
-    <aside className="rounded-2xl border border-border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold">Minhas Aulas</h3>
-          <p className="text-xs text-muted-foreground">Selecione aulas anteriores para contextualizar o estudo.</p>
+    <aside className="rounded-xl border border-line bg-surface p-4 text-ink">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-h4 text-ink">Minhas aulas</h3>
+          <p className="mt-0.5 text-body text-ink-secondary">Selecione aulas anteriores para contextualizar o estudo.</p>
         </div>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={disabled}
-          className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50"
-        >
-          Salvar
-        </button>
+        <Button type="button" size="sm" onClick={onSave} disabled={disabled}>Salvar</Button>
       </div>
 
       <div className="space-y-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar aulas..."
-            className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
-          />
-        </div>
+        <SearchBar label="Buscar aulas" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar aulas…" />
         <div className="grid gap-2 sm:grid-cols-2">
-          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs" />
-          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs" />
+          <input type="date" aria-label="Data inicial" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className={inputClasses} />
+          <input type="date" aria-label="Data final" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className={inputClasses} />
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-1">
-          <select value={teacher} onChange={(event) => setTeacher(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs">
-            <option value="all">Todos professores</option>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <select aria-label="Professor" value={teacher} onChange={(event) => setTeacher(event.target.value)} className={inputClasses}>
+            <option value="all">Todos os professores</option>
             {teachers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
-          <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs">
-            <option value="all">Todas categorias</option>
+          <select aria-label="Categoria" value={category} onChange={(event) => setCategory(event.target.value)} className={inputClasses}>
+            <option value="all">Todas as categorias</option>
             {categories.map((item) => <option key={String(item)} value={String(item)}>{String(item)}</option>)}
           </select>
-          <select value={tag} onChange={(event) => setTag(event.target.value)} className="rounded-lg border border-border bg-background px-2 py-2 text-xs">
-            <option value="all">Todas tags</option>
+          <select aria-label="Tag" value={tag} onChange={(event) => setTag(event.target.value)} className={inputClasses}>
+            <option value="all">Todas as tags</option>
             {tags.map((item) => <option key={String(item)} value={String(item)}>{String(item)}</option>)}
           </select>
         </div>
       </div>
 
-      <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+      <div className="mt-4 max-h-96 space-y-2 overflow-y-auto">
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Carregando aulas...</p>
+          <p role="status" className="text-body text-ink-secondary">Carregando aulas…</p>
         ) : filteredLessons.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nenhuma aula encontrada.</p>
+          <p className="text-body text-ink-secondary">Nenhuma aula encontrada.</p>
         ) : (
           filteredLessons.map((lesson: LessonContextOption) => {
             const selected = selectedIds.includes(lesson.id);
@@ -135,21 +122,25 @@ const LessonContextSelector = ({
               <button
                 type="button"
                 key={lesson.id}
+                aria-pressed={selected}
                 onClick={() => toggleLesson(lesson.id)}
-                className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
+                className={cn(
+                  "w-full rounded-lg border p-3 text-left transition-colors duration-150 ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  selected ? "border-primary bg-primary-subtle" : "border-line bg-surface hover:bg-surface-muted",
+                )}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>
-                    {selected && <Check className="h-3 w-3" />}
-                  </div>
+                  <span className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-xs border", selected ? "border-primary bg-primary text-primary-foreground" : "border-line bg-surface")} aria-hidden="true">
+                    {selected && <Check size={14} />}
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{lesson.title}</p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                      <CalendarDays className="h-3 w-3" /> {formatDate(lesson.date)} · {lesson.teacher_name || "Professor"}
+                    <p className="truncate text-body font-medium text-ink">{lesson.title}</p>
+                    <p className="mt-1 flex items-center gap-1 text-caption text-ink-secondary">
+                      <CalendarDays size={14} aria-hidden="true" /> {formatDate(lesson.date)} · {lesson.teacher_name || "Professor"}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{lesson.level}</span>
-                      <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{lesson.vocabulary_count || 0} cards</span>
+                      {lesson.level ? <Badge>{lesson.level}</Badge> : null}
+                      <Badge>{lesson.vocabulary_count || 0} cards</Badge>
                     </div>
                   </div>
                 </div>

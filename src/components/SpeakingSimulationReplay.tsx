@@ -10,7 +10,7 @@ const SpeakingSimulationReplay = ({ sessionId, messageId, question }: Props) => 
     return response.data.audio_url as string;
   }, [sessionId, messageId]);
 
-  return <VocabularyAudioButton text={question} label="Repetir" requestAudio={requestAudio} />;
+  return <VocabularyAudioButton text={question} label="Repetir" requestAudio={requestAudio} className="min-h-11" />;
 };
 
 export default SpeakingSimulationReplay;

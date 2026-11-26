@@ -55,23 +55,23 @@ const DISTRACTOR_COUNT = 3;
 const WORLD_DEFINITIONS: Array<Omit<VocabularyGameWorld, "stageCount">> = [
   {
     key: "meadow",
-    label: "Campo de Treino",
-    description: "Aquecimento rapido para ativar memoria e traducao.",
+    label: "Aquecimento",
+    description: "Rodada rápida para ativar memória e tradução.",
     objective: "Comece pelas palavras novas, vencidas ou esquecidas.",
     tone: "sky",
   },
   {
     key: "forest",
-    label: "Floresta de Contexto",
-    description: "Frases com lacuna para puxar uso real da palavra.",
-    objective: "Troque traducao por contexto e consolidacao.",
+    label: "Contexto",
+    description: "Frases com lacuna para praticar o uso real da palavra.",
+    objective: "Passe da tradução para o uso em contexto.",
     tone: "emerald",
   },
   {
     key: "castle",
-    label: "Portao Final",
-    description: "Palavras dificeis e chefes com mais pressao.",
-    objective: "Feche a rodada vencendo os itens com maior risco de erro.",
+    label: "Desafio final",
+    description: "Palavras difíceis com alternativas mais parecidas.",
+    objective: "Feche a rodada com os itens que você mais erra.",
     tone: "amber",
   },
 ];
@@ -79,18 +79,18 @@ const WORLD_DEFINITIONS: Array<Omit<VocabularyGameWorld, "stageCount">> = [
 const MODE_COPY: Record<VocabularyGameMode, Pick<VocabularyGameRun, "modeLabel" | "introTitle" | "introCopy">> = {
   review: {
     modeLabel: "Revisar hoje",
-    introTitle: "Rodada focada em palavras que pedem revisao",
-    introCopy: "O jogo puxa primeiro o que esta vencido, novo ou mais fragil para transformar revisao em progresso real.",
+    introTitle: "Rodada com as palavras que pedem revisão",
+    introCopy: "Primeiro entram as palavras vencidas, novas ou mais frágeis, para a revisão virar progresso real.",
   },
   difficult: {
-    modeLabel: "Foco nas dificeis",
-    introTitle: "Missao de resgate das palavras mais criticas",
-    introCopy: "Aqui entram as palavras com baixa confianca, mais erros e maior chance de voltar para a fila.",
+    modeLabel: "Foco nas difíceis",
+    introTitle: "Rodada com as palavras que você mais erra",
+    introCopy: "Aqui entram as palavras com baixa confiança, mais erros e maior chance de voltar para a fila.",
   },
   mixed: {
     modeLabel: "Mistura inteligente",
-    introTitle: "Jornada curta com palavras em varios niveis",
-    introCopy: "Uma corrida equilibrada para revisar, consolidar e manter o estudo leve sem perder ritmo.",
+    introTitle: "Rodada curta com palavras em vários níveis",
+    introCopy: "Uma prática equilibrada para revisar, consolidar e manter o estudo leve sem perder o ritmo.",
   },
 };
 
@@ -547,7 +547,7 @@ export const maskWordInSentence = (sentence: string | undefined, word: string) =
 };
 
 const describeHint = (card: VocabularyCard, type: VocabularyGameChallengeType) => {
-  const pieces = [`Traducao: ${card.translation}.`];
+  const pieces = [`Tradução: ${card.translation}.`];
   if (type !== "sentence" && card.example_sentence) {
     pieces.push(`Frase: ${card.example_sentence}`);
   }
@@ -555,7 +555,7 @@ const describeHint = (card: VocabularyCard, type: VocabularyGameChallengeType) =
     pieces.push(card.explanation);
   }
   if (card.pronunciation) {
-    pieces.push(`Pronuncia: ${card.pronunciation}.`);
+    pieces.push(`Pronúncia: ${card.pronunciation}.`);
   }
   return pieces.join(" ");
 };
@@ -569,16 +569,16 @@ const describePrompt = (card: VocabularyCard, type: VocabularyGameChallengeType,
     return {
       prompt: pickPromptVariant(
         [
-          `A frase perdeu uma peça: ${maskedSentence}`,
-          `Decifre a fala do personagem: ${maskedSentence}`,
-          `Complete o pergaminho antes que ele apague: ${maskedSentence}`,
+          `Complete a frase: ${maskedSentence}`,
+          `Qual palavra falta nesta frase? ${maskedSentence}`,
+          `Escolha a palavra que completa: ${maskedSentence}`,
         ],
         phaseIndex,
       ),
       supportText: pickPromptVariant(
         [
-          "Escolha a forma que encaixa no contexto. As falsas foram feitas para parecer certas.",
-          "Compare tempo verbal e sentido da frase antes de tocar na carta.",
+          "Escolha a forma que encaixa no contexto. As alternativas erradas são parecidas de propósito.",
+          "Compare tempo verbal e sentido da frase antes de responder.",
           "Uma terminação muda tudo: confira se a palavra combina com a lacuna.",
         ],
         phaseIndex,
@@ -591,42 +591,42 @@ const describePrompt = (card: VocabularyCard, type: VocabularyGameChallengeType,
       prompt: maskedSentence
         ? pickPromptVariant(
             [
-              `Boss de contexto: ${maskedSentence}`,
-              `O guardiao embaralhou a frase: ${maskedSentence}`,
-              `Ultimo portal: qual carta completa "${maskedSentence}"?`,
+              `Desafio de contexto: ${maskedSentence}`,
+              `Complete com a forma exata: ${maskedSentence}`,
+              `Qual alternativa completa "${maskedSentence}"?`,
             ],
             phaseIndex,
           )
         : pickPromptVariant(
             [
-              `O guardiao escondeu "${card.translation}" entre cartas quase iguais. Qual e a correta?`,
+              `Entre opções quase iguais, qual significa "${card.translation}"?`,
               `Desafio final: encontre a palavra exata para "${card.translation}".`,
-              `A chave do portal traduz "${card.translation}". Nao caia nas formas parecidas.`,
+              `Qual palavra traduz "${card.translation}"? Atenção às formas parecidas.`,
             ],
             phaseIndex,
           ),
       supportText: maskedSentence
-        ? `Modo chefe: a palavra tambem precisa bater com a traducao "${card.translation}".`
-        : "Modo chefe: as alternativas confundem pela forma, pelo som ou pela terminacao.",
+        ? `Desafio: a palavra também precisa corresponder à tradução "${card.translation}".`
+        : "Desafio: as alternativas se parecem na forma, no som ou na terminação.",
     };
   }
 
   return {
     prompt: pickPromptVariant(
       [
-        `A pista do mapa e "${card.translation}". Qual carta abre a passagem?`,
-        `Missao relampago: escolha a palavra em ingles para "${card.translation}".`,
-        `O personagem quer dizer "${card.translation}". Qual palavra ele deve usar?`,
-        `A traducao apareceu no cristal: "${card.translation}". Encontre a forma certa.`,
+        `Como se diz "${card.translation}" em inglês?`,
+        `Escolha a palavra em inglês para "${card.translation}".`,
+        `Você quer dizer "${card.translation}". Qual palavra usar?`,
+        `Encontre a forma certa para "${card.translation}".`,
       ],
       phaseIndex,
     ),
     supportText: pickPromptVariant(
       [
-        "Cuidado: as cartas falsas imitam a palavra certa de proposito.",
-        "Olhe letra por letra e pense na forma correta, nao so no som parecido.",
-        "Algumas opcoes parecem corretas, mas mudam tempo verbal, classe ou sentido.",
-        "A melhor resposta e a palavra exata do card, sem cair nas variacoes.",
+        "Atenção: as alternativas erradas imitam a palavra certa de propósito.",
+        "Olhe letra por letra e pense na forma correta, não só no som parecido.",
+        "Algumas opções parecem corretas, mas mudam tempo verbal, classe ou sentido.",
+        "A melhor resposta é a palavra exata do card, sem variações.",
       ],
       phaseIndex,
     ),

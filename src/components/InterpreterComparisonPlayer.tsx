@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Alert, Button, ProgressBar } from "@/components/student/ui";
 import { absoluteMediaUrl } from "@/lib/config";
 import { audioTime, sourceAtRecordingTime } from "@/lib/simultaneousAudio";
 import type { SimultaneousTiming } from "@/lib/interpreter";
@@ -67,19 +67,37 @@ const InterpreterComparisonPlayer = ({ originalUrl, recordingUrl, timing, disabl
       setPlaying(true);
     } catch { if (token === generation.current) { pause(); setError("Não foi possível iniciar a comparação. Tente novamente."); } }
   };
-  return <section aria-label="Comparação dos dois áudios" className="space-y-3 rounded-2xl border border-border bg-background p-3 sm:p-4">
-    <h3 className="text-sm font-semibold">Revisar original e interpretação juntos</h3>
+  const total = timing.recording_duration_seconds;
+  return <section aria-label="Comparação dos dois áudios" className="min-w-0 space-y-4 rounded-lg bg-surface-muted p-4">
+    <div>
+      <h3 className="text-body font-semibold text-ink">Revisar original e interpretação juntos</h3>
+      <p className="mt-1 text-body text-ink">A revisão acompanha os tempos e as velocidades usados na sua gravação.</p>
+    </div>
     <audio ref={sourceRef} aria-label="Original na comparação" src={absoluteMediaUrl(originalUrl) || undefined} preload="auto" onError={() => { pause(); setError("Não foi possível carregar o áudio original para comparar."); }} />
     <audio ref={recordingRef} aria-label="Interpretação na comparação" src={recordingUrl.startsWith("blob:") ? recordingUrl : absoluteMediaUrl(recordingUrl) || undefined} preload="auto"
-      onEnded={() => { pause(); setPosition(timing.recording_duration_seconds); }}
+      onEnded={() => { pause(); setPosition(total); }}
       onWaiting={() => { bufferingRef.current = true; sourceRef.current?.pause(); }}
       onPlaying={() => { bufferingRef.current = false; if (playingRef.current) void sync(generation.current).catch(() => { pause(); setError("Não foi possível retomar a comparação."); }); }}
       onError={() => { pause(); setError("Não foi possível carregar sua gravação para comparar."); }} />
-    <p aria-label="Tempo da comparação" className="text-sm tabular-nums">{audioTime(position)} / {audioTime(timing.recording_duration_seconds)}</p>
-    <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={disabled} className="h-auto min-h-10 whitespace-normal" onClick={() => playing ? pause() : void play()}>{playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{playing ? "Pausar comparação" : "Ouvir os dois juntos"}</Button><Button variant="ghost" disabled={disabled} onClick={() => void play(true)}><RotateCcw className="h-4 w-4" />Recomeçar comparação</Button></div>
-    <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs">Volume do original<input aria-label="Volume do original" type="range" min="0" max="1" step="0.1" value={sourceVolume} onChange={(e) => setSourceVolume(Number(e.target.value))} className="mt-2 block w-full" /></label><label className="text-xs">Volume da interpretação<input aria-label="Volume da interpretação" type="range" min="0" max="1" step="0.1" value={recordingVolume} onChange={(e) => setRecordingVolume(Number(e.target.value))} className="mt-2 block w-full" /></label></div>
-    <p className="text-xs text-muted-foreground">A revisão acompanha os tempos e as velocidades usados na sua gravação.</p>
-    {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+    <div className="space-y-2">
+      <ProgressBar value={Math.min(Math.round(position), Math.round(total))} max={Math.max(1, Math.round(total))} label="Andamento da comparação" trackClassName="bg-surface" />
+      <p aria-label="Tempo da comparação" className="text-body tabular-nums text-ink">{audioTime(position)} / {audioTime(total)}</p>
+    </div>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="secondary" disabled={disabled} className="h-auto whitespace-normal py-2" onClick={() => playing ? pause() : void play()}>
+        {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}{playing ? "Pausar comparação" : "Ouvir os dois juntos"}
+      </Button>
+      <Button variant="ghost" disabled={disabled} className="h-auto whitespace-normal py-2" onClick={() => void play(true)}><RotateCcw aria-hidden="true" />Recomeçar comparação</Button>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="block text-body text-ink">Volume do original
+        <input aria-label="Volume do original" type="range" min="0" max="1" step="0.1" value={sourceVolume} onChange={(e) => setSourceVolume(Number(e.target.value))} className="mt-1 block h-11 w-full accent-primary" />
+      </label>
+      <label className="block text-body text-ink">Volume da interpretação
+        <input aria-label="Volume da interpretação" type="range" min="0" max="1" step="0.1" value={recordingVolume} onChange={(e) => setRecordingVolume(Number(e.target.value))} className="mt-1 block h-11 w-full accent-primary" />
+      </label>
+    </div>
+    {error ? <Alert tone="danger" role="alert" title={error} /> : null}
   </section>;
 };
 

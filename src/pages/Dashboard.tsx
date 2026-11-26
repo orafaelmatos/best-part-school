@@ -13,7 +13,7 @@ type StaffLesson = { status?: string };
 const Dashboard = () => {
   const { user } = useAuth();
   if (user?.role === "student") {
-    return <DashboardLayout><StudentHome /><div className="mt-6"><WordSentenceComposer /></div></DashboardLayout>;
+    return <DashboardLayout><StudentHome /><div className="mt-8"><WordSentenceComposer /></div></DashboardLayout>;
   }
   return <StaffDashboard />;
 };

@@ -1,23 +1,50 @@
 import AIContentReportButton from "@/components/AIContentReportButton";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   BookPlus,
+  Check,
   CheckCircle2,
   CircleDashed,
   Ear,
   Eye,
+  EyeOff,
   Headphones,
-  Loader2,
+  History,
+  Lightbulb,
+  ListChecks,
+  PenLine,
+  Plus,
   RefreshCcw,
   Send,
+  Sparkles,
   Trash2,
+  XCircle,
 } from "lucide-react";
 
 import DashboardLayout from "@/components/DashboardLayout";
 import AudioPlayer from "@/components/AudioPlayer";
 import QuickAddVocabularyCardDialog from "@/components/QuickAddVocabularyCardDialog";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  ChatBubble,
+  Chip,
+  EmptyState,
+  IconTile,
+  ListGroup,
+  ListItem,
+  ProgressBar,
+  ScreenTitle,
+  SectionHeader,
+  SkeletonCard,
+  StudyBlock,
+  cardVariants,
+  inputClasses,
+} from "@/components/student/ui";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
@@ -112,23 +139,42 @@ type ListeningActionResponse = {
 };
 
 const TOPIC_OPTIONS: TopicOption[] = [
-  { id: "restaurant", label: "Restaurante", description: "Pedidos, mesa, conta e interacoes rapidas." },
-  { id: "airport", label: "Aeroporto", description: "Portao, bagagem, check-in e orientacoes." },
-  { id: "hotel", label: "Hotel", description: "Check-in, pedidos no quarto e duvidas comuns." },
-  { id: "work", label: "Trabalho", description: "Atualizacoes, reunioes e tarefas do dia." },
-  { id: "job_interview", label: "Entrevista", description: "Respostas curtas sobre experiencia e objetivos." },
+  { id: "restaurant", label: "Restaurante", description: "Pedidos, mesa, conta e interações rápidas." },
+  { id: "airport", label: "Aeroporto", description: "Portão, bagagem, check-in e orientações." },
+  { id: "hotel", label: "Hotel", description: "Check-in, pedidos no quarto e dúvidas comuns." },
+  { id: "work", label: "Trabalho", description: "Atualizações, reuniões e tarefas do dia." },
+  { id: "job_interview", label: "Entrevista", description: "Respostas curtas sobre experiência e objetivos." },
   { id: "friends", label: "Conversa casual", description: "Planos, rotina e small talk natural." },
-  { id: "phone_call", label: "Telefonema", description: "Chamadas curtas e confirmacao de detalhes." },
-  { id: "tourism", label: "Turismo", description: "Direcoes, passeios e recomendacoes em viagem." },
-  { id: "custom", label: "Outro topico", description: "Defina um contexto especifico para o audio." },
+  { id: "phone_call", label: "Telefonema", description: "Chamadas curtas e confirmação de detalhes." },
+  { id: "tourism", label: "Turismo", description: "Direções, passeios e recomendações em viagem." },
+  { id: "custom", label: "Outro tópico", description: "Defina um contexto específico para o áudio." },
 ];
 
 const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
+
+const DEFAULT_RESPONSE_CHOICES: Array<{ id: ResponseMode; label: string }> = [
+  { id: "multiple_choice", label: "Com alternativas" },
+  { id: "transcription", label: "Escrever sozinho" },
+];
+
+const RESPONSE_MODE_ICONS = { multiple_choice: ListChecks, transcription: PenLine } as const;
+
+const FEEDBACK_STATUS = {
+  correct: { label: "Resposta correta", tone: "success", Icon: CheckCircle2, iconClass: "text-success" },
+  close: { label: "Quase lá", tone: "warning", Icon: CircleDashed, iconClass: "text-warning" },
+  incorrect: { label: "Resposta incorreta", tone: "danger", Icon: XCircle, iconClass: "text-danger" },
+} as const;
+
+const legendClass = "mb-3 text-h4 text-ink";
 
 const getExercise = (message: InterpreterMessage) => message.metadata?.interpreter_exercise ?? null;
 const getFeedback = (message: InterpreterMessage) => message.metadata?.interpreter_feedback ?? null;
 const getChallengeMessageId = (message: InterpreterMessage) => message.metadata?.challenge_message_id ?? "";
 
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+
+/** Selectable topic card. The accessible name is label + description. */
 const SetupTopicCard = ({
   topic,
   selected,
@@ -140,39 +186,17 @@ const SetupTopicCard = ({
 }) => (
   <button
     type="button"
+    aria-pressed={selected}
     onClick={onClick}
     className={cn(
-      "rounded-[18px] border p-3 text-left transition md:rounded-[26px] md:p-4",
-      selected
-        ? "border-amber-300 bg-[linear-gradient(135deg,rgba(254,243,199,0.85),rgba(255,255,255,0.96))] shadow-[0_18px_48px_-34px_rgba(217,119,6,0.55)]"
-        : "border-slate-200/80 bg-white/95 hover:border-slate-300 hover:bg-slate-50",
+      cardVariants({ variant: selected ? "highlight" : "default", padding: "md", interactive: true }),
+      "relative min-h-16 w-full pr-12 text-left",
+      selected && "border-primary",
     )}
   >
-    <p className="text-sm font-semibold text-foreground">{topic.label}</p>
-    <p className="mt-2 hidden text-sm leading-6 text-muted-foreground md:block">{topic.description}</p>
-  </button>
-);
-
-const SetupLevelButton = ({
-  level,
-  selected,
-  onClick,
-}: {
-  level: (typeof CEFR_LEVELS)[number];
-  selected: boolean;
-  onClick: () => void;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      "rounded-2xl border px-4 py-3 text-sm font-semibold transition",
-      selected
-        ? "border-slate-900 bg-slate-900 text-white"
-        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-    )}
-  >
-    {level}
+    <span className="block text-body font-semibold text-ink">{topic.label}</span>
+    <span className="mt-1 block text-body text-ink-secondary">{topic.description}</span>
+    {selected ? <Check size={20} className="absolute right-4 top-4 text-primary" aria-hidden="true" /> : null}
   </button>
 );
 
@@ -182,6 +206,7 @@ const InterpreteIA = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const seenMessagesRef = useRef<{ sessionId: string | null; count: number }>({ sessionId: null, count: 0 });
 
   const [sessionDraft, setSessionDraft] = useState<InterpreterSessionDetail | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState<string>("restaurant");
@@ -228,11 +253,19 @@ const InterpreteIA = () => {
     }
   }, [sessionDetailQuery.data]);
 
+  // The page scrolls with the shell (no inner scroll box). When new messages arrive
+  // (answer, feedback, next audio), bring the first new one into view. Opening a session
+  // keeps the shell behavior of starting at the top of the page.
   useEffect(() => {
-    const element = messageListRef.current;
-    if (!element) return;
-    element.scrollTop = element.scrollHeight;
-  }, [activeSession?.messages]);
+    const list = messageListRef.current;
+    const currentId = activeSession?.id ?? null;
+    const count = activeSession?.messages.length ?? 0;
+    const previous = seenMessagesRef.current;
+    seenMessagesRef.current = { sessionId: currentId, count };
+    if (!list || !currentId || previous.sessionId !== currentId || count <= previous.count) return;
+    const firstNew = list.children.item(previous.count) as HTMLElement | null;
+    firstNew?.scrollIntoView?.({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  }, [activeSession?.id, activeSession?.messages]);
 
   useEffect(() => {
     setResponseModeByMessage({});
@@ -282,8 +315,8 @@ const InterpreteIA = () => {
   const handleCreateSession = async () => {
     if (!resolvedTopicLabel || !selectedLevel) {
       toast({
-        title: "Selecione o topico e o nivel",
-        description: "Precisamos dessas duas informacoes para gerar o primeiro audio.",
+        title: "Selecione o tópico e o nível",
+        description: "Precisamos dessas duas informações para gerar o primeiro áudio.",
         variant: "destructive",
       });
       return;
@@ -302,7 +335,7 @@ const InterpreteIA = () => {
       await invalidateSessionList();
     } catch {
       toast({
-        title: "Nao foi possivel iniciar o interprete",
+        title: "Não foi possível iniciar o treino",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -325,7 +358,7 @@ const InterpreteIA = () => {
       await invalidateSessionList();
     } catch {
       toast({
-        title: "Nao foi possivel gerar o proximo audio",
+        title: "Não foi possível gerar o próximo áudio",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -352,15 +385,15 @@ const InterpreteIA = () => {
     if (responseMode === "multiple_choice" && !selectedOptionId) {
       toast({
         title: "Selecione uma alternativa",
-        description: "Escolha a opcao que melhor corresponde ao audio.",
+        description: "Escolha a opção que melhor corresponde ao áudio.",
         variant: "destructive",
       });
       return;
     }
     if (responseMode === "transcription" && !answerText) {
       toast({
-        title: "Digite sua transcricao",
-        description: "Escreva o que voce ouviu antes de enviar.",
+        title: "Digite sua transcrição",
+        description: "Escreva o que você ouviu antes de enviar.",
         variant: "destructive",
       });
       return;
@@ -380,7 +413,7 @@ const InterpreteIA = () => {
       await invalidateSessionList();
     } catch {
       toast({
-        title: "Nao foi possivel enviar sua resposta",
+        title: "Não foi possível enviar sua resposta",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -391,7 +424,7 @@ const InterpreteIA = () => {
 
   const handleDelete = async () => {
     if (!activeSession) return;
-    const confirmed = window.confirm(`Excluir a sessao "${activeSession.title}"?`);
+    const confirmed = window.confirm(`Excluir a sessão "${activeSession.title}"?`);
     if (!confirmed) return;
     try {
       await api.delete(`/ai-study/sessions/${activeSession.id}/`);
@@ -400,7 +433,7 @@ const InterpreteIA = () => {
       navigate(APP_PATHS.interpreter);
     } catch {
       toast({
-        title: "Nao foi possivel excluir a sessao",
+        title: "Não foi possível excluir a sessão",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -430,11 +463,11 @@ const InterpreteIA = () => {
     const draftText = getDraftResponseText(message);
     if (!draftText) return null;
     return (
-      <div className="mt-4 flex justify-end">
-        <div className="max-w-3xl rounded-[24px] bg-slate-950 px-4 py-3 text-sm leading-6 text-white shadow-sm">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/65">Sua resposta</p>
-          <p className="whitespace-pre-line">{draftText}</p>
-        </div>
+      <div className="space-y-2">
+        <p className="text-body font-semibold text-ink">Sua resposta</p>
+        <ChatBubble from="student" className="whitespace-pre-line">
+          <span lang="en">{draftText}</span>
+        </ChatBubble>
       </div>
     );
   };
@@ -452,46 +485,59 @@ const InterpreteIA = () => {
     );
     const currentStep = steps[currentIndex];
     const isCompleted = activeSession?.guided_state?.session_status === "completed";
-    const progressLabel = isCompleted ? "Jornada concluida" : `Etapa ${Math.min(currentIndex + 1, steps.length)} de ${steps.length}`;
+    const progressLabel = isCompleted ? "Jornada concluída" : `Etapa ${Math.min(currentIndex + 1, steps.length)} de ${steps.length}`;
 
     return (
-      <div className="mt-3 rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,252,244,0.95),rgba(255,255,255,0.98))] p-3 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.32)] md:mt-4 md:rounded-[24px] md:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Jornada guiada</p>
-            <p className="mt-1 text-base font-semibold text-slate-950 md:mt-2 md:text-lg">{progressLabel}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 md:text-sm md:leading-6">
-              {activeSession?.guided_state?.progress_summary || currentStep?.label || "A IA esta conduzindo a proxima etapa."}
+      <Card as="section" aria-labelledby="legacy-journey-title" padding="md" className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 id="legacy-journey-title" className="text-caption text-ink-secondary">Jornada guiada</h2>
+            <p className="mt-0.5 text-h4 text-ink">{progressLabel}</p>
+            <p className="mt-1 text-body text-ink-secondary">
+              {activeSession?.guided_state?.progress_summary || currentStep?.label || "A IA está conduzindo a próxima etapa."}
             </p>
           </div>
-          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-xs text-slate-700 shadow-sm md:px-4 md:py-3 md:text-sm">
-            <span className="font-semibold text-slate-950">{completedCount}</span> de <span className="font-semibold text-slate-950">{steps.length}</span> etapas concluidas
-          </div>
+          <Badge tone={isCompleted ? "success" : "neutral"} icon={isCompleted ? <CheckCircle2 aria-hidden="true" /> : undefined}>
+            {completedCount} de {steps.length} concluídas
+          </Badge>
         </div>
+        <ProgressBar value={Math.min(completedCount, steps.length)} max={steps.length} label="Etapas da jornada concluídas" />
 
-        <div className="hide-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 md:mt-4 md:grid md:grid-cols-2 md:overflow-visible md:pb-0 xl:grid-cols-5">
+        <ol aria-label="Etapas da jornada" className="grid grid-cols-1 gap-1 sm:grid-cols-2">
           {steps.map((step, index) => {
             const done = completedStepIds.has(step.id) || (isCompleted && index <= currentIndex);
             const active = !done && !isCompleted && index === currentIndex;
             return (
-              <div
+              <li
                 key={step.id}
+                aria-current={active ? "step" : undefined}
                 className={cn(
-                  "w-32 shrink-0 rounded-[18px] border px-3 py-2 text-xs transition md:w-auto md:rounded-[20px] md:py-3 md:text-sm",
-                  done
-                    ? "border-emerald-200 bg-emerald-50/85 text-emerald-950"
-                    : active
-                      ? "border-amber-300 bg-amber-50/90 text-amber-950"
-                      : "border-slate-200 bg-white text-slate-600",
+                  "flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-body",
+                  active ? "bg-primary-subtle font-medium text-ink" : done ? "text-ink" : "text-ink-secondary",
                 )}
               >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70 md:text-[11px] md:tracking-[0.18em]">Etapa {index + 1}</p>
-                <p className="mt-1 truncate font-medium md:mt-2" title={step.label}>{step.label}</p>
-              </div>
+                {done ? (
+                  <CheckCircle2 size={24} className="shrink-0 text-success" aria-hidden="true" />
+                ) : (
+                  <span
+                    className={cn(
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-label",
+                      active ? "bg-primary text-primary-foreground" : "bg-surface-muted text-ink-secondary",
+                    )}
+                    aria-hidden="true"
+                  >
+                    {index + 1}
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className="sr-only">Etapa {index + 1}{done ? ", concluída" : active ? ", em andamento" : ""}: </span>
+                  {step.label}
+                </span>
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ol>
+      </Card>
     );
   };
 
@@ -507,491 +553,423 @@ const InterpreteIA = () => {
     const responseMode = responseModeByMessage[message.id];
     const isSubmitting = submittingChallengeId === message.id;
     const isRevealed = Boolean(revealedAnswers[message.id]);
+    const answerId = `legacy-answer-${message.id}`;
 
     return (
-      <div className="mt-4 space-y-4">
-        <div className="flex flex-wrap gap-2">
+      <div className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {showSubmit ? (
-            <button
+            <Button
               type="button"
+              className="w-full sm:w-auto"
               onClick={() => void handleSubmitAnswer(message)}
-              disabled={!responseMode || isSubmitting || isContinuing}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+              disabled={!responseMode || isContinuing}
+              loading={isSubmitting}
+              loadingLabel="Enviando resposta…"
             >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              <Send aria-hidden="true" />
               Enviar resposta
-            </button>
+            </Button>
           ) : null}
 
-          <button
+          {showRetryAudio ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-auto w-full whitespace-normal py-2 sm:w-auto"
+              onClick={() => void handleContinue()}
+              disabled={isSubmitting}
+              loading={isContinuing}
+              loadingLabel="Gerando áudio…"
+            >
+              <RefreshCcw aria-hidden="true" />
+              Gerar outro áudio desta etapa
+            </Button>
+          ) : null}
+
+          <Button
             type="button"
+            variant="outline"
+            className="w-full sm:w-auto"
+            aria-expanded={isRevealed}
+            aria-controls={isRevealed ? answerId : undefined}
             onClick={() =>
               setRevealedAnswers((current) => ({
                 ...current,
                 [message.id]: !current[message.id],
               }))
             }
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
-            <Eye className="h-4 w-4" />
+            {isRevealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
             {isRevealed ? "Ocultar resposta" : "Mostrar resposta"}
-          </button>
-
-          {showRetryAudio ? (
-            <button
-              type="button"
-              onClick={() => void handleContinue()}
-              disabled={isContinuing || isSubmitting}
-              className="inline-flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-            >
-              {isContinuing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-              Gerar outro audio desta etapa
-            </button>
-          ) : null}
+          </Button>
         </div>
 
         {isRevealed ? (
-          <div className="rounded-[22px] border border-emerald-200 bg-emerald-50/80 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Resposta</p>
-            <p className="mt-2 text-sm leading-6 text-slate-900">{message.text}</p>
-          </div>
+          <StudyBlock kind="example" title="Resposta" className="whitespace-pre-line">
+            <p id={answerId} lang="en" className="leading-7">{message.text}</p>
+          </StudyBlock>
         ) : null}
       </div>
     );
   };
 
-  const renderChallengeCard = (message: InterpreterMessage) => {
+  const renderChallengeCard = (message: InterpreterMessage, footer?: ReactNode) => {
     const exercise = getExercise(message);
     if (!exercise) return null;
     const responseMode = responseModeByMessage[message.id];
     const audioUrl = absoluteMediaUrl(exercise.tts_audio_url);
     const responseChoices = exercise.response_mode_choices?.length
       ? exercise.response_mode_choices
-      : [
-          { id: "multiple_choice" as const, label: "Com alternativas" },
-          { id: "transcription" as const, label: "Escrever sozinho" },
-        ];
+      : DEFAULT_RESPONSE_CHOICES;
+    const stepLabel = `Etapa ${exercise.step_index || 1} de ${exercise.step_total || 1}`;
+    const transcriptionId = `legacy-transcription-${message.id}`;
 
     return (
-      <article
-        key={message.id}
-        className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] p-5 shadow-[0_20px_48px_-38px_rgba(15,23,42,0.48)]"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">
-              Etapa {exercise.step_index || 1} de {exercise.step_total || 1} · Audio {exercise.round}
-            </p>
-            <h3 className="mt-2 text-xl font-semibold text-foreground">{exercise.step_title || exercise.scenario_label}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{exercise.scenario_label}</p>
+      <Card as="article" aria-label={`${stepLabel}, áudio ${exercise.round}`} padding="md" className="min-w-0 space-y-5 sm:p-5">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-caption text-ink-secondary">{stepLabel} · Áudio {exercise.round}</p>
+            <h2 className="mt-1 text-h3 text-ink">{exercise.step_title || exercise.scenario_label}</h2>
+            {exercise.step_title ? <p className="mt-0.5 text-body text-ink-secondary">{exercise.scenario_label}</p> : null}
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-slate-900 px-3 py-1 font-medium text-white">{exercise.level}</span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">
-              {formatDateTime(message.created_at)}
-            </span>
+          <div className="flex flex-wrap gap-2">
+            <Badge tone="neutral">{exercise.level}</Badge>
+            <Badge tone="neutral">{formatDateTime(message.created_at)}</Badge>
           </div>
-        </div>
+        </header>
 
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">{exercise.instructions}</p>
+        <p className="text-body-lg text-ink">{exercise.instructions}</p>
 
-        <div className="mt-5">
-          {audioUrl ? (
-            <AudioPlayer src={audioUrl} compact />
-          ) : exercise.tts_unavailable ? (
-            <div className="rounded-[20px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
-              O audio desta etapa nao ficou disponivel agora. Tente gerar outro audio desta etapa em instantes.
+        {audioUrl ? (
+          <AudioPlayer src={audioUrl} compact />
+        ) : exercise.tts_unavailable ? (
+          <Alert tone="warning" title="O áudio desta etapa não ficou disponível agora.">
+            Tente gerar outro áudio desta etapa em instantes.
+          </Alert>
+        ) : null}
+
+        <div className="space-y-4 border-t border-line pt-5">
+          <h3 className="text-h4 text-ink">Como você prefere responder?</h3>
+          <div role="group" aria-label="Forma de resposta" className="flex flex-wrap gap-2">
+            {responseChoices.map((choice) => {
+              const Icon = RESPONSE_MODE_ICONS[choice.id] ?? ListChecks;
+              return (
+                <Chip
+                  key={choice.id}
+                  selected={responseMode === choice.id}
+                  onClick={() => setResponseModeByMessage((current) => ({ ...current, [message.id]: choice.id }))}
+                >
+                  <Icon aria-hidden="true" />
+                  {choice.label}
+                </Chip>
+              );
+            })}
+          </div>
+
+          {responseMode === "multiple_choice" ? (
+            <div role="group" aria-label="Alternativas" className="space-y-2">
+              {exercise.options.map((option) => {
+                const selected = selectedOptionByMessage[message.id] === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setSelectedOptionByMessage((current) => ({
+                        ...current,
+                        [message.id]: option.id,
+                      }))
+                    }
+                    className={cn(
+                      "flex min-h-12 w-full items-start gap-3 rounded-lg border p-3 text-left text-body-lg text-ink transition-colors duration-150 ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                      selected ? "border-primary bg-primary-subtle" : "border-line bg-surface hover:bg-surface-muted",
+                    )}
+                  >
+                    <span lang="en" className="min-w-0 flex-1">{option.text}</span>
+                    {selected ? <Check size={20} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" /> : null}
+                  </button>
+                );
+              })}
             </div>
           ) : null}
+
+          {responseMode === "transcription" ? (
+            <div>
+              <label htmlFor={transcriptionId} className="block text-body font-medium text-ink">
+                Escreva o que você ouviu
+              </label>
+              <textarea
+                id={transcriptionId}
+                lang="en"
+                value={answerTextByMessage[message.id] || ""}
+                onChange={(event) =>
+                  setAnswerTextByMessage((current) => ({
+                    ...current,
+                    [message.id]: event.target.value,
+                  }))
+                }
+                rows={4}
+                placeholder="Escreva em inglês exatamente o que você ouviu."
+                className={cn(inputClasses, "mt-2 block min-h-32 py-3 leading-7")}
+              />
+            </div>
+          ) : null}
+
+          {footer}
         </div>
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="rounded-[24px] border border-slate-200/80 bg-white/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Como voce prefere responder?
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {responseChoices.map((choice) => (
-                <button
-                  key={choice.id}
-                  type="button"
-                  onClick={() => setResponseModeByMessage((current) => ({ ...current, [message.id]: choice.id }))}
-                  className={cn(
-                    "rounded-full px-4 py-2 text-sm font-medium transition",
-                    responseMode === choice.id
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                  )}
-                >
-                  {choice.label}
-                </button>
-              ))}
+        <section aria-label="Dicas" className="space-y-3 rounded-lg bg-surface-muted p-4">
+          <p className="flex items-center gap-2 text-body font-semibold text-ink">
+            <Lightbulb size={16} className="shrink-0 text-primary" aria-hidden="true" />
+            Dicas
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-body text-ink-secondary marker:text-ink-secondary">
+            <li>Ouça mais de uma vez antes de revelar a resposta.</li>
+            <li>Se travar, comece por palavras-chave e depois monte a frase inteira.</li>
+          </ul>
+          {exercise.focus_words.length ? (
+            <div>
+              <p className="text-body font-medium text-ink">Palavras em foco</p>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {exercise.focus_words.map((word) => (
+                  <li key={word}>
+                    <Badge tone="neutral" lang="en" className="bg-surface">{word}</Badge>
+                  </li>
+                ))}
+              </ul>
             </div>
+          ) : null}
+        </section>
 
-            {responseMode === "multiple_choice" ? (
-              <div className="mt-4 space-y-2">
-                {exercise.options.map((option) => {
-                  const selected = selectedOptionByMessage[message.id] === option.id;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() =>
-                        setSelectedOptionByMessage((current) => ({
-                          ...current,
-                          [message.id]: option.id,
-                        }))
-                      }
-                      className={cn(
-                        "w-full rounded-2xl border px-4 py-3 text-left text-sm transition",
-                        selected
-                          ? "border-amber-300 bg-amber-50 text-slate-900"
-                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                      )}
-                    >
-                      {option.text}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {responseMode === "transcription" ? (
-              <div className="mt-4">
-                <textarea
-                  value={answerTextByMessage[message.id] || ""}
-                  onChange={(event) =>
-                    setAnswerTextByMessage((current) => ({
-                      ...current,
-                      [message.id]: event.target.value,
-                    }))
-                  }
-                  rows={4}
-                  placeholder="Escreva em ingles exatamente o que voce ouviu."
-                  className="w-full rounded-[22px] border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-                />
-              </div>
-            ) : null}
-          </div>
-
-          <div className="rounded-[24px] bg-[linear-gradient(180deg,rgba(255,247,237,0.92),rgba(255,255,255,0.98))] p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-700">Dicas</p>
-            <div className="mt-3 space-y-3 text-sm text-slate-700">
-              <p>Ouça mais de uma vez antes de revelar a resposta.</p>
-              <p>Se travar, comece por palavras-chave e depois monte a frase inteira.</p>
-              {exercise.focus_words.length ? (
-                <div>
-                  <p className="font-semibold text-slate-900">Palavras em foco</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {exercise.focus_words.map((word) => (
-                      <span key={word} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
-                        {word}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-        {message.role === "assistant" && <AIContentReportButton messageId={message.id} />}
-      </article>
+        <AIContentReportButton messageId={message.id} />
+      </Card>
     );
   };
 
   const renderFeedbackCard = (message: InterpreterMessage) => {
     const feedback = getFeedback(message);
     if (!feedback) return null;
-    const toneClasses =
-      feedback.status === "correct"
-        ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
-        : feedback.status === "close"
-          ? "border-amber-200 bg-amber-50/80 text-amber-900"
-          : "border-rose-200 bg-rose-50/80 text-rose-900";
+    const status = FEEDBACK_STATUS[feedback.status] ?? FEEDBACK_STATUS.incorrect;
+    const StatusIcon = status.Icon;
 
     return (
-      <article key={message.id} className={cn("rounded-[24px] border px-4 py-4 shadow-sm", toneClasses)}>
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          {feedback.status === "correct" ? <CheckCircle2 className="h-4 w-4" /> : <CircleDashed className="h-4 w-4" />}
-          Feedback da IA
+      <Card as="article" aria-label="Feedback da IA" padding="md" className="min-w-0 space-y-3 sm:p-5">
+        <div className="flex items-start gap-3">
+          <IconTile icon={Sparkles} tone="ai" size="sm" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-caption text-ai">Feedback da IA</p>
+            <Badge tone={status.tone} icon={<StatusIcon className={status.iconClass} aria-hidden="true" />}>
+              {status.label}
+            </Badge>
+          </div>
         </div>
-        <p className="mt-2 text-sm leading-6">{message.text}</p>
-        <p className="mt-3 text-xs font-medium opacity-80">Similaridade estimada: {feedback.similarity_score}%</p>
+        <p className="whitespace-pre-line text-body-lg text-ink">{message.text}</p>
+        <p className="text-caption text-ink-muted">Similaridade estimada: {feedback.similarity_score}%</p>
         {message.role === "assistant" && <AIContentReportButton messageId={message.id} />}
-      </article>
+      </Card>
     );
   };
 
+  const renderSetup = () => (
+    <>
+      <ScreenTitle
+        eyebrow={<Badge tone="ai" icon={<Headphones aria-hidden="true" />} className="mb-1">Intérprete IA</Badge>}
+        title="Treine escuta com áudio gerado pela IA"
+        description="Escolha um tópico e um nível. A IA conduz uma jornada por etapas, do início ao fim da situação, conforme você responde e acerta."
+      />
+
+      <fieldset className="min-w-0">
+        <legend className={legendClass}>Tópico</legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {TOPIC_OPTIONS.map((topic) => (
+            <SetupTopicCard
+              key={topic.id}
+              topic={topic}
+              selected={selectedTopicId === topic.id}
+              onClick={() => setSelectedTopicId(topic.id)}
+            />
+          ))}
+        </div>
+        {selectedTopicId === "custom" ? (
+          <label className="mt-4 block text-body font-medium text-ink">
+            Descreva o tópico
+            <input
+              value={customTopic}
+              onChange={(event) => setCustomTopic(event.target.value)}
+              placeholder="Ex.: atendimento ao cliente, consulta médica, reunião de equipe…"
+              className={cn(inputClasses, "mt-2 font-normal")}
+            />
+          </label>
+        ) : null}
+      </fieldset>
+
+      <fieldset className="min-w-0">
+        <legend className={legendClass}>Nível</legend>
+        <div className="flex flex-wrap gap-2">
+          {CEFR_LEVELS.map((level) => (
+            <Chip key={level} selected={selectedLevel === level} className="min-w-14 justify-center" onClick={() => setSelectedLevel(level)}>
+              {level}
+            </Chip>
+          ))}
+        </div>
+      </fieldset>
+
+      <Card as="section" aria-label="Resumo do treino" className="space-y-4">
+        <div className="flex items-start gap-3">
+          <IconTile icon={Ear} />
+          <div className="min-w-0">
+            <h2 className="text-h4 text-ink">{resolvedTopicLabel || "Escolha um tópico"}</h2>
+            <p className="text-body text-ink-secondary">Nível {selectedLevel}</p>
+          </div>
+        </div>
+        <ol className="list-decimal space-y-1 pl-5 text-body text-ink-secondary marker:text-ink-muted">
+          <li>A IA inicia uma jornada guiada dentro do contexto escolhido.</li>
+          <li>Cada áudio pertence a uma etapa real da situação.</li>
+          <li>Quando você acerta, a prática avança para a próxima fase.</li>
+        </ol>
+        <Button
+          size="lg"
+          fullWidth
+          onClick={() => void handleCreateSession()}
+          disabled={!resolvedTopicLabel}
+          loading={isCreating}
+          loadingLabel="Preparando treino…"
+        >
+          <Headphones aria-hidden="true" />
+          Iniciar treino
+        </Button>
+      </Card>
+
+      {sessionsQuery.data?.length ? (
+        <section aria-label="Últimas sessões">
+          <SectionHeader title="Últimas sessões" />
+          <ListGroup>
+            {sessionsQuery.data.slice(0, 3).map((session) => (
+              <ListItem
+                key={session.id}
+                leading={<IconTile icon={History} tone="neutral" size="sm" />}
+                title={session.title}
+                description={`${session.guided_state?.scenario_label || modeLabel[session.mode]} · ${formatDateTime(session.last_interaction_at)}`}
+                onClick={() => handleOpenSession(session.id)}
+              />
+            ))}
+          </ListGroup>
+        </section>
+      ) : null}
+    </>
+  );
+
+  const renderSession = (session: InterpreterSessionDetail) => (
+    <>
+      <ScreenTitle
+        eyebrow={<Badge tone="ai" icon={<Headphones aria-hidden="true" />} className="mb-1">{modeLabel[session.mode]}</Badge>}
+        title={session.title}
+        description={`${session.message_count} mensagens · última interação em ${formatDateTime(session.last_interaction_at)}`}
+      />
+
+      <Card padding="md" className="flex flex-wrap items-center justify-between gap-3">
+        {session.guided_state?.scenario_label || session.guided_state?.level ? (
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {session.guided_state?.scenario_label ? <Badge tone="neutral">{session.guided_state.scenario_label}</Badge> : null}
+            {session.guided_state?.level ? <Badge tone="neutral">Nível {session.guided_state.level}</Badge> : null}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setIsQuickCardDialogOpen(true)}>
+            <BookPlus aria-hidden="true" />
+            Adicionar palavra
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => navigate(APP_PATHS.interpreter)}>
+            <Plus aria-hidden="true" />
+            Novo treino
+          </Button>
+          <Button size="sm" variant="ghost" className="text-danger hover:bg-danger-soft" onClick={() => void handleDelete()}>
+            <Trash2 aria-hidden="true" />
+            Excluir
+          </Button>
+        </div>
+      </Card>
+
+      {renderJourneyProgress()}
+
+      <div ref={messageListRef} className="flex flex-col gap-4">
+        {session.messages.map((message) => {
+          if (getExercise(message)) {
+            const submittedResponse = getSubmittedResponseForChallenge(message.id);
+            const draftText = getDraftResponseText(message);
+            const shouldRenderDraftActions = message.id === latestChallengeId && !submittedResponse && Boolean(draftText);
+            return (
+              <div key={message.id} className="scroll-mt-24">
+                {renderChallengeCard(
+                  message,
+                  shouldRenderDraftActions ? (
+                    <>
+                      {renderDraftResponse(message)}
+                      {renderChallengeActions({ message, showSubmit: true, showRetryAudio: false })}
+                    </>
+                  ) : null,
+                )}
+              </div>
+            );
+          }
+          if (getFeedback(message)) {
+            const feedback = getFeedback(message);
+            const challengeId = feedback?.challenge_message_id || "";
+            const shouldRenderPostAnswerActions = Boolean(
+              challengeId &&
+              challengeId === latestChallengeId &&
+              getSubmittedResponseForChallenge(challengeId) &&
+              getFeedbackForChallenge(challengeId)?.id === message.id &&
+              feedback?.status !== "correct",
+            );
+            const challengeMessage = session.messages.find((item) => item.id === challengeId) ?? null;
+
+            return (
+              <div key={message.id} className="scroll-mt-24 space-y-4">
+                {renderFeedbackCard(message)}
+                {shouldRenderPostAnswerActions && challengeMessage
+                  ? renderChallengeActions({ message: challengeMessage, showSubmit: false, showRetryAudio: true })
+                  : null}
+              </div>
+            );
+          }
+          return (
+            <div key={message.id} className="scroll-mt-24">
+              <ChatBubble from={message.role === "user" ? "student" : "ai"} className="whitespace-pre-line">
+                {message.text}
+              </ChatBubble>
+            </div>
+          );
+        })}
+      </div>
+
+      <QuickAddVocabularyCardDialog
+        open={isQuickCardDialogOpen}
+        onOpenChange={setIsQuickCardDialogOpen}
+        sourceTag="Interprete IA"
+      />
+    </>
+  );
+
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="mx-auto w-full max-w-3xl space-y-8 pb-8">
         {!selectedSessionId ? (
-          <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-[linear-gradient(145deg,rgba(255,247,237,0.78),rgba(255,255,255,0.98)_24%,rgba(239,246,255,0.75))] shadow-[0_30px_70px_-50px_rgba(15,23,42,0.5)] md:rounded-[34px]">
-            <div className="grid gap-5 px-4 py-5 md:px-6 md:py-7 xl:grid-cols-[minmax(0,1fr)_24rem] xl:px-8 xl:py-8">
-              <div className="space-y-5 md:space-y-6">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] text-amber-700 shadow-sm">
-                    <Headphones className="h-4 w-4" />
-                    Interprete IA
-                  </div>
-                  <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 md:mt-4 md:text-4xl">
-                    <span className="md:hidden">Listening com IA</span>
-                    <span className="hidden md:inline">Treine escuta com audio gerado pela IA</span>
-                  </h1>
-                  <p className="mt-3 hidden max-w-3xl text-sm leading-7 text-slate-600 md:block">
-                    Escolha um topico e um nivel. A IA conduz uma jornada por etapas dentro do contexto escolhido,
-                    comecando do inicio da situacao e avancando ate o final conforme voce responde e acerta.
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Topico</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-3">
-                      {TOPIC_OPTIONS.map((topic) => (
-                        <SetupTopicCard
-                          key={topic.id}
-                          topic={topic}
-                          selected={selectedTopicId === topic.id}
-                          onClick={() => setSelectedTopicId(topic.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {selectedTopicId === "custom" ? (
-                    <div className="rounded-[24px] border border-slate-200/80 bg-white/90 p-4">
-                      <p className="text-sm font-semibold text-foreground">Descreva o topico</p>
-                      <input
-                        value={customTopic}
-                        onChange={(event) => setCustomTopic(event.target.value)}
-                        placeholder="Ex.: atendimento ao cliente, consulta medica, reuniao de equipe..."
-                        className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-400"
-                      />
-                    </div>
-                  ) : null}
-
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Nivel</p>
-                    <div className="mt-3 flex flex-wrap gap-3">
-                      {CEFR_LEVELS.map((level) => (
-                        <SetupLevelButton
-                          key={level}
-                          level={level}
-                          selected={selectedLevel === level}
-                          onClick={() => setSelectedLevel(level)}
-                        />
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => void handleCreateSession()}
-                      disabled={isCreating || !resolvedTopicLabel}
-                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[20px] bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50 xl:hidden"
-                    >
-                      {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}
-                      Iniciar treino
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <aside className="hidden self-start rounded-[30px] border border-slate-200/80 bg-white/92 p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.38)] xl:block">
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Resumo do treino</p>
-                <div className="mt-4 rounded-[24px] bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-2xl bg-amber-100 p-3 text-amber-800">
-                      <Ear className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-semibold text-slate-950">{resolvedTopicLabel || "Escolha um topico"}</p>
-                      <p className="text-sm text-muted-foreground">Nivel {selectedLevel}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
-                    <p>1. A IA inicia uma jornada guiada dentro do contexto escolhido.</p>
-                    <p>2. Cada audio pertence a uma etapa real da situacao.</p>
-                    <p>3. Quando voce acerta, a pratica avanca para a proxima fase.</p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void handleCreateSession()}
-                  disabled={isCreating || !resolvedTopicLabel}
-                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-[22px] bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                >
-                  {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}
-                  Iniciar treino
-                </button>
-
-                {sessionsQuery.data?.length ? (
-                  <div className="mt-6 border-t border-slate-200/80 pt-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">Ultimas sessoes</p>
-                    <div className="mt-3 space-y-2">
-                      {sessionsQuery.data.slice(0, 3).map((session) => (
-                        <button
-                          key={session.id}
-                          type="button"
-                          onClick={() => handleOpenSession(session.id)}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm transition hover:border-slate-300 hover:bg-slate-50"
-                        >
-                          <p className="font-semibold text-foreground">{session.title}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {session.guided_state?.scenario_label || modeLabel[session.mode]} · {formatDateTime(session.last_interaction_at)}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </aside>
-            </div>
-          </section>
+          renderSetup()
         ) : activeSession ? (
-          <section className="flex h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_26px_70px_-48px_rgba(15,23,42,0.5)] md:rounded-[34px] lg:h-[calc(100dvh_-_4.5rem)]">
-            <header className="shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur md:px-5 md:py-4">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
-                      {modeLabel[activeSession.mode]}
-                    </span>
-                    {activeSession.guided_state?.scenario_label ? (
-                      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
-                        {activeSession.guided_state.scenario_label}
-                      </span>
-                    ) : null}
-                    {activeSession.guided_state?.level ? (
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        Nivel {activeSession.guided_state.level}
-                      </span>
-                    ) : null}
-                  </div>
-                  <h2 className="mt-3 text-xl font-semibold tracking-tight text-slate-950 md:text-[30px]">{activeSession.title}</h2>
-                  <p className="mt-1 hidden text-sm text-muted-foreground md:block">
-                    {activeSession.message_count} mensagens · ultima interacao em {formatDateTime(activeSession.last_interaction_at)}
-                  </p>
-                  {renderJourneyProgress()}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickCardDialogOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
-                  >
-                    <BookPlus className="h-4 w-4" />
-                    <span className="md:hidden">Card</span>
-                    <span className="hidden md:inline">Card: adicionar nova palavra</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate(APP_PATHS.interpreter)}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <span className="md:hidden">Novo</span>
-                    <span className="hidden md:inline">Novo treino</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete()}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-rose-50 hover:text-rose-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Excluir
-                  </button>
-                </div>
-              </div>
-            </header>
-
-            <div ref={messageListRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
-              <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
-                {activeSession.messages.map((message) => {
-                  if (getExercise(message)) {
-                    const submittedResponse = getSubmittedResponseForChallenge(message.id);
-                    const draftText = getDraftResponseText(message);
-                    const shouldRenderDraftActions = message.id === latestChallengeId && !submittedResponse && Boolean(draftText);
-                    return (
-                      <div key={message.id} className="space-y-4">
-                        {renderChallengeCard(message)}
-                        <AIContentReportButton messageId={message.id} />
-                        {shouldRenderDraftActions ? (
-                          <>
-                            {renderDraftResponse(message)}
-                            {renderChallengeActions({ message, showSubmit: true, showRetryAudio: false })}
-                          </>
-                        ) : null}
-                      </div>
-                    );
-                  }
-                  if (getFeedback(message)) {
-                    const feedback = getFeedback(message);
-                    const challengeId = feedback?.challenge_message_id || "";
-                    const shouldRenderPostAnswerActions = Boolean(
-                      challengeId &&
-                      challengeId === latestChallengeId &&
-                      getSubmittedResponseForChallenge(challengeId) &&
-                      getFeedbackForChallenge(challengeId)?.id === message.id &&
-                      feedback?.status !== "correct",
-                    );
-                    const challengeMessage = activeSession.messages.find((item) => item.id === challengeId) ?? null;
-
-                    return (
-                      <div key={message.id} className="space-y-4">
-                        {renderFeedbackCard(message)}
-                        {shouldRenderPostAnswerActions && challengeMessage
-                          ? renderChallengeActions({ message: challengeMessage, showSubmit: false, showRetryAudio: true })
-                          : null}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={message.id} className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
-                      <div
-                        className={cn(
-                          "max-w-3xl rounded-[24px] px-4 py-3 text-sm leading-6 shadow-sm",
-                          message.role === "user"
-                            ? "bg-slate-950 text-white"
-                            : "border border-slate-200/80 bg-white text-slate-900",
-                        )}
-                      >
-                        <p className="whitespace-pre-line">{message.text}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <QuickAddVocabularyCardDialog
-              open={isQuickCardDialogOpen}
-              onOpenChange={setIsQuickCardDialogOpen}
-              sourceTag="Interprete IA"
-            />
-          </section>
+          renderSession(activeSession)
         ) : selectedSessionId && sessionDetailQuery.isLoading ? (
-          <div className="flex min-h-[20rem] items-center justify-center rounded-[30px] border border-slate-200/80 bg-white/92">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carregando sessao...
-            </div>
-          </div>
+          <SkeletonCard label="Carregando sessão" lines={3} />
         ) : (
-          <div className="rounded-[30px] border border-dashed border-slate-200 bg-white/92 px-8 py-12 text-center">
-            <p className="text-lg font-semibold text-foreground">Sessao nao encontrada</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Essa sessao nao esta mais disponivel. Voce pode iniciar um novo treino ou abrir outra sessao pela sidebar.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate(APP_PATHS.interpreter)}
-              className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
-            >
-              Voltar ao interprete
-            </button>
+          <div className={cardVariants({ variant: "dashed", padding: "none" })}>
+            <EmptyState
+              icon={Headphones}
+              title="Sessão não encontrada"
+              description="Essa sessão não está mais disponível. Você pode iniciar um novo treino ou abrir outra sessão pelo histórico."
+              action={<Button onClick={() => navigate(APP_PATHS.interpreter)}>Voltar ao intérprete</Button>}
+            />
           </div>
         )}
       </div>

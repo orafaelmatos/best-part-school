@@ -107,8 +107,8 @@ describe("buildVocabularyGameRun", () => {
     expect(run.stages[0].options.some((option) => option.isCorrect && option.text === "airport")).toBe(true);
     expect(run.stages[0].prompt).not.toContain("Qual palavra corresponde");
     expect(run.worlds).toEqual([
-      expect.objectContaining({ label: "Campo de Treino", stageCount: 3 }),
-      expect.objectContaining({ label: "Floresta de Contexto", stageCount: 2 }),
+      expect.objectContaining({ label: "Aquecimento", stageCount: 3 }),
+      expect.objectContaining({ label: "Contexto", stageCount: 2 }),
     ]);
   });
 

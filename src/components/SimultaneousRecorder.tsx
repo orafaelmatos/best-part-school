@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Headphones, Loader2, Mic, Pause, Play, Square, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertTriangle, CheckCircle2, Headphones, Loader2, Mic, Pause, Play, Square, Trash2 } from "lucide-react";
+import { Alert, Button, IconTile, ProgressBar, inputClasses } from "@/components/student/ui";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { audioRequestError, microphoneError, preferredRecordingType, recordingSupportError } from "@/lib/speakingAudio";
 import { audioTime, SIMULTANEOUS_RATES, SimultaneousTimeline } from "@/lib/simultaneousAudio";
 import type { SimultaneousTiming } from "@/lib/interpreter";
+import { cn } from "@/lib/utils";
 
 type State = "idle" | "requesting" | "recording" | "paused" | "finishing" | "stopping" | "completed" | "error";
 type Props = {
@@ -158,8 +159,26 @@ const SimultaneousRecorder = ({ sessionId, messageId, initialUrl, speed, disable
   };
   const cancel = () => { dispose(); setError(""); setElapsed(0); setPosition(0); change("idle"); callbacks.current.onReset(); };
 
-  return <section aria-label="Gravação simultânea" className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/30 p-3 sm:p-4">
-    <div><h3 className="flex items-center gap-2 font-semibold"><Mic className="h-4 w-4" />Interpretação simultânea</h3><p className="mt-2 text-sm text-muted-foreground">Use fones. O áudio original continua enquanto você interpreta. O microfone grava somente sua interpretação.</p></div>
+  const status: Record<State, { text: string; icon: ReactNode }> = {
+    idle: ready ? { text: "Áudio pronto. Inicie quando estiver preparado.", icon: <CheckCircle2 className="text-success" /> } : { text: "Prepare o áudio para começar.", icon: <Headphones className="text-ink-secondary" /> },
+    requesting: { text: "Aguardando acesso ao microfone...", icon: <Loader2 className="text-primary motion-safe:animate-spin" /> },
+    recording: { text: "Original em reprodução e microfone gravando.", icon: <span className="flex size-5 items-center justify-center"><span className="size-2.5 rounded-full bg-danger motion-safe:animate-pulse" /></span> },
+    paused: { text: "Áudio e gravação pausados.", icon: <Pause className="text-ink-secondary" /> },
+    finishing: { text: "O original terminou. Conclua sua frase e finalize a gravação (até 15 segundos).", icon: <Mic className="text-danger" /> },
+    stopping: { text: "Preparando gravação...", icon: <Loader2 className="text-primary motion-safe:animate-spin" /> },
+    completed: { text: "Gravação pronta. Revise os dois áudios antes de enviar.", icon: <CheckCircle2 className="text-success" /> },
+    error: { text: "Você pode preparar o áudio e tentar novamente.", icon: <AlertTriangle className="text-warning" /> },
+  };
+  const current = status[state];
+
+  return <section aria-label="Gravação simultânea" className="min-w-0 space-y-4 rounded-lg bg-surface-muted p-4">
+    <div className="flex items-start gap-3">
+      <IconTile icon={Mic} size="sm" className="bg-surface" />
+      <div className="min-w-0">
+        <h3 className="text-body font-semibold text-ink">Interpretação simultânea</h3>
+        <p className="mt-1 text-body text-ink">Use fones. O áudio original continua enquanto você interpreta. O microfone grava somente sua interpretação.</p>
+      </div>
+    </div>
     <audio ref={sourceRef} aria-label="Áudio original da simultânea" src={absoluteMediaUrl(url) || undefined} preload="auto"
       onCanPlay={() => { const seconds = sourceRef.current?.duration; if (seconds && Number.isFinite(seconds) && seconds <= 600) { setReady(true); } else { fail("Não foi possível identificar a duração do original. Prepare o áudio novamente."); } }}
       onLoadedMetadata={() => { const audio = sourceRef.current!; if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration); }}
@@ -173,23 +192,33 @@ const SimultaneousRecorder = ({ sessionId, messageId, initialUrl, speed, disable
         if (stateRef.current !== "paused") change("finishing");
       }}
       onError={() => { if (url) { setReady(false); fail("Não foi possível reproduzir o original. Prepare o áudio novamente."); } }} />
-    <div className="grid gap-2 text-sm sm:grid-cols-2"><p>Fala original: <span aria-label="Tempo do original">{audioTime(position)} / {audioTime(duration)}</span></p><p>Gravação: <span aria-label="Tempo da simultânea">{audioTime(elapsed)}</span></p></div>
-    <label className="block text-sm">Velocidade do original<select aria-label="Velocidade da simultânea" className="ml-2 rounded-lg border bg-background p-2" value={rate} disabled={disabled || ["requesting", "stopping", "finishing"].includes(state)} onChange={(e) => {
-      const value = Number(e.target.value); const source = sourceRef.current;
-      if (source && stateRef.current === "recording" && !source.paused) timelineRef.current.beginSource(source.currentTime, value);
-      if (source) source.playbackRate = value;
-      setRate(value);
-    }}>{SIMULTANEOUS_RATES.map((value) => <option key={value} value={value}>{value}x</option>)}</select></label>
-    <p role="status" className="text-sm">{({ idle: ready ? "Áudio pronto. Inicie quando estiver preparado." : "Prepare o áudio para começar.", requesting: "Aguardando acesso ao microfone...", recording: "Original em reprodução e microfone gravando.", paused: "Áudio e gravação pausados.", finishing: "O original terminou. Conclua sua frase e finalize a gravação (até 15 segundos).", stopping: "Preparando gravação...", completed: "Gravação pronta. Revise os dois áudios antes de enviar.", error: "Você pode preparar o áudio e tentar novamente." })[state]}</p>
-    <div className="flex flex-wrap gap-2">
-      {!ready && !active ? <Button variant="outline" disabled={loading || disabled} onClick={() => void prepare()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}Preparar áudio</Button> : null}
-      {!active ? <Button disabled={disabled || !ready || Boolean(unsupported)} className="h-auto min-h-10 whitespace-normal" onClick={() => void start()}><Mic className="h-4 w-4" />{state === "completed" ? "Gravar simultânea novamente" : "Iniciar áudio e gravação"}</Button> : null}
-      {state === "recording" || state === "finishing" ? <Button variant="outline" onClick={pause}><Pause className="h-4 w-4" />Pausar os dois</Button> : null}
-      {state === "paused" ? <Button variant="outline" onClick={() => void resume()}><Play className="h-4 w-4" />Retomar os dois</Button> : null}
-      {completeRef.current && (state === "finishing" || state === "paused") ? <Button onClick={stop}><Square className="h-4 w-4" />Concluir simultânea</Button> : null}
-      {active && state !== "stopping" ? <Button variant="ghost" onClick={cancel}><Trash2 className="h-4 w-4" />Cancelar gravação</Button> : null}
+    <p role="status" className="flex items-start gap-2 rounded-md bg-surface px-3 py-2 text-body text-ink [&_svg]:mt-0.5 [&_svg]:size-5 [&_svg]:shrink-0">
+      <span aria-hidden="true" className="contents">{current.icon}</span>{current.text}
+    </p>
+    <div className="space-y-2">
+      <ProgressBar value={Math.min(Math.round(position), Math.round(duration))} max={Math.max(1, Math.round(duration))} label="Andamento da fala original" trackClassName="bg-surface" />
+      <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-body text-ink">
+        <p>Fala original: <span aria-label="Tempo do original" className="tabular-nums text-ink">{audioTime(position)} / {audioTime(duration)}</span></p>
+        <p>Gravação: <span aria-label="Tempo da simultânea" className="tabular-nums text-ink">{audioTime(elapsed)}</span></p>
+      </div>
     </div>
-    {unsupported || error ? <p role="alert" className="text-sm text-destructive">{unsupported || error}</p> : null}
+    <label className="flex flex-wrap items-center gap-2 text-body text-ink">Velocidade do original
+      <select aria-label="Velocidade da simultânea" className={cn(inputClasses, "min-h-11 w-auto px-3")} value={rate} disabled={disabled || ["requesting", "stopping", "finishing"].includes(state)} onChange={(e) => {
+        const value = Number(e.target.value); const source = sourceRef.current;
+        if (source && stateRef.current === "recording" && !source.paused) timelineRef.current.beginSource(source.currentTime, value);
+        if (source) source.playbackRate = value;
+        setRate(value);
+      }}>{SIMULTANEOUS_RATES.map((value) => <option key={value} value={value}>{value}x</option>)}</select>
+    </label>
+    <div className="flex flex-wrap gap-2 [&>button]:h-auto [&>button]:whitespace-normal [&>button]:py-2">
+      {!ready && !active ? <Button variant="outline" disabled={disabled} loading={loading} loadingLabel="Preparando áudio…" onClick={() => void prepare()}><Headphones aria-hidden="true" />Preparar áudio</Button> : null}
+      {!active ? <Button variant={state === "completed" ? "outline" : "primary"} disabled={disabled || !ready || Boolean(unsupported)} onClick={() => void start()}><Mic aria-hidden="true" />{state === "completed" ? "Gravar simultânea novamente" : "Iniciar áudio e gravação"}</Button> : null}
+      {state === "recording" || state === "finishing" ? <Button variant="outline" onClick={pause}><Pause aria-hidden="true" />Pausar os dois</Button> : null}
+      {state === "paused" ? <Button variant="secondary" onClick={() => void resume()}><Play aria-hidden="true" />Retomar os dois</Button> : null}
+      {completeRef.current && (state === "finishing" || state === "paused") ? <Button onClick={stop}><Square aria-hidden="true" />Concluir simultânea</Button> : null}
+      {active && state !== "stopping" ? <Button variant="ghost" onClick={cancel}><Trash2 aria-hidden="true" />Cancelar gravação</Button> : null}
+    </div>
+    {unsupported || error ? <Alert tone="danger" role="alert" title={unsupported || error} /> : null}
   </section>;
 };
 

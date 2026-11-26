@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Mic, Volume2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Lightbulb, Loader2, Mic, MinusCircle, Sparkles, Volume2, type LucideIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import AudioPlayer from "@/components/AudioPlayer";
 import { absoluteMediaUrl } from "@/lib/config";
-import { Button } from "@/components/ui/button";
+import { Alert, Button, Card, StudyBlock } from "@/components/student/ui";
+import { iconStroke } from "@/design-system/tokens";
+import { cn } from "@/lib/utils";
 
 export type LearningFeedback = {
   feedback_version: number;
@@ -53,6 +55,8 @@ export type SpeakingFeedback = {
   learning_feedback?: LearningFeedback;
 };
 
+const summaryClass = "flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md text-body font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden";
+
 // The server selects the saved phrase and returns its text for verification.
 const FeedbackAudio = ({ feedbackId, text, chunkIndex, fullSentence = false, initialUrl }: {
   feedbackId: string; text: string; chunkIndex?: number; fullSentence?: boolean; initialUrl?: string | null;
@@ -94,21 +98,34 @@ const FeedbackAudio = ({ feedbackId, text, chunkIndex, fullSentence = false, ini
   };
   return <div className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void listen()}>
-        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Volume2 className="mr-2 h-4 w-4" />}
+      <Button type="button" size="sm" variant="outline" disabled={loading} aria-busy={loading || undefined} onClick={() => void listen()}>
+        {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
         {loading ? "Preparando áudio…" : url ? "Ouvir novamente" : "Ouvir pronúncia"}
       </Button>
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">Velocidade
+      <label className="flex items-center gap-2 text-body text-ink">Velocidade
         <select aria-label="Velocidade da pronúncia sugerida" value={speed} onChange={(event) => setSpeed(Number(event.target.value))}
-          className="rounded-lg border border-border bg-background p-2">
+          className="min-h-11 rounded-md border border-line bg-surface px-3 text-body text-ink focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
           <option value={0.75}>0,75x</option><option value={1}>1x</option>
         </select>
       </label>
     </div>
     {url ? <audio ref={audioRef} aria-label={`Áudio sugerido: ${text}`} controls preload="metadata" src={absoluteMediaUrl(url)}
       className="w-full max-w-full" onError={() => { setUrl(""); setError("Não consegui reproduzir o áudio. Tente gerar novamente."); }} /> : null}
-    {error ? <p role="alert" className="text-xs text-muted-foreground">{error}</p> : null}
+    {error ? <p role="alert" className="text-body text-ink">{error}</p> : null}
   </div>;
+};
+
+const statusIcons: Record<string, { Icon: LucideIcon; className: string }> = {
+  correct: { Icon: CheckCircle2, className: "text-success" },
+  natural: { Icon: CheckCircle2, className: "text-success" },
+  needs_work: { Icon: AlertTriangle, className: "text-warning" },
+  alternative: { Icon: Lightbulb, className: "text-ai" },
+  not_assessed: { Icon: MinusCircle, className: "text-ink-muted" },
+};
+
+const StatusIcon = ({ status }: { status: string }) => {
+  const { Icon, className } = statusIcons[status] || statusIcons.not_assessed;
+  return <Icon size={20} strokeWidth={iconStroke} aria-hidden="true" className={cn("shrink-0", className)} />;
 };
 
 const PronunciationFeedback = ({ feedback, onRepeat, onContinue, onNextSituation, disabled = false }: {
@@ -122,66 +139,97 @@ const PronunciationFeedback = ({ feedback, onRepeat, onContinue, onNextSituation
   const [partsOpen, setPartsOpen] = useState(false);
   const summary = isCurrent ? details.summary : "Compare sua gravação com a frase sugerida e pratique no seu ritmo.";
   const statusLabels = { correct: "Correta", needs_work: "Pode melhorar", not_assessed: "Não avaliada", natural: "Natural", alternative: "Alternativa opcional" };
-  return <section aria-label="Feedback de Speaking" data-speaking-focus className="space-y-4 rounded-[24px] border border-border/70 bg-card p-4 shadow-sm">
-    <p className="text-sm leading-6" lang={details?.feedback_language === "en" ? "en" : "pt-BR"}>{summary}</p>
-    <section aria-label="O que você falou" className="space-y-2 rounded-2xl bg-muted/40 p-3">
-      <p className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><Mic className="h-4 w-4" />O que você falou</p>
-      <p lang="en" className="break-words">{feedback.transcript}</p>
+  const grammarStatus = details?.grammar?.status || "not_assessed";
+  const naturalnessStatus = details?.naturalness?.status || "not_assessed";
+  return <Card as="section" padding="md" aria-label="Feedback de Speaking" data-speaking-focus className="min-w-0 space-y-4 break-words">
+    <div className="flex gap-3">
+      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-ai-soft text-ai" aria-hidden="true"><Sparkles size={16} /></span>
+      <p className="min-w-0 text-body-lg leading-7 text-ink" lang={details?.feedback_language === "en" ? "en" : "pt-BR"}>{summary}</p>
+    </div>
+    <section aria-label="O que você falou" className="space-y-2 rounded-lg bg-surface-muted px-4 py-3">
+      <p className="flex items-center gap-1.5 text-label text-ink"><Mic size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />O que você falou</p>
+      <p lang="en" className="break-words text-body-lg text-ink">{feedback.transcript}</p>
       {feedback.audio_url ? <AudioPlayer src={absoluteMediaUrl(feedback.audio_url)} compact /> : null}
     </section>
-    {suggested ? <section aria-label="Uma forma mais natural" className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
-      <p className="text-xs font-semibold text-emerald-800">{details?.analysis_unavailable ? "Sua frase para praticar" : noChange ? "Sua frase já funciona" : "Uma forma mais natural"}</p>
-      <p lang="en" className="break-words text-base font-medium text-emerald-950">{suggested}</p>
-      {details?.suggested_translation ? <details className="text-sm"><summary className="cursor-pointer text-emerald-800">Ver tradução</summary>
-        <p lang="pt-BR" className="mt-2">{details.suggested_translation}</p></details> : null}
+    {suggested ? <section aria-label="Uma forma mais natural" className="space-y-3 rounded-lg bg-success-soft px-4 py-3">
+      <p className="flex items-center gap-1.5 text-label text-success">
+        {noChange
+          ? <CheckCircle2 size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />
+          : <Lightbulb size={16} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0" />}
+        {details?.analysis_unavailable ? "Sua frase para praticar" : noChange ? "Sua frase já funciona" : "Uma forma mais natural"}
+      </p>
+      <p lang="en" className="break-words text-h4 text-ink">{suggested}</p>
+      {details?.suggested_translation ? <details className="group/translation">
+        <summary className={cn(summaryClass, "text-success")}>Ver tradução
+          <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/translation:rotate-180" />
+        </summary>
+        <p lang="pt-BR" className="mt-1 text-body-lg text-ink">{details.suggested_translation}</p>
+      </details> : null}
       <FeedbackAudio key={`${feedback.id}:${suggested}`} feedbackId={feedback.id} text={suggested} initialUrl={feedback.tts_audio_url} />
-      {details?.changes?.[0] ? <p className="text-sm text-emerald-950">{details.changes[0].explanation}</p> : null}
+      {details?.changes?.[0] ? <p className="text-body text-ink">{details.changes[0].explanation}</p> : null}
     </section> : null}
-    {details?.comparison ? <p aria-label="Comparação com a tentativa anterior" className="rounded-xl bg-primary/5 p-3 text-sm">{details.comparison}</p> : null}
+    {details?.comparison ? <p aria-label="Comparação com a tentativa anterior" className="rounded-lg bg-info-soft px-4 py-3 text-body-lg text-ink">{details.comparison}</p> : null}
     {details?.comments?.length ? <section aria-label="O que você pode melhorar">
-      <p className="text-xs font-semibold text-muted-foreground">O que você pode melhorar</p>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{details.comments.slice(0, 3).map((comment, index) => <li key={index}>{comment}</li>)}</ul>
+      <StudyBlock kind="tip" title="O que você pode melhorar">
+        <ul className="list-disc space-y-1 pl-5 marker:text-ai">{details.comments.slice(0, 3).map((comment, index) => <li key={index}>{comment}</li>)}</ul>
+      </StudyBlock>
     </section> : null}
-    {details?.needs_clarification ? <p className="text-sm font-medium">{details.clarification_question}</p> : null}
-    <details className="rounded-xl border border-border p-3 text-sm">
-      <summary className="cursor-pointer font-medium">Ver mais detalhes</summary>
-      <div className="mt-3 space-y-3">
-        <section aria-label="Avaliação de pronúncia"><p className="font-semibold">Pronúncia · Não avaliada</p>
-          <p className="mt-1 text-muted-foreground">{details?.pronunciation.explanation || "Sons, sílabas tônicas, ritmo e entonação precisam de análise do áudio. A transcrição sozinha não permite avaliar a pronúncia."}</p></section>
-        <section aria-label="Avaliação de gramática"><p className="font-semibold">Gramática · {statusLabels[details?.grammar?.status || "not_assessed"]}</p>
-          <p className="mt-1">{details?.grammar?.explanation}</p></section>
-        <section aria-label="Avaliação de naturalidade"><p className="font-semibold">Naturalidade · {statusLabels[details?.naturalness?.status || "not_assessed"]}</p>
-          <p className="mt-1">{details?.naturalness?.explanation}</p></section>
-        {details?.changes?.map((change, index) => <section key={index} className="space-y-1 rounded-xl bg-muted/50 p-3">
-          <p className="text-xs font-semibold">{change.kind === "grammar" ? "Ajuste de gramática" : "Sugestão de naturalidade"}</p>
-          <p lang="en" className="break-words"><span className="text-muted-foreground">Original: </span>{change.before}</p>
-          <p lang="en" className="break-words"><span className="text-muted-foreground">Sugestão: </span>{change.after}</p>
-          <p>{change.explanation}</p>
+    {details?.needs_clarification ? <Alert tone="info" title={details.clarification_question} /> : null}
+    <details className="group/details border-t border-line pt-2">
+      <summary className={cn(summaryClass, "text-primary")}>Ver mais detalhes
+        <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/details:rotate-180" />
+      </summary>
+      <div className="mt-2 space-y-4 text-body-lg text-ink">
+        <section aria-label="Avaliação de pronúncia">
+          <div className="flex items-center gap-2"><StatusIcon status="not_assessed" /><p className="font-semibold">Pronúncia · Não avaliada</p></div>
+          <p className="mt-1 text-body text-ink-secondary">{details?.pronunciation.explanation || "Sons, sílabas tônicas, ritmo e entonação precisam de análise do áudio. A transcrição sozinha não permite avaliar a pronúncia."}</p>
+        </section>
+        <section aria-label="Avaliação de gramática">
+          <div className="flex items-center gap-2"><StatusIcon status={grammarStatus} /><p className="font-semibold">Gramática · {statusLabels[grammarStatus]}</p></div>
+          <p className="mt-1">{details?.grammar?.explanation}</p>
+        </section>
+        <section aria-label="Avaliação de naturalidade">
+          <div className="flex items-center gap-2"><StatusIcon status={naturalnessStatus} /><p className="font-semibold">Naturalidade · {statusLabels[naturalnessStatus]}</p></div>
+          <p className="mt-1">{details?.naturalness?.explanation}</p>
+        </section>
+        {details?.changes?.map((change, index) => <section key={index}>
+          <StudyBlock kind={change.kind === "grammar" ? "correction" : "tip"} title={change.kind === "grammar" ? "Ajuste de gramática" : "Sugestão de naturalidade"}>
+            <div className="space-y-1">
+              <p lang="en" className="break-words"><span lang="pt-BR" className="font-semibold">Original: </span>{change.before}</p>
+              <p lang="en" className="break-words"><span lang="pt-BR" className="font-semibold">Sugestão: </span>{change.after}</p>
+              <p className="pt-1 text-body">{change.explanation}</p>
+            </div>
+          </StudyBlock>
         </section>)}
       </div>
     </details>
-    {suggested && !details?.needs_clarification ? <div className="space-y-3 border-t border-border pt-3">
-      <p className="text-sm">Agora que você ouviu a frase, que tal tentar falar novamente?</p>
+    {suggested && !details?.needs_clarification ? <div className="space-y-3 border-t border-line pt-4">
+      <p className="text-body-lg text-ink">Agora que você ouviu a frase, que tal tentar falar novamente?</p>
       <div className="flex flex-wrap gap-2">
         {onRepeat ? <Button type="button" size="sm" disabled={disabled} onClick={() => onRepeat(feedback)}>
-          <Mic className="mr-2 h-4 w-4" />{details?.practice_target && details.practice_target !== details.full_sentence ? "Tentar frase completa" : "Tentar pronunciar"}
+          <Mic aria-hidden="true" />{details?.practice_target && details.practice_target !== details.full_sentence ? "Tentar frase completa" : "Tentar pronunciar"}
         </Button> : null}
         {details?.chunks?.length ? <Button type="button" size="sm" variant="outline" onClick={() => setPartsOpen(!partsOpen)} aria-expanded={partsOpen}>Praticar por partes</Button> : null}
         {onContinue ? <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={onContinue}>Continuar conversa</Button> : null}
         {onNextSituation ? <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={onNextSituation}>Próxima situação</Button> : null}
       </div>
-      {partsOpen ? <div className="space-y-3">{details?.chunks.map((chunk, index) => <section key={chunk + index} className="space-y-2 rounded-xl border border-border p-3">
-        <p className="text-xs text-muted-foreground">Etapa {index + 1}</p><p lang="en" className="break-words">{chunk}</p>
+      {partsOpen ? <div className="space-y-3">{details?.chunks.map((chunk, index) => <section key={chunk + index} className="space-y-2 rounded-lg bg-surface-muted px-4 py-3">
+        <p className="text-label text-ink">Etapa {index + 1}</p><p lang="en" className="break-words text-body-lg text-ink">{chunk}</p>
         <FeedbackAudio key={`${feedback.id}:${index}:${chunk}`} feedbackId={feedback.id} text={chunk} chunkIndex={index} />
         {onRepeat ? <Button type="button" size="sm" variant="secondary" disabled={disabled} onClick={() => onRepeat(feedback, index)}>Repetir trecho {index + 1}</Button> : null}
-      </section>)}<section className="space-y-2 rounded-xl border border-primary/30 p-3">
-        <p className="text-xs font-semibold">Frase completa</p><p lang="en" className="break-words">{details?.full_sentence || suggested}</p>
+      </section>)}<section className="space-y-2 rounded-lg bg-primary-subtle px-4 py-3">
+        <p className="text-label text-primary-dark">Frase completa</p><p lang="en" className="break-words text-body-lg font-medium text-ink">{details?.full_sentence || suggested}</p>
         <FeedbackAudio key={`${feedback.id}:full`} feedbackId={feedback.id} text={details?.full_sentence || suggested} fullSentence />
-        {details?.full_translation ? <details className="text-sm"><summary className="cursor-pointer">Ver tradução da frase completa</summary><p lang="pt-BR">{details.full_translation}</p></details> : null}
+        {details?.full_translation ? <details className="group/full">
+          <summary className={cn(summaryClass, "text-primary-dark")}>Ver tradução da frase completa
+            <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/full:rotate-180" />
+          </summary>
+          <p lang="pt-BR" className="mt-1 text-body-lg text-ink">{details.full_translation}</p>
+        </details> : null}
         {onRepeat ? <Button type="button" size="sm" disabled={disabled} onClick={() => onRepeat(feedback)}>Tentar frase completa</Button> : null}
       </section></div> : null}
     </div> : null}
-  </section>;
+  </Card>;
 };
 
 export default PronunciationFeedback;

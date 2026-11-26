@@ -1,0 +1,55 @@
+/*
+ * Student theme. Activated with data-theme="student" on <html>
+ * (see src/design-system/theme.ts). Maps the shared shadcn variables
+ * to the design tokens, so dialogs, sheets and toasts rendered in
+ * portals follow the same palette. Staff and site builds are untouched.
+ *
+ * Future dark mode: add [data-theme="student"][data-mode="dark"]
+ * redefining the --ds-* tokens. Components must not change.
+ */
+[data-theme="student"] {
+  color-scheme: light;
+
+  --background: 222 100% 98%;          /* canvas  #F5F8FF */
+  --foreground: 221 39% 11%;           /* ink     #111827 */
+  --card: 0 0% 100%;
+  --card-foreground: 221 39% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 221 39% 11%;
+  --primary: 221 83% 53%;              /* #2563EB */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 95% 93%;            /* primary light #DBEAFE */
+  --secondary-foreground: 226 71% 40%; /* primary dark  #1E40AF */
+  --muted: 210 40% 96%;                /* surface muted #F1F5F9 */
+  --muted-foreground: 220 9% 46%;      /* ink secondary #6B7280 */
+  --accent: 214 100% 97%;              /* primary subtle #EFF6FF */
+  --accent-foreground: 226 71% 40%;
+  --destructive: 0 72% 51%;            /* #DC2626 */
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 72% 29%;              /* #15803D */
+  --success-foreground: 0 0% 100%;
+  --warning: 26 91% 37%;               /* #B45309 */
+  --warning-foreground: 0 0% 100%;
+  --border: 220 13% 91%;               /* line #E5E7EB */
+  --input: 220 13% 91%;
+  --ring: 221 83% 53%;
+
+  --radius: var(--ds-radius-lg);
+  --radius-xs: var(--ds-radius-xs);
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-xl: var(--ds-radius-xl);
+  --radius-2xl: var(--ds-radius-2xl);
+}
+
+[data-theme="student"] body {
+  background: rgb(var(--ds-canvas));
+  background-image: none;
+  color: rgb(var(--ds-ink));
+}
+
+[data-theme="student"] ::selection {
+  background: rgb(var(--ds-primary-light));
+  color: rgb(var(--ds-ink));
+}

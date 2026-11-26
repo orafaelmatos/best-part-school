@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
+import { Button, TextField } from "@/components/student/ui";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 
@@ -69,14 +68,14 @@ const QuickAddVocabularyCardDialog = ({
       ]);
       toast({
         title: "Card salvo",
-        description: "A palavra ja apareceu em Palavras Aprendidas para voce revisar depois.",
+        description: "A palavra já aparece em Palavras Aprendidas para você revisar depois.",
       });
       onOpenChange(false);
       onCreated?.();
     },
     onError: () => {
       toast({
-        title: "Nao foi possivel salvar o card",
+        title: "Não foi possível salvar o card",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -96,47 +95,45 @@ const QuickAddVocabularyCardDialog = ({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto rounded-2xl border-line bg-surface text-ink">
         <DialogHeader>
-          <DialogTitle>Card: adicionar nova palavra</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-h4 text-ink">Card: adicionar nova palavra</DialogTitle>
+          <DialogDescription className="text-body text-ink-secondary">
             Registre a frente e o verso sem sair do estudo com a IA.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="quick-card-front" className="text-sm font-medium text-foreground">
-              Frente do card
-            </label>
-            <Input
-              id="quick-card-front"
-              autoFocus
-              value={form.word}
-              onChange={(event) => setForm((current) => ({ ...current, word: event.target.value }))}
-              placeholder="Ex: dining out"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="quick-card-back" className="text-sm font-medium text-foreground">
-              Verso do card
-            </label>
-            <Input
-              id="quick-card-back"
-              value={form.translation}
-              onChange={(event) => setForm((current) => ({ ...current, translation: event.target.value }))}
-              placeholder="Ex: comer fora"
-            />
-          </div>
+          <TextField
+            id="quick-card-front"
+            label="Frente do card"
+            autoFocus
+            lang="en"
+            value={form.word}
+            onChange={(event) => setForm((current) => ({ ...current, word: event.target.value }))}
+            placeholder="Ex: dining out"
+          />
+          <TextField
+            id="quick-card-back"
+            label="Verso do card"
+            value={form.translation}
+            onChange={(event) => setForm((current) => ({ ...current, translation: event.target.value }))}
+            placeholder="Ex: comer fora"
+          />
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-2 sm:space-x-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={createMutation.isPending}>
             Cancelar
           </Button>
-          <Button type="button" onClick={handleSubmit} disabled={!form.word.trim() || !form.translation.trim() || createMutation.isPending}>
-            {createMutation.isPending ? "Salvando..." : "Salvar card"}
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!form.word.trim() || !form.translation.trim()}
+            loading={createMutation.isPending}
+            loadingLabel="Salvando…"
+          >
+            Salvar card
           </Button>
         </DialogFooter>
       </DialogContent>

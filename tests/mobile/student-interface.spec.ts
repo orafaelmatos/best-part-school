@@ -18,7 +18,7 @@ async function screenshot(page: Page, name: string, fullPage = true) {
       const label = document.createElement("div");
       label.id = "mobile-test-preview-label";
       label.textContent = "PRÉVIA · DADOS SIMULADOS";
-      label.style.cssText = "position:fixed;z-index:9999;top:2px;left:50%;transform:translateX(-50%);font:700 8px system-ui;letter-spacing:.06em;color:#137c78;background:#f6f7fb;padding:1px 6px;border-radius:8px;pointer-events:none";
+      label.style.cssText = "position:fixed;z-index:9999;top:2px;left:50%;transform:translateX(-50%);font:700 8px system-ui;letter-spacing:.06em;color:#1e40af;background:#f5f8ff;padding:1px 6px;border-radius:8px;pointer-events:none";
       document.body.append(label);
     });
     await page.screenshot({ path: `${process.env.MOBILE_SCREENSHOT_DIR}/${name}.png`, fullPage: false, animations: "disabled" });
