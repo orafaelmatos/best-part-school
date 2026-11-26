@@ -22,6 +22,8 @@ O fluxo de áudio existente fornece uma transcrição, sem análise acústica co
 
 O modelo avalia significado; não há comparação literal de strings para decidir se uma interpretação está correta. O servidor valida a estrutura, a direção declarada, as referências de informações e os trechos citados como evidências. Isso não substitui uma revisão pedagógica de amostras reais do conteúdo e do feedback gerados pela IA.
 
+O idioma pedagógico é `pt-BR` em todos os níveis e nas duas direções. As instruções e as descrições dos campos da avaliação exigem português, com frases simples e sem termos técnicos para A1/A2. Uma verificação por marcadores de idioma recusa explicações claramente em inglês em resumo, pontos positivos, orientações, vocabulário e detalhes por informação. O provedor recebe o campo a corrigir e pode gerar novamente a avaliação uma vez. Exemplos em inglês entre aspas, evidências literais da resposta e a interpretação sugerida no idioma de destino são preservados. A verificação é heurística e não substitui a revisão de amostras reais. Se as duas respostas forem inválidas, a operação falha sem salvar uma avaliação em inglês ou avançar o treino. Avaliações antigas já salvas não são reescritas.
+
 A fase 1 entregou os modos `consecutive` e `guided`. A **interpretação simultânea foi adicionada na [Fase 2](interprete-fase-2.md)**, com reprodução e gravação concorrentes, controle de duração/velocidade, sincronização e revisão dos dois áudios.
 
 ## API e persistência
@@ -54,6 +56,14 @@ As ações retornam o detalhe atualizado da sessão, exceto `audio/`. O relatór
 Transações e bloqueio da sessão protegem o fluxo. `request_id` evita processamento e evidências duplicados no reenvio de uma resposta. Respostas a trechos obsoletos, uploads inválidos e contratos de IA inválidos não avançam a sessão. Uma falha na criação reverte a sessão incompleta.
 
 `GET /api/ai-study/sessions/?modes=listening&student={uuid}` disponibiliza o relatório ao professor conforme os vínculos existentes. O filtro não amplia as permissões de acesso.
+
+## Diagnóstico de falhas na preparação
+
+O alerta **Não foi possível preparar a interpretação. Tente novamente.** corresponde a HTTP 503 no fluxo do provedor. Na criação do treino, pode indicar falha ao obter o plano ou a primeira fala, ou conteúdo rejeitado após duas tentativas de validação. A imagem do alerta não identifica a causa exata; é preciso consultar os registros do backend no horário da tentativa.
+
+O logger `ai_study.interpreter` registra a operação (`interpreter_plan`, `interpreter_turn` ou `interpreter_assessment`). `Interpreter provider failed` identifica exceção na chamada e registra o tipo, o status HTTP e o identificador da requisição quando disponíveis. `Interpreter response rejected` identifica resposta inválida, tentativa, estágio (`response`, `schema` ou `content`) e motivo em `reason`. Para falas, os motivos incluem `wrong_direction`, `wrong_speaker`, `turn_too_long`, `turn_too_short`, `duplicate_alternatives` e `missing_correct_alternative`. Os detalhes trazem contagens/limites de palavras ou os nomes e tipos dos campos inválidos, sem o conteúdo gerado. `Interpreter validation exhausted` indica que nenhuma das duas tentativas passou. Os registros não incluem prompts, transcrições, gravações ou o conteúdo da exceção do provedor. Falhas de transcrição e geração de áudio têm mensagens específicas.
+
+A geração recebe explicitamente o nome esperado do personagem e os limites mínimo/máximo de palavras do trecho. Uma rejeição por tamanho devolve também a contagem produzida e o limite numérico para orientar a nova tentativa. Diferenças apenas de maiúsculas/minúsculas e espaços no nome do personagem são normalizadas. O índice correto é calculado pela alternativa que corresponde à interpretação sugerida, aceitando diferenças de caixa, espaços e ponto final; essa alternativa é então salva com o texto exato da sugestão. Alternativas duplicadas, traduções diferentes da sugestão, troca de personagem/idioma e trechos fora dos limites continuam recusados. O mínimo de palavras da simultânea usa 55% com arredondamento para cima, sem elevar indevidamente 55 para 56 por imprecisão de ponto flutuante.
 
 ## Validação
 

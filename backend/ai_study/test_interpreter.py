@@ -76,8 +76,8 @@ class InterpreterAPITests(TestCase):
             return make_assessment(data['student_response'])
         raise AssertionError(f'Unexpected contract {name}')
 
-    def create_session(self, **settings):
-        payload = dict(mode='listening', scenario_key='preaching', scenario_label='Pregação', level='A2',
+    def create_session(self, *, level='A2', **settings):
+        payload = dict(mode='listening', scenario_key='preaching', scenario_label='Pregação', level=level,
                        interpreter_settings={'direction': 'en_pt', **settings})
         response = self.client.post('/api/ai-study/sessions/', payload, format='json')
         self.assertEqual(response.status_code, 201, response.data)
@@ -115,6 +115,91 @@ class InterpreterAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = json.loads(self.provider.call_args.args[0][1]['content'])
         self.assertEqual(payload['target_language'], 'en')
+
+    def test_feedback_is_portuguese_at_every_level_in_both_directions(self):
+        for level in ('A1', 'A2', 'B1', 'B2', 'C1', 'C2'):
+            for direction in ('en_pt', 'pt_en'):
+                with self.subTest(level=level, direction=direction):
+                    session = self.create_session(level=level, direction=direction)
+                    target = 'en' if direction == 'pt_en' else 'pt'
+                    text = 'What a blessing to join you this evening!' if target == 'en' else 'Que bênção estar com vocês nesta noite!'
+                    response = self.submit(session, text=text)
+                    self.assertEqual(response.status_code, 200, response.data)
+                    feedback = response.data['messages'][-1]['metadata']['interpretation_feedback']
+                    self.assertEqual(feedback['summary'], make_assessment(text)['summary'])
+                    self.assertEqual(feedback['information'][0]['evidence'], text)
+                    messages = self.provider.call_args.args[0]
+                    payload = json.loads(messages[1]['content'])
+                    self.assertEqual(payload['feedback_language'], 'pt-BR')
+                    self.assertEqual(payload['level'], level)
+                    self.assertEqual(payload['target_language'], target)
+                    self.assertIn('REGRA OBRIGATÓRIA EM TODOS OS NÍVEIS', messages[0]['content'])
+                    self.assertIn('para A1/A2, evite termos técnicos', messages[0]['content'])
+                    turn = response.data['messages'][0]['metadata']['interpretation_turn']
+                    self.assertEqual(turn['suggested_interpretation'], make_turn(target=target)['suggested_interpretation'])
+
+    def test_english_feedback_is_regenerated_before_it_is_saved(self):
+        english_fields = {
+            'summary': 'The interpretation accurately conveys the core message of the original text but fails to include temporal detail and a specific destination, leading to slight alterations.',
+            'strengths': ['The welcome message was accurately translated.'],
+            'improvements': ['Include all parts of the information, such as specific time or location details, to avoid alteration.'],
+            'difficult_vocabulary': ['The destination is the place where you are going.'],
+            'information': [dict(unit_index=0, status='preserved', evidence='What a blessing to join you this evening!',
+                                 explanation="The happiness for Christopher's presence was clearly conveyed.")],
+        }
+        text = 'What a blessing to join you this evening!'
+        for field, value in english_fields.items():
+            with self.subTest(field=field):
+                session = self.create_session(direction='pt_en')
+                invalid = {**make_assessment(text), field: value}
+                self.provider.side_effect = [invalid, make_assessment(text)]
+                calls = self.provider.call_count
+                response = self.submit(session, text=text)
+                self.assertEqual(response.status_code, 200, response.data)
+                self.assertEqual(self.provider.call_count, calls + 2)
+                retry = json.loads(self.provider.call_args.args[0][1]['content'])
+                self.assertIn(field, retry['validation_error'])
+                self.assertIn('português brasileiro simples', retry['validation_error'])
+                feedback = response.data['messages'][-1]['metadata']['interpretation_feedback']
+                self.assertEqual(feedback['summary'], make_assessment(text)['summary'])
+                self.assertNotEqual(feedback[field], value)
+                self.assertEqual(len(response.data['messages']), 3)
+                self.assertEqual(response.data['guided_state']['interpreter']['report']['interpreted_segments'], 1)
+                self.provider.side_effect = self.respond
+
+    def test_portuguese_feedback_allows_quoted_english_examples_and_verbatim_evidence(self):
+        session = self.create_session(direction='pt_en')
+        text = 'What a blessing to join you this evening!'
+        assessment = make_assessment(text)
+        assessment.update(
+            summary='Muito bem!',
+            strengths=['Boa tradução!', 'Você usou “What a blessing to join you this evening!” para transmitir a mensagem.'],
+            improvements=['Use "with you tonight" para manter a ideia de estar junto ao público.',
+                          "Você pode usar 'It is a blessing to be here with you tonight' nesta situação.",
+                          'Você pode dizer `What a blessing to join you this evening!` nesta situação.'],
+            difficult_vocabulary=['blessing — bênção', 'this evening — nesta noite'],
+        )
+        self.provider.side_effect = [assessment]
+        response = self.submit(session, text=text)
+        self.assertEqual(response.status_code, 200, response.data)
+        feedback = response.data['messages'][-1]['metadata']['interpretation_feedback']
+        for field in ('summary', 'strengths', 'improvements', 'difficult_vocabulary', 'information'):
+            self.assertEqual(feedback[field], assessment[field])
+
+    def test_persistent_english_feedback_does_not_save_an_answer_or_change_progress(self):
+        session = self.create_session(direction='pt_en')
+        text = 'What a blessing to join you this evening!'
+        english = {**make_assessment(text), 'summary': 'The welcome message was accurately translated.'}
+        self.provider.side_effect = [english, english]
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.submit(session, text=text)
+        self.assertEqual(response.status_code, 503)
+        saved = AIStudySession.objects.get(pk=session['id'])
+        self.assertEqual(saved.messages.count(), 1)
+        self.assertEqual(saved.guided_state, session['guided_state'])
+        self.assertIn('operation=interpreter_assessment', '\n'.join(logs.output))
+        self.assertIn('validation exhausted', '\n'.join(logs.output))
+        self.assertNotIn(text, '\n'.join(logs.output))
 
     def test_alternating_keeps_language_and_character_schedule(self):
         session = self.create_session(direction='alternating')
@@ -213,12 +298,136 @@ class InterpreterAPITests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(AIStudySession.objects.count(), 0)
 
+    def test_provider_failure_reports_operation_without_logging_student_content(self):
+        self.provider.side_effect = RuntimeError('private provider details')
+        with self.assertLogs('ai_study.interpreter', level='ERROR') as logs:
+            response = self.client.post('/api/ai-study/sessions/', dict(mode='listening', scenario_label='Pregação',
+                level='A2', interpreter_settings={}), format='json')
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('Não foi possível preparar a interpretação', str(response.data))
+        self.assertEqual(AIStudySession.objects.count(), 0)
+        self.assertIn('operation=interpreter_plan', logs.output[0])
+        self.assertIn('error_type=RuntimeError', logs.output[0])
+        self.assertNotIn('private provider details', '\n'.join(logs.output))
+
     def test_wrong_direction_from_provider_is_rejected_without_advancing(self):
         session = self.create_session(prepare_vocabulary=True)
         self.provider.side_effect = lambda *args: make_turn('pt', 'en')
-        response = self.post(session, 'next')
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.post(session, 'next')
         self.assertEqual(response.status_code, 503)
         self.assertEqual(AIStudySession.objects.get(pk=session['id']).guided_state['interpreter']['next_index'], 0)
+        self.assertIn('stage=content reason=wrong_direction', '\n'.join(logs.output))
+
+    def test_turn_formatting_and_incorrect_option_index_are_reconciled_without_regeneration(self):
+        session = self.create_session(prepare_vocabulary=True)
+        turn = make_turn()
+        turn['speaker'] = 'CHRISTOPHER'
+        turn['alternatives'][0] = 'é uma bênção  estar aqui com vocês nesta noite'
+        turn['correct_option_index'] = 2
+        self.provider.side_effect = [turn]
+        response = self.post(session, 'next')
+        self.assertEqual(response.status_code, 200, response.data)
+        saved = response.data['messages'][0]['metadata']['interpretation_turn']
+        self.assertEqual(saved['speaker'], 'Christopher')
+        self.assertEqual(saved['correct_option_index'], 0)
+        self.assertEqual(saved['alternatives'][0], saved['suggested_interpretation'])
+        self.assertEqual(saved['alternatives'][1:], turn['alternatives'][1:])
+
+    def test_reconciled_option_index_is_used_when_student_selects_an_alternative(self):
+        session = self.create_session(prepare_vocabulary=True)
+        turn = make_turn()
+        turn['alternatives'][0], turn['alternatives'][2] = turn['alternatives'][2], turn['alternatives'][0]
+        self.provider.side_effect = [turn]
+        started = self.post(session, 'next').data
+        self.provider.side_effect = self.respond
+        response = self.post(started, 'answer', dict(message_id=started['guided_state']['interpreter']['active_turn_id'],
+            request_id=str(uuid.uuid4()), response_mode='multiple_choice', selected_option_index=2))
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['messages'][1]['text'], turn['suggested_interpretation'])
+        self.assertEqual(response.data['guided_state']['interpreter']['report']['completeness_score'], 100)
+
+    def test_turn_retry_includes_exact_word_limits_and_recovers_without_advancing_twice(self):
+        session = self.create_session(prepare_vocabulary=True)
+        invalid = make_turn()
+        invalid['transcript'] = ' '.join(['word'] * 38)  # A2 permits at most floor(25 * 1.5) words.
+        self.provider.side_effect = [invalid, make_turn()]
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.post(session, 'next')
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = json.loads(self.provider.call_args.args[0][1]['content'])
+        self.assertEqual(payload['transcript_word_limits'], {'minimum': 1, 'maximum': 37})
+        self.assertEqual(payload['speaker'], 'Christopher')
+        self.assertIn('38 palavras', payload['validation_error'])
+        self.assertIn('no máximo 37 palavras', payload['validation_error'])
+        self.assertIn('reason=turn_too_long', logs.output[0])
+        self.assertIn('"word_count": 38', logs.output[0])
+        self.assertIn('"max_words": 37', logs.output[0])
+        self.assertNotIn(invalid['transcript'], '\n'.join(logs.output))
+        self.assertEqual(len(response.data['messages']), 1)
+        self.assertEqual(response.data['guided_state']['interpreter']['next_index'], 1)
+
+    def test_genuinely_invalid_turns_are_rejected_with_specific_safe_diagnostics(self):
+        invalid_cases = [
+            ('wrong_speaker', {'speaker': 'Private wrong name'}),
+            ('duplicate_alternatives', {'alternatives': ['Olá!', ' olá! ', 'Outra opção.', 'Mais uma opção.']}),
+            ('missing_correct_alternative', {'suggested_interpretation': 'Private different translation.'}),
+            ('turn_too_long', {'transcript': ' '.join(['Private'] * 38)}),
+        ]
+        for reason, changes in invalid_cases:
+            with self.subTest(reason=reason):
+                self.provider.side_effect = self.respond
+                session = self.create_session(prepare_vocabulary=True)
+                self.provider.side_effect = lambda *args: {**make_turn(), **changes}
+                with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+                    response = self.post(session, 'next')
+                self.assertEqual(response.status_code, 503)
+                output = '\n'.join(logs.output)
+                self.assertIn(f'reason={reason}', output)
+                self.assertNotIn('Private', output)
+                saved = AIStudySession.objects.get(pk=session['id'])
+                self.assertEqual(saved.messages.count(), 0)
+                self.assertEqual(saved.guided_state, session['guided_state'])
+
+    def test_repeated_invalid_first_turn_rolls_back_the_entire_new_session(self):
+        respond = self.respond
+        def invalid_turn(messages, name, contract):
+            if name == 'interpreter_turn':
+                return {**make_turn(), 'transcript': ' '.join(['word'] * 38)}
+            return respond(messages, name, contract)
+        self.provider.side_effect = invalid_turn
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.client.post('/api/ai-study/sessions/', dict(mode='listening', scenario_label='Pregação',
+                level='A2', interpreter_settings={}), format='json')
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('reason=turn_too_long', '\n'.join(logs.output))
+        self.assertEqual(AIStudySession.objects.count(), 0)
+
+    def test_simultaneous_too_short_turn_logs_the_minimum_and_retries_with_exact_bounds(self):
+        session = self.create_session(prepare_vocabulary=True, interpretation_mode='simultaneous', segment_duration_seconds=60)
+        valid = make_turn()
+        valid['transcript'] = ' '.join([valid['transcript']] * 5) + ' Thank you for being here.'
+        self.assertEqual(len(valid['transcript'].split()), 55)
+        self.provider.side_effect = [make_turn(), valid]
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.post(session, 'next')
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = json.loads(self.provider.call_args.args[0][1]['content'])
+        self.assertEqual(payload['transcript_word_limits'], {'minimum': 55, 'maximum': 150})
+        self.assertIn('reason=turn_too_short', logs.output[0])
+        self.assertIn('pelo menos 55', payload['validation_error'])
+
+    def test_invalid_schema_logs_field_and_type_without_generated_content(self):
+        session = self.create_session(prepare_vocabulary=True)
+        self.provider.side_effect = lambda *args: {**make_turn(), 'correct_option_index': 'Private wrong index'}
+        with self.assertLogs('ai_study.interpreter', level='WARNING') as logs:
+            response = self.post(session, 'next')
+        self.assertEqual(response.status_code, 503)
+        output = '\n'.join(logs.output)
+        self.assertIn('stage=schema reason=invalid_schema', output)
+        self.assertIn('"field": "correct_option_index"', output)
+        self.assertIn('"type": "int_type"', output)
+        self.assertNotIn('Private wrong index', output)
 
     def test_complete_session_has_report_and_cannot_continue(self):
         session = self.create_session()
