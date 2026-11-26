@@ -1,17 +1,16 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Brain, Plus } from "lucide-react";
+import { BookOpen, Brain, Plus } from "lucide-react";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Alert, Button, Card, EmptyState, ProgressBar, Skeleton, inputClasses } from "@/components/student/ui";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import ReviewQueue from "@/components/ReviewQueue";
@@ -60,6 +59,9 @@ const emptyForm: CardForm = {
   custom_category: "",
 };
 
+const tabClass = "min-h-11 whitespace-normal rounded-md px-2 text-center text-body font-medium text-ink data-[state=active]:bg-surface data-[state=active]:text-ink data-[state=active]:shadow-raised";
+const textareaClass = cn(inputClasses, "py-3");
+
 const normalizeList = <T,>(data: unknown): T[] => {
   if (Array.isArray(data)) return data as T[];
   if (data && typeof data === "object" && "results" in data) {
@@ -76,8 +78,9 @@ const VocabularyDashboard = () => {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [form, setForm] = useState<CardForm>(emptyForm);
   const [createMode, setCreateMode] = useState("manual");
+  const formId = useId();
 
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery({
     queryKey: ["vocabulary-dashboard"],
     queryFn: async () => {
       const res = await api.get("/vocabulary-cards/dashboard/");
@@ -116,49 +119,77 @@ const VocabularyDashboard = () => {
 
   if (reviewMode) return <ReviewQueue onBack={() => setReviewMode(false)} />;
 
+  const totalWords = stats?.total_learned_words || 0;
+  const dueToday = (stats?.due_today || 0) + (stats?.overdue || 0);
+  const mastered = stats?.mastered || 0;
+  const fieldClass = "space-y-1.5";
+  const labelClass = "block text-body font-medium text-ink";
+
   return (
     <div className="space-y-6">
-      <section className="rounded-[26px] border border-border bg-card p-5 shadow-sm sm:p-6">
-        <div className="grid gap-3 md:grid-cols-2">
-          <Button
-            size="lg"
-            className="h-auto min-h-[88px] w-full min-w-0 justify-start whitespace-normal rounded-2xl px-5 py-5 text-left text-base shadow-sm"
-            onClick={() => setReviewMode(true)}
-            disabled={!stats?.total_learned_words}
+      <Card as="section" aria-labelledby={`${formId}-summary`}>
+        <h2 id={`${formId}-summary`} className="sr-only">Resumo do vocabulário</h2>
+        {statsLoading ? (
+          <div role="status" aria-label="Carregando resumo" className="grid grid-cols-2 gap-4">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+          </div>
+        ) : statsError ? (
+          <Alert
+            tone="danger"
+            role="alert"
+            title="Não carregamos seu resumo."
+            action={<Button type="button" variant="outline" size="sm" onClick={() => void refetchStats()}>Tentar novamente</Button>}
           >
-            <Brain className="mr-3 h-6 w-6 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-lg font-semibold">Revisar palavras agora</span>
-              <span className="mt-1 block text-sm font-normal opacity-85">
-                {stats?.total_learned_words
-                  ? `${(stats?.due_today || 0) + (stats?.overdue || 0)} para hoje`
-                  : "Adicione uma palavra para começar"}
-              </span>
-            </span>
+            Suas palavras continuam salvas. Tente novamente.
+          </Alert>
+        ) : totalWords ? (
+          <div className="space-y-4">
+            <dl className="grid grid-cols-2 divide-x divide-line">
+              <div className="min-w-0 pr-4">
+                <dt className="text-body text-ink-secondary">Palavras aprendidas</dt>
+                <dd className="mt-1 text-h2 text-ink">{totalWords}</dd>
+              </div>
+              <div className="min-w-0 pl-4">
+                <dt className="text-body text-ink-secondary">Para revisar hoje</dt>
+                <dd className="mt-1 text-h2 text-ink">{dueToday}</dd>
+              </div>
+            </dl>
+            <div className="space-y-2">
+              <ProgressBar value={Math.min(mastered, totalWords)} max={totalWords} label="Palavras dominadas" tone="success" />
+              <p className="text-caption text-ink-muted">{mastered} de {totalWords} dominadas</p>
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon={BookOpen}
+            title="Nenhuma palavra cadastrada ainda."
+            description="Adicione uma palavra ou gere frases com IA para começar a revisar."
+            className="pt-0"
+          />
+        )}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <Button type="button" size="lg" fullWidth onClick={() => setReviewMode(true)} disabled={!totalWords}>
+            <Brain aria-hidden="true" />
+            Revisar palavras agora
           </Button>
           <Button
+            type="button"
             size="lg"
             variant="outline"
-            className="h-auto min-h-[88px] w-full min-w-0 justify-start whitespace-normal rounded-2xl px-5 py-5 text-left text-base"
+            fullWidth
             onClick={() => { setCreateMode("manual"); setIsCreateDialogOpen(true); }}
           >
-            <Plus className="mr-3 h-6 w-6 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-lg font-semibold">Adicionar nova palavra</span>
-              <span className="mt-1 block text-sm font-normal text-muted-foreground">Cadastre uma palavra ou gere frases com IA para estudar.</span>
-            </span>
+            <Plus aria-hidden="true" />
+            Adicionar nova palavra
           </Button>
         </div>
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">
+        <p className="mt-3 text-caption text-ink-muted">
           As palavras e frases que você salvar ficam disponíveis na sua revisão.
         </p>
-      </section>
-
-      {!stats?.total_learned_words ? (
-        <div className="rounded-2xl border border-dashed border-border bg-muted/25 p-6 text-sm text-muted-foreground">
-          Nenhuma palavra cadastrada ainda.
-        </div>
-      ) : null}
+      </Card>
 
       <Dialog
         open={isCreateDialogOpen}
@@ -172,35 +203,56 @@ const VocabularyDashboard = () => {
       >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Adicionar nova palavra</DialogTitle>
-            <DialogDescription>
-              Adicione ao seu vocabulário: cadastre uma palavra ou peça à IA frases com as palavras que você quer praticar.
+            <DialogTitle className="text-h3 text-ink">Adicionar nova palavra</DialogTitle>
+            <DialogDescription className="text-body text-ink-secondary">
+              Cadastre uma palavra ou peça à IA frases com as palavras que você quer praticar.
             </DialogDescription>
           </DialogHeader>
 
           <Tabs value={createMode} onValueChange={setCreateMode} className="min-w-0 space-y-4">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="manual" className="h-auto min-h-10 whitespace-normal px-2 text-center leading-5">Cadastrar palavra</TabsTrigger>
-              <TabsTrigger value="ai" className="h-auto min-h-10 whitespace-normal px-2 text-center leading-5">Gerar frases com IA</TabsTrigger>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-surface-muted p-1">
+              <TabsTrigger value="manual" className={tabClass}>Cadastrar palavra</TabsTrigger>
+              <TabsTrigger value="ai" className={tabClass}>Gerar frases com IA</TabsTrigger>
             </TabsList>
             <TabsContent value="manual">
               <form onSubmit={submitCard} className="grid gap-4 md:grid-cols-2">
-                <input required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                <input required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                <Textarea value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Explicação" />
-                <Textarea value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Frase de exemplo" />
-                <input value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-                <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                  <option value="">Categoria padrão</option>
-                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <input value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Categoria customizada" className="rounded-lg border border-border bg-background px-3 py-2 text-sm md:col-span-2" />
-                <DialogFooter className="md:col-span-2">
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-word`} className={labelClass}>Palavra em inglês</label>
+                  <input id={`${formId}-word`} lang="en" required value={form.word} onChange={(event) => setForm({ ...form, word: event.target.value })} placeholder="Palavra ou expressão" className={inputClasses} />
+                </div>
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-translation`} className={labelClass}>Tradução em português</label>
+                  <input id={`${formId}-translation`} required value={form.translation} onChange={(event) => setForm({ ...form, translation: event.target.value })} placeholder="Tradução" className={inputClasses} />
+                </div>
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-explanation`} className={labelClass}>Explicação</label>
+                  <textarea id={`${formId}-explanation`} rows={3} value={form.explanation} onChange={(event) => setForm({ ...form, explanation: event.target.value })} placeholder="Quando e como usar" className={textareaClass} />
+                </div>
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-example`} className={labelClass}>Frase de exemplo</label>
+                  <textarea id={`${formId}-example`} lang="en" rows={3} value={form.example_sentence} onChange={(event) => setForm({ ...form, example_sentence: event.target.value })} placeholder="Uma frase em inglês com a palavra" className={textareaClass} />
+                </div>
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-tags`} className={labelClass}>Tags</label>
+                  <input id={`${formId}-tags`} value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} placeholder="Tags separadas por vírgula" className={inputClasses} />
+                </div>
+                <div className={fieldClass}>
+                  <label htmlFor={`${formId}-category`} className={labelClass}>Categoria</label>
+                  <select id={`${formId}-category`} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className={inputClasses}>
+                    <option value="">Categoria padrão</option>
+                    {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </div>
+                <div className={cn(fieldClass, "md:col-span-2")}>
+                  <label htmlFor={`${formId}-custom-category`} className={labelClass}>Categoria personalizada</label>
+                  <input id={`${formId}-custom-category`} value={form.custom_category} onChange={(event) => setForm({ ...form, custom_category: event.target.value })} placeholder="Opcional" className={inputClasses} />
+                </div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end md:col-span-2">
                   <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Cancelar</Button>
                   <Button type="submit" disabled={createMutation.isPending}>
                     {createMutation.isPending ? "Criando..." : "Criar palavra"}
                   </Button>
-                </DialogFooter>
+                </div>
               </form>
             </TabsContent>
             <TabsContent value="ai">

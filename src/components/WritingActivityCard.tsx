@@ -1,40 +1,55 @@
+import type { ReactNode } from "react";
+import { CheckCircle2, ChevronDown, PenLine, Target, XCircle } from "lucide-react";
 import type { WritingActivity, WritingCorrection, WritingHelp } from "@/lib/writing";
-import { Badge } from "@/components/ui/badge";
+import { Badge, StudyBlock } from "@/components/student/ui";
+import { iconStroke } from "@/design-system/tokens";
+import { cn } from "@/lib/utils";
 
 const Construction = ({ activity }: { activity: WritingActivity }) => <div className="space-y-3">
-  <p className="whitespace-pre-line text-sm">{activity.explanation}</p>
-  <ol className="space-y-2 border-l-2 border-emerald-200 pl-4">
+  <p className="whitespace-pre-line text-body-lg text-ink">{activity.explanation}</p>
+  <ol className="space-y-3 border-l-2 border-primary-light pl-4">
     {activity.construction.map((step, index) => <li key={index}>
-      <p lang="en" className="font-medium">{step.text}</p>
-      <p className="text-sm text-muted-foreground">{step.translation}</p>
+      <p lang="en" className="text-body-lg font-medium text-ink">{step.text}</p>
+      <p className="text-body text-ink">{step.translation}</p>
     </li>)}
   </ol>
 </div>;
 
-export const WritingActivityCard = ({ activity }: { activity: WritingActivity }) => <section aria-label="Atividade de Writing" className="min-w-0 space-y-5 break-words">
-  <div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">Atividade {activity.number}</Badge><Badge variant="outline">{activity.kind_label}</Badge></div>
-  <div><h3 className="font-semibold">Sua situação</h3><p className="mt-1 whitespace-pre-line">{activity.situation}</p>
-    <p className="mt-2 text-sm text-muted-foreground">Objetivo: {activity.objective}</p></div>
-  <div className="rounded-2xl bg-slate-50 p-4">
-    <p className="mb-3 font-semibold">Vamos construir · <span lang="en">{activity.structure}</span></p>
-    {activity.support === "full" ? <Construction activity={activity} /> : <details>
-      <summary className="cursor-pointer text-sm text-emerald-800">Rever a estrutura passo a passo</summary>
-      <div className="mt-3"><Construction activity={activity} /></div>
+export const WritingActivityCard = ({ activity }: { activity: WritingActivity }) => <section aria-label="Atividade de Writing" className="min-w-0 space-y-6 break-words">
+  <div className="flex flex-wrap items-center gap-2"><Badge tone="primary">Atividade {activity.number}</Badge><Badge>{activity.kind_label}</Badge></div>
+  <div>
+    <h3 className="text-h4 text-ink">Sua situação</h3>
+    <p className="mt-1 whitespace-pre-line text-body-lg text-ink">{activity.situation}</p>
+    <p className="mt-2 flex gap-2 text-body text-ink-secondary">
+      <Target size={16} strokeWidth={iconStroke} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
+      <span>Objetivo: {activity.objective}</span>
+    </p>
+  </div>
+  <div className="rounded-lg bg-surface-muted p-4">
+    <p className="mb-3 text-body-lg font-semibold text-ink">Vamos construir · <span lang="en">{activity.structure}</span></p>
+    {activity.support === "full" ? <Construction activity={activity} /> : <details className="group/construction">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md text-body font-medium text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">Rever a estrutura passo a passo
+        <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-200 ease-standard group-open/construction:rotate-180" />
+      </summary>
+      <div className="mt-2"><Construction activity={activity} /></div>
     </details>}
   </div>
-  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-    <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Exemplo resolvido</h3>
-    <p lang="en" className="mt-2 whitespace-pre-line font-medium">{activity.example.text}</p>
-    <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{activity.example.translation}</p>
-  </div>
-  {activity.support === "full" ? <div><h3 className="text-sm font-semibold">Palavras para esta atividade</h3>
-    <dl className="mt-2 flex flex-wrap gap-2">{activity.vocabulary.map((word, index) => <div key={index} className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
-      <dt lang="en" className="inline font-medium">{word.text}</dt><dd className="inline"> — {word.translation}</dd>
+  <StudyBlock kind="example" title="Exemplo resolvido">
+    <p lang="en" className="whitespace-pre-line font-medium">{activity.example.text}</p>
+    <p className="mt-1 whitespace-pre-line text-body text-ink">{activity.example.translation}</p>
+  </StudyBlock>
+  {activity.support === "full" ? <div>
+    <h3 className="text-body font-semibold text-ink">Palavras para esta atividade</h3>
+    <dl className="mt-2 flex flex-wrap gap-2">{activity.vocabulary.map((word, index) => <div key={index} className="rounded-md bg-surface-muted px-3 py-2 text-body text-ink">
+      <dt lang="en" className="inline font-semibold">{word.text}</dt><dd className="inline"> — {word.translation}</dd>
     </div>)}</dl>
   </div> : null}
-  <div className="rounded-2xl border-2 border-emerald-300 p-4"><h3 className="font-semibold text-emerald-800">Agora é sua vez</h3>
-    <p className="mt-2 whitespace-pre-line">{activity.instruction}</p>
-    {activity.words.length ? <div aria-label="Palavras fornecidas" className="mt-3 flex flex-wrap gap-2">{activity.words.map((word, index) => <span key={index} lang="en" className="rounded-lg border bg-white px-3 py-1 font-medium">{word}</span>)}</div> : null}
+  <div className="rounded-lg border border-primary-light p-4">
+    <h3 className="flex items-center gap-2 text-h4 text-ink">
+      <PenLine size={20} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-primary" />Agora é sua vez
+    </h3>
+    <p className="mt-2 whitespace-pre-line text-body-lg text-ink">{activity.instruction}</p>
+    {activity.words.length ? <div aria-label="Palavras fornecidas" className="mt-3 flex flex-wrap gap-2">{activity.words.map((word, index) => <span key={index} lang="en" className="rounded-sm border border-line bg-surface px-3 py-1 text-body font-medium text-ink">{word}</span>)}</div> : null}
   </div>
 </section>;
 
@@ -53,20 +68,42 @@ const HighlightedCorrection = ({ correction }: { correction: WritingCorrection }
     while (originalIndex < before.length && before[originalIndex] !== part && common[originalIndex + 1][index] >= common[originalIndex][index + 1]) originalIndex++;
     const unchanged = before[originalIndex] === part;
     if (unchanged) originalIndex++;
-    return unchanged || !part.trim() ? part : <mark key={index} className="rounded bg-emerald-100 px-0.5 font-semibold text-emerald-950">{part}</mark>;
+    return unchanged || !part.trim() ? part : <mark key={index} className="rounded-xs bg-surface px-0.5 font-semibold text-ink underline decoration-success decoration-2 underline-offset-2">{part}</mark>;
   })}</>;
 };
 
-export const WritingCorrectionCard = ({ correction }: { correction: WritingCorrection }) => <section aria-label="Correção da sua resposta" className="space-y-3 rounded-2xl border border-border p-4">
-  <h3 className="font-semibold">{correction.outcome === "correct" ? "Muito bem!" : "Vamos ajustar juntos"}</h3>
-  <p className="whitespace-pre-line">{correction.feedback}</p>
-  <div><p className="text-xs font-semibold text-muted-foreground">Sua resposta</p><p lang="en" className="mt-1 whitespace-pre-line">{correction.original}</p></div>
-  {correction.outcome === "needs_work" ? <>
-    <div><p className="text-xs font-semibold text-emerald-800">Forma correta</p><p lang="en" className="mt-1 whitespace-pre-line"><HighlightedCorrection correction={correction} /></p></div>
-    {correction.errors.map((error, index) => <p key={index} className="whitespace-pre-line text-sm text-muted-foreground">{error.explanation}</p>)}
-  </> : null}
-</section>;
+const AnswerBlock = ({ label, correct, children }: { label: string; correct: boolean; children: ReactNode }) => {
+  const Icon = correct ? CheckCircle2 : XCircle;
+  return <div className={cn("rounded-lg px-4 py-3", correct ? "bg-success-soft" : "bg-danger-soft")}>
+    <p className={cn("flex items-center gap-1.5 text-label", correct ? "text-success" : "text-ink")}>
+      <Icon size={16} strokeWidth={iconStroke} aria-hidden="true" className={cn("shrink-0", correct ? "text-success" : "text-danger")} />{label}
+    </p>
+    <p lang="en" className="mt-1 whitespace-pre-line text-body-lg text-ink">{children}</p>
+  </div>;
+};
 
-export const WritingHelpCard = ({ help }: { help: WritingHelp }) => <aside aria-label={help.label} className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-  <h3 className="font-semibold text-sky-900">{help.label}</h3><p className="mt-2 whitespace-pre-line">{help.text}</p>
+export const WritingCorrectionCard = ({ correction }: { correction: WritingCorrection }) => {
+  const correct = correction.outcome === "correct";
+  return <section aria-label="Correção da sua resposta" className="min-w-0 space-y-3 break-words">
+    <h3 className="flex items-center gap-2 text-h4 text-ink">
+      {correct
+        ? <CheckCircle2 size={20} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-success" />
+        : <PenLine size={20} strokeWidth={iconStroke} aria-hidden="true" className="shrink-0 text-warning" />}
+      {correct ? "Muito bem!" : "Vamos ajustar juntos"}
+    </h3>
+    <p className="whitespace-pre-line text-body-lg text-ink">{correction.feedback}</p>
+    <div className={cn("grid gap-3", !correct && "sm:grid-cols-2")}>
+      <AnswerBlock label="Sua resposta" correct={correct}>{correction.original}</AnswerBlock>
+      {correction.outcome === "needs_work" ? <AnswerBlock label="Forma correta" correct><HighlightedCorrection correction={correction} /></AnswerBlock> : null}
+    </div>
+    {correction.outcome === "needs_work" && correction.errors.length ? <StudyBlock kind="correction" title="O que ajustar">
+      <div className="space-y-2">
+        {correction.errors.map((error, index) => <p key={index} className="whitespace-pre-line">{error.explanation}</p>)}
+      </div>
+    </StudyBlock> : null}
+  </section>;
+};
+
+export const WritingHelpCard = ({ help }: { help: WritingHelp }) => <aside aria-label={help.label} className="min-w-0 break-words">
+  <StudyBlock kind="tip" title={help.label}><p className="whitespace-pre-line">{help.text}</p></StudyBlock>
 </aside>;

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Headphones, Loader2, RotateCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Headphones, RotateCcw } from "lucide-react";
+import { Alert, Button, inputClasses } from "@/components/student/ui";
 import { api } from "@/lib/api";
 import { absoluteMediaUrl } from "@/lib/config";
 import { audioRequestError } from "@/lib/speakingAudio";
+import { cn } from "@/lib/utils";
 
 type Props = {
   sessionId: string;
@@ -17,6 +18,8 @@ type Props = {
   onPlayingChange?: (playing: boolean) => void;
   onEnded?: () => void;
 };
+
+const SPEEDS = [0.6, 0.75, 0.8, 0.9, 1, 1.25];
 
 const InterpreterAudio = ({ sessionId, messageId, part, vocabularyIndex, label, initialUrl, speed = 1, disabled, onPlayingChange, onEnded }: Props) => {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -43,29 +46,33 @@ const InterpreterAudio = ({ sessionId, messageId, part, vocabularyIndex, label, 
     finally { if (mounted.current) setLoading(false); }
   };
 
-  return <div className="space-y-2">
-    {!url ? <Button type="button" variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal" onClick={() => void load()} disabled={loading || disabled}>
-      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Headphones className="h-4 w-4" />}{loading ? "Preparando áudio..." : label}
-    </Button> : <div className="space-y-2 rounded-2xl border border-border bg-background p-3">
-      <p className="text-sm font-medium">{label}</p>
+  return <div className="min-w-0 space-y-2">
+    {!url ? <Button type="button" variant={part === "original" ? "secondary" : "outline"} className="h-auto max-w-full whitespace-normal py-2 text-left"
+      onClick={() => void load()} disabled={disabled} loading={loading} loadingLabel="Preparando áudio…">
+      <Headphones aria-hidden="true" />{label}
+    </Button> : <div className="min-w-0 space-y-3 rounded-lg bg-surface-muted p-3">
+      <p className="flex items-center gap-2 text-body font-medium text-ink"><Headphones size={16} className="shrink-0 text-primary" aria-hidden="true" />{label}</p>
       <audio ref={audioRef} aria-label={label} src={absoluteMediaUrl(url) || undefined} controls preload="metadata" className="w-full min-w-0 max-w-full"
         onPlay={() => { if (disabled) { audioRef.current?.pause(); return; } onPlayingChange?.(true); }}
         onPause={() => onPlayingChange?.(false)} onEnded={() => { onPlayingChange?.(false); onEnded?.(); }}
         onLoadedMetadata={() => { if (audioRef.current) audioRef.current.playbackRate = rate; }}
         onError={() => { onPlayingChange?.(false); setError("Não foi possível reproduzir o áudio. Tente carregá-lo novamente."); }} />
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => {
           const player = audioRef.current;
           if (!player) return;
           player.currentTime = 0;
           void player.play().catch(() => setError("Use o botão de reprodução para ouvir o áudio."));
-        }}><RotateCcw className="h-4 w-4" />Ouvir novamente</Button>
-        <label className="text-xs">Velocidade <select aria-label={`Velocidade: ${label}`} className="ml-2 rounded-md border bg-background p-2" value={rate} onChange={(e) => setRate(Number(e.target.value))}>
-          {[0.6, 0.75, 0.8, 0.9, 1, 1.25].map((value) => <option key={value} value={value}>{value}x</option>)}
-        </select></label>
+        }}><RotateCcw aria-hidden="true" />Ouvir novamente</Button>
+        <label className="flex items-center gap-2 text-body text-ink">Velocidade
+          <select aria-label={`Velocidade: ${label}`} className={cn(inputClasses, "min-h-11 w-auto px-3")} value={rate} onChange={(e) => setRate(Number(e.target.value))}>
+            {SPEEDS.map((value) => <option key={value} value={value}>{value}x</option>)}
+          </select>
+        </label>
       </div>
     </div>}
-    {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{error}</p><Button type="button" size="sm" variant="outline" disabled={loading || disabled} onClick={() => { setUrl(""); void load(); }}>Tentar áudio novamente</Button></div> : null}
+    {error ? <Alert tone="danger" role="alert" title={error}
+      action={<Button type="button" size="sm" variant="outline" disabled={loading || disabled} onClick={() => { setUrl(""); void load(); }}>Tentar áudio novamente</Button>} /> : null}
   </div>;
 };
 

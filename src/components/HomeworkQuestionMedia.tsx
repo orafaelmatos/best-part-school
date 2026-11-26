@@ -9,6 +9,7 @@ type Props = {
   className?: string;
 };
 
+// Shared by the student activity screen and the teacher correction pages: only token classes here.
 const HomeworkQuestionMedia = ({
   imageUrl,
   audioUrl,
@@ -24,17 +25,17 @@ const HomeworkQuestionMedia = ({
   }
 
   return (
-    <div className={`space-y-3 ${className}`.trim()}>
+    <div className={`min-w-0 space-y-3 ${className}`.trim()}>
       {resolvedImageUrl ? (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <img src={resolvedImageUrl} alt="Imagem da pergunta" className="max-h-80 w-full object-contain bg-muted/20" />
+        <div className="overflow-hidden rounded-lg border border-line bg-surface-muted">
+          <img src={resolvedImageUrl} alt="Imagem da pergunta" className="max-h-80 w-full object-contain" />
         </div>
       ) : null}
       {resolvedAudioUrl ? <AudioPlayer src={resolvedAudioUrl} compact /> : null}
       {showTranscript && audioTranscript ? (
-        <div className="rounded-lg border border-border bg-muted/40 p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Transcrição sugerida</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{audioTranscript}</p>
+        <div className="rounded-lg bg-surface-muted px-4 py-3">
+          <p className="text-label text-ink">Transcrição sugerida</p>
+          <p lang="en" className="mt-1 whitespace-pre-wrap text-body text-ink">{audioTranscript}</p>
         </div>
       ) : null}
     </div>

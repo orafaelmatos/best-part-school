@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { AlertCircle, Loader2, Pause, Play } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/student/ui";
+import { colors } from "@/design-system/tokens";
+import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 
 const formatDuration = (seconds: number) => {
@@ -39,7 +41,7 @@ const AudioPlayer = ({ src, compact = false }: { src?: string | null; compact?: 
     const timer = setTimeout(fail, 20_000);
     try {
       player = WaveSurfer.create({ container: containerRef.current, url: src,
-        waveColor: "#d4d4d4", progressColor: "#171717", cursorColor: "transparent",
+        waveColor: colors.disabled, progressColor: colors.primary, cursorColor: "transparent",
         height: compact ? 32 : 48, barWidth: 2, barGap: 2, barRadius: 2, normalize: true });
       playerRef.current = player;
       player.on("ready", () => {
@@ -67,7 +69,7 @@ const AudioPlayer = ({ src, compact = false }: { src?: string | null; compact?: 
   if (!src) return null;
 
   return (
-    <div className="w-full space-y-2 rounded-xl border border-border bg-background p-3">
+    <div className="w-full space-y-2 rounded-lg border border-line bg-surface p-2 text-ink">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <button type="button" disabled={!isReady} aria-label={isPlaying ? "Pausar áudio" : "Tocar áudio"}
           onClick={async () => {
@@ -75,18 +77,22 @@ const AudioPlayer = ({ src, compact = false }: { src?: string | null; compact?: 
             try { await player?.playPause(); }
             catch { if (playerRef.current === player) { setIsPlaying(false); setError("Não consegui iniciar a reprodução. Tente novamente ou continue pelo texto."); } }
           }}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50">
-          {error ? <AlertCircle className="h-4 w-4" /> : !isReady ? <Loader2 className="h-4 w-4 animate-spin" /> : isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          className={cn(
+            "flex size-11 shrink-0 items-center justify-center rounded-full transition-colors duration-150 ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50",
+            error ? "bg-surface-muted text-ink-secondary" : "bg-primary text-primary-foreground hover:bg-primary-dark",
+          )}>
+          {error ? <AlertCircle size={20} aria-hidden="true" /> : !isReady ? <Loader2 size={20} className="animate-spin" aria-hidden="true" /> : isPlaying ? <Pause size={20} aria-hidden="true" /> : <Play size={20} aria-hidden="true" />}
         </button>
         <div ref={containerRef} className="min-w-0 flex-1" />
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(duration)}</span>
+        <span className="shrink-0 text-caption tabular-nums text-ink-secondary">{formatDuration(duration)}</span>
         <select aria-label="Velocidade do áudio" value={speed} disabled={!isReady}
-          onChange={(event) => setSpeed(Number(event.target.value))} className="max-w-20 rounded-md border border-border bg-card px-1 py-2 text-xs">
+          onChange={(event) => setSpeed(Number(event.target.value))}
+          className="min-h-11 max-w-20 shrink-0 rounded-md border border-line bg-surface px-1 text-caption text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">
           <option value={0.75}>0.75x</option><option value={1}>1x</option><option value={1.25}>1.25x</option><option value={1.5}>1.5x</option>
         </select>
       </div>
       {!isReady && !error ? <span role="status" className="sr-only">Carregando áudio...</span> : null}
-      {error ? <div className="space-y-2"><p role="alert" className="text-xs text-muted-foreground">{error}</p>
+      {error ? <div className="space-y-2 px-1 pb-1"><p role="alert" className="text-body text-ink-secondary">{error}</p>
         <Button type="button" size="sm" variant="outline" onClick={() => { void queryClient.invalidateQueries(); setRetry((value) => value + 1); }}>Tentar áudio novamente</Button>
       </div> : null}
     </div>

@@ -1,19 +1,42 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
 import HomeworkQuestionMedia from "@/components/HomeworkQuestionMedia";
-import PageHeader from "@/components/PageHeader";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { APP_PATHS } from "@/lib/routes";
+import { cn } from "@/lib/utils";
+import { iconStroke } from "@/design-system/tokens";
 import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Chip,
+  EmptyState,
+  ProgressBar,
+  ScreenTitle,
+  SkeletonCard,
+  StudyBlock,
+  buttonVariants,
+  cardVariants,
+  inputClasses,
+  type BadgeTone,
+} from "@/components/student/ui";
+import {
+  AlertCircle,
   ArrowLeft,
-  BookOpen,
   CalendarClock,
   CheckCircle2,
+  CircleDashed,
+  ClipboardList,
   Clock,
+  Loader2,
+  PencilLine,
   Send,
+  Sparkles,
   Tag,
+  type LucideIcon,
 } from "lucide-react";
 
 type QuestionType = "open_text" | "multiple_choice";
@@ -105,13 +128,31 @@ const statusCopy: Record<UiHomeworkStatus, string> = {
   corrected: "Corrigida",
 };
 
-const statusStyles: Record<UiHomeworkStatus, string> = {
-  pending: "bg-amber-50 text-amber-700 border-amber-200",
-  in_progress: "bg-violet-50 text-violet-700 border-violet-200",
-  sent: "bg-blue-50 text-blue-700 border-blue-200",
-  late: "bg-red-50 text-red-700 border-red-200",
-  corrected: "bg-emerald-50 text-emerald-700 border-emerald-200",
+// Status is always shown with text and icon, never color alone.
+const statusStyles: Record<UiHomeworkStatus, { tone: BadgeTone; icon: LucideIcon }> = {
+  pending: { tone: "warning", icon: Clock },
+  in_progress: { tone: "primary", icon: PencilLine },
+  sent: { tone: "neutral", icon: Send },
+  late: { tone: "danger", icon: AlertCircle },
+  corrected: { tone: "success", icon: CheckCircle2 },
 };
+
+const actionCopy: Record<UiHomeworkStatus, string> = {
+  pending: "Começar atividade",
+  late: "Começar atividade",
+  in_progress: "Continuar atividade",
+  sent: "Ver atividade",
+  corrected: "Ver correção",
+};
+
+const StatusBadge = ({ status }: { status: UiHomeworkStatus }) => {
+  const { tone, icon: Icon } = statusStyles[status];
+  return <Badge tone={tone} icon={<Icon strokeWidth={iconStroke} aria-hidden="true" />}>{statusCopy[status]}</Badge>;
+};
+
+const AutoCorrectionBadge = () => (
+  <Badge tone="ai" icon={<Sparkles strokeWidth={iconStroke} aria-hidden="true" />}>Correção automática</Badge>
+);
 
 const normalizeList = (data: unknown) => Array.isArray(data) ? data : ((data as { results?: unknown[] })?.results || []);
 
@@ -165,10 +206,28 @@ const isDueSoon = (value?: string | null) => {
   return diff > 0 && diff <= 1000 * 60 * 60 * 48;
 };
 
+/** Due date line. Warning tone only while the activity still needs an answer. */
+const DueDate = ({ homework, status }: { homework: HomeworkItem; status: UiHomeworkStatus }) => {
+  const actionable = status === "pending" || status === "in_progress";
+  const dueSoon = actionable && isDueSoon(homework.due_date);
+  const overdue = status === "late";
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1.5 text-caption",
+      overdue ? "font-medium text-danger" : dueSoon ? "font-medium text-warning" : "text-ink-secondary",
+    )}>
+      <CalendarClock size={16} strokeWidth={iconStroke} className="shrink-0" aria-hidden="true" />
+      <span>
+        {homework.due_date ? `Entrega: ${formatDate(homework.due_date)}` : formatDate(homework.due_date)}
+        {dueSoon ? " · vence em breve" : overdue ? " · prazo encerrado" : ""}
+      </span>
+    </span>
+  );
+};
+
 const Homework = () => {
   return (
     <DashboardLayout>
-      <PageHeader title="Homework" description="Lições de casa e acompanhamento de estudos." />
       <HomeworkLessons />
     </DashboardLayout>
   );
@@ -184,8 +243,20 @@ const HomeworkLessons = () => {
   const [secondChanceDrafts, setSecondChanceDrafts] = useState<Record<string, DraftAnswer>>({});
   const [expandedSecondChance, setExpandedSecondChance] = useState<Record<string, boolean>>({});
   const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>("idle");
+  const [openFailedHomework, setOpenFailedHomework] = useState<HomeworkItem | null>(null);
+  const detailHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const selectedHomeworkId = selectedHomework?.id;
+  const previousHomeworkIdRef = useRef(selectedHomeworkId);
 
-  const { data: homeworkItems = [], isLoading } = useQuery({
+  // Opening or leaving an activity swaps the whole screen: start at the top and move focus to the title.
+  useEffect(() => {
+    if (previousHomeworkIdRef.current === selectedHomeworkId) return;
+    previousHomeworkIdRef.current = selectedHomeworkId;
+    window.scrollTo({ top: 0 });
+    if (selectedHomeworkId) detailHeadingRef.current?.focus({ preventScroll: true });
+  }, [selectedHomeworkId]);
+
+  const { data: homeworkItems = [], isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["student-homework"],
     queryFn: async () => {
       const res = await api.get("/homework/?ordering=due_date");
@@ -220,6 +291,7 @@ const HomeworkLessons = () => {
 
   const openHomework = async (homework: HomeworkItem) => {
     setOpeningHomeworkId(homework.id);
+    setOpenFailedHomework(null);
     try {
       const { data } = await api.get(`/homework/${homework.id}/`);
       const detailedHomework = data as HomeworkItem;
@@ -228,6 +300,8 @@ const HomeworkLessons = () => {
       setSecondChanceDrafts(getSecondChanceDraftAnswers(detailedHomework));
       setExpandedSecondChance({});
       setDraftSaveState("idle");
+    } catch {
+      setOpenFailedHomework(homework);
     } finally {
       setOpeningHomeworkId(null);
     }
@@ -358,6 +432,7 @@ const HomeworkLessons = () => {
       saved: "Progresso salvo automaticamente.",
       error: "Não foi possível salvar agora. Suas alterações continuam na tela.",
     };
+    const DraftSaveIcon = { idle: CircleDashed, saving: Loader2, saved: CheckCircle2, error: AlertCircle }[draftSaveState];
     const hasPendingSecondChance = selectedHomework.questions.some((question) => {
       const answer = selectedHomework.answers?.find((item) => item.question === question.id);
       return Boolean(
@@ -371,301 +446,447 @@ const HomeworkLessons = () => {
       const answer = selectedHomework.answers?.find((item) => item.question === question.id);
       return Boolean(answer?.is_complete);
     }).length;
+    const totalQuestions = selectedHomework.questions.length;
+    // Manual activities have no "complete" flag: count questions that already have an answer on screen.
+    const answeredCount = selectedHomework.questions.filter((question) => {
+      const value = draftAnswers[question.id] || selectedHomework.answers?.find((item) => item.question === question.id);
+      return Boolean(value?.answer_text?.trim()) || (value?.selected_option_index !== null && value?.selected_option_index !== undefined);
+    }).length;
+    const isAuto = selectedHomework.auto_correction_enabled;
+    const showProgress = isAuto || totalQuestions > 1;
+    const progressValue = isAuto ? completedCount : answeredCount;
 
     return (
-      <div className="space-y-5">
-        <button onClick={() => setSelectedHomework(null)} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft size={16} /> Voltar para lições
-        </button>
+      <div className="space-y-6">
+        <Button variant="ghost" size="sm" className="-ml-3" onClick={() => setSelectedHomework(null)}>
+          <ArrowLeft aria-hidden="true" /> Voltar para atividades
+        </Button>
 
-        <section className="border border-border rounded-xl bg-card p-5 space-y-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusStyles[uiStatus]}`}>{statusCopy[uiStatus]}</span>
-                {selectedHomework.classification && <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{selectedHomework.classification}</span>}
-                {selectedHomework.auto_correction_enabled && (
-                  <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700">Correção automática</span>
-                )}
-              </div>
-              <h2 className="text-xl font-semibold">{selectedHomework.title}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {selectedHomework.teacher_name || "Professor"} · entrega {formatDate(selectedHomework.due_date)}
-              </p>
-              {selectedHomework.description && <p className="mt-4 text-sm leading-6 whitespace-pre-wrap">{selectedHomework.description}</p>}
-            </div>
+        <header className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={uiStatus} />
+            {selectedHomework.classification ? (
+              <Badge tone="neutral" icon={<Tag strokeWidth={iconStroke} aria-hidden="true" />}>{selectedHomework.classification}</Badge>
+            ) : null}
+            {isAuto ? <AutoCorrectionBadge /> : null}
+          </div>
+          <h1 ref={detailHeadingRef} tabIndex={-1} className="text-h2 text-ink focus:outline-none">{selectedHomework.title}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-caption text-ink-secondary">{selectedHomework.teacher_name || "Professor"}</span>
+            <DueDate homework={selectedHomework} status={uiStatus} />
+          </div>
+          {selectedHomework.description ? (
+            <p className="whitespace-pre-wrap text-body-lg leading-7 text-ink">{selectedHomework.description}</p>
+          ) : null}
+        </header>
 
-            {selectedHomework.auto_correction_enabled ? (
-              <div className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
-                <p className="font-semibold">Progresso</p>
-                <p className="mt-1 text-muted-foreground">{completedCount}/{selectedHomework.questions.length} questões concluídas</p>
+        {showProgress || canAutosave ? (
+          <div className="space-y-3">
+            {showProgress ? (
+              <div className="space-y-2">
+                <p className="text-body text-ink-secondary">
+                  {isAuto
+                    ? `${completedCount} de ${totalQuestions} questões concluídas`
+                    : `${answeredCount} de ${totalQuestions} questões respondidas`}
+                </p>
+                <ProgressBar value={progressValue} max={totalQuestions} label="Progresso da atividade" />
               </div>
             ) : null}
+            {canAutosave ? (
+              <p role="status" className={cn("flex items-start gap-2 text-caption", draftSaveState === "error" ? "font-medium text-ink" : "text-ink-secondary")}>
+                <DraftSaveIcon
+                  size={16}
+                  strokeWidth={iconStroke}
+                  aria-hidden="true"
+                  className={cn(
+                    "mt-px shrink-0",
+                    draftSaveState === "saving" && "motion-safe:animate-spin",
+                    draftSaveState === "saved" && "text-success",
+                    draftSaveState === "error" && "text-danger",
+                  )}
+                />
+                <span>{draftSaveCopy[draftSaveState]}</span>
+              </p>
+            ) : null}
           </div>
+        ) : null}
 
-          {canAutosave ? (
-            <p className={`rounded-lg px-3 py-2 text-xs font-medium ${
-              draftSaveState === "error"
-                ? "bg-red-50 text-red-700"
-                : "bg-sky-50 text-sky-700"
-            }`}>
-              {draftSaveCopy[draftSaveState]}
-            </p>
-          ) : null}
+        {uiStatus === "corrected" && selectedHomework.teacher_feedback ? (
+          <StudyBlock kind="example" title="Feedback geral do professor">
+            <p className="whitespace-pre-wrap leading-7">{selectedHomework.teacher_feedback}</p>
+          </StudyBlock>
+        ) : null}
 
-          {selectedHomework.student_report && !hasPendingSecondChance ? <ReportCard report={selectedHomework.student_report} /> : null}
+        {selectedHomework.student_report && !hasPendingSecondChance ? <ReportCard report={selectedHomework.student_report} /> : null}
 
-          <div className="space-y-4">
-            {selectedHomework.questions.map((question, index) => {
-              const answer = selectedHomework.answers?.find((item) => item.question === question.id);
-              const secondChanceQuestion = answer?.second_chance_question;
-              const canTrySecondChance = Boolean(
-                answer?.is_correct === false &&
-                question.second_chance_mode &&
-                question.second_chance_mode !== "none" &&
-                !answer.second_chance_answered_at
-              );
-              const isSecondChanceOpen = Boolean(expandedSecondChance[question.id]);
-              const isSubmittingPrimary = answerQuestionMutation.isPending && answerQuestionMutation.variables?.question.id === question.id;
-              const isSubmittingSecondChance = secondChanceMutation.isPending && secondChanceMutation.variables?.questionId === question.id;
-              const isLoadingSecondChance = requestSecondChanceMutation.isPending && requestSecondChanceMutation.variables?.questionId === question.id;
+        <ol className="space-y-4" aria-label="Questões">
+          {selectedHomework.questions.map((question, index) => {
+            const answer = selectedHomework.answers?.find((item) => item.question === question.id);
+            const secondChanceQuestion = answer?.second_chance_question;
+            const canTrySecondChance = Boolean(
+              answer?.is_correct === false &&
+              question.second_chance_mode &&
+              question.second_chance_mode !== "none" &&
+              !answer.second_chance_answered_at
+            );
+            const isSecondChanceOpen = Boolean(expandedSecondChance[question.id]);
+            const isSubmittingPrimary = answerQuestionMutation.isPending && answerQuestionMutation.variables?.question.id === question.id;
+            const isSubmittingSecondChance = secondChanceMutation.isPending && secondChanceMutation.variables?.questionId === question.id;
+            const isLoadingSecondChance = requestSecondChanceMutation.isPending && requestSecondChanceMutation.variables?.questionId === question.id;
+            const primaryFailed = answerQuestionMutation.isError && answerQuestionMutation.variables?.question.id === question.id;
+            const secondChanceFailed = (secondChanceMutation.isError && secondChanceMutation.variables?.questionId === question.id)
+              || (requestSecondChanceMutation.isError && requestSecondChanceMutation.variables?.questionId === question.id);
+            const promptId = `homework-question-${question.id}`;
 
-              return (
-                <div key={question.id} className="rounded-lg border border-border bg-background p-4">
-                  <p className="mb-3 whitespace-pre-wrap text-sm font-semibold leading-6">{index + 1}. {question.prompt}</p>
+            return (
+              <li key={question.id}>
+                <Card as="article" padding="md" aria-labelledby={promptId} className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-label text-ink-secondary">Questão {index + 1} de {totalQuestions}</p>
+                    {isAuto && answer?.is_complete ? (
+                      <Badge tone="success" icon={<CheckCircle2 strokeWidth={iconStroke} aria-hidden="true" />}>Concluída</Badge>
+                    ) : null}
+                  </div>
+                  <p id={promptId} className="whitespace-pre-wrap text-body-lg font-medium text-ink">{question.prompt}</p>
                   <HomeworkQuestionMedia
-                    className="mb-3"
                     imageUrl={question.image_url}
                     audioUrl={question.audio_url}
                   />
 
-                  {selectedHomework.auto_correction_enabled ? (
-                    <div className="space-y-4">
-                      {!answer?.answered_at ? (
-                        <>
-                          <QuestionAnswerFields
-                            question={question}
-                            draft={draftAnswers[question.id]}
-                            onChange={(patch) => setDraftAnswers((current) => ({ ...current, [question.id]: { ...current[question.id], ...patch } }))}
-                          />
+                  {isAuto ? (
+                    !answer?.answered_at ? (
+                      <div className="space-y-4">
+                        <QuestionAnswerFields
+                          name={`answer-${question.id}`}
+                          label="Sua resposta"
+                          question={question}
+                          draft={draftAnswers[question.id]}
+                          onChange={(patch) => setDraftAnswers((current) => ({ ...current, [question.id]: { ...current[question.id], ...patch } }))}
+                        />
+                        {primaryFailed ? (
+                          <Alert tone="danger" role="alert" title="Não conseguimos corrigir sua resposta.">
+                            Sua resposta continua na tela. Tente de novo.
+                          </Alert>
+                        ) : null}
+                        <Button
+                          className="w-full sm:w-auto"
+                          onClick={() => answerQuestionMutation.mutate({ homeworkId: selectedHomework.id, question })}
+                          loading={isSubmittingPrimary}
+                          loadingLabel="Corrigindo..."
+                        >
+                          Verificar resposta
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <AnswerBlock
+                          title="Sua resposta"
+                          question={question}
+                          answerText={answer.answer_text}
+                          selectedOptionIndex={answer.selected_option_index}
+                        />
+                        <FeedbackCard
+                          isCorrect={answer.is_correct}
+                          feedback={answer.auto_feedback}
+                          explanation={answer.auto_explanation}
+                          expectedAnswer={answer.expected_answer}
+                        />
+
+                        {canTrySecondChance && !(secondChanceQuestion && isSecondChanceOpen) ? (
                           <Button
-                            onClick={() => answerQuestionMutation.mutate({ homeworkId: selectedHomework.id, question })}
-                            disabled={isSubmittingPrimary}
+                            variant="outline"
+                            className="w-full sm:w-auto"
+                            onClick={() => {
+                              if (secondChanceQuestion) {
+                                setExpandedSecondChance((current) => ({ ...current, [question.id]: true }));
+                                return;
+                              }
+                              requestSecondChanceMutation.mutate({ homeworkId: selectedHomework.id, questionId: question.id });
+                            }}
+                            loading={isLoadingSecondChance}
+                            loadingLabel="Preparando..."
                           >
-                            {isSubmittingPrimary ? "Corrigindo..." : "Verificar resposta"}
+                            Tentar de novo
                           </Button>
-                        </>
-                      ) : (
-                        <>
-                          <AnswerBlock
-                            title="Sua resposta"
-                            question={question}
-                            answerText={answer.answer_text}
-                            selectedOptionIndex={answer.selected_option_index}
-                          />
-                          <FeedbackCard
-                            isCorrect={answer.is_correct}
-                            feedback={answer.auto_feedback}
-                            explanation={answer.auto_explanation}
-                            expectedAnswer={answer.expected_answer}
-                          />
+                        ) : null}
 
-                          {canTrySecondChance ? (
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  if (secondChanceQuestion) {
-                                    setExpandedSecondChance((current) => ({ ...current, [question.id]: true }));
-                                    return;
-                                  }
-                                  requestSecondChanceMutation.mutate({ homeworkId: selectedHomework.id, questionId: question.id });
-                                }}
-                                disabled={isLoadingSecondChance}
-                              >
-                                {isLoadingSecondChance ? "Preparando..." : "Tentar de novo"}
-                              </Button>
+                        {secondChanceQuestion && isSecondChanceOpen && !answer.second_chance_answered_at ? (
+                          <section aria-labelledby={`${promptId}-second`} className="space-y-3 border-t border-line pt-4">
+                            <div>
+                              <h3 id={`${promptId}-second`} className="text-body font-semibold text-ink">Segunda oportunidade</h3>
+                              <p className="text-body text-ink-secondary">Tente aplicar a correção em uma nova questão parecida.</p>
                             </div>
-                          ) : null}
+                            <p className="whitespace-pre-wrap text-body-lg font-medium text-ink">{secondChanceQuestion.prompt}</p>
+                            <QuestionAnswerFields
+                              name={`second-chance-${question.id}`}
+                              label="Sua resposta na segunda chance"
+                              question={secondChanceQuestion}
+                              draft={secondChanceDrafts[question.id]}
+                              onChange={(patch) => setSecondChanceDrafts((current) => ({ ...current, [question.id]: { ...current[question.id], ...patch } }))}
+                            />
+                            <Button
+                              className="w-full sm:w-auto"
+                              onClick={() => secondChanceMutation.mutate({ homeworkId: selectedHomework.id, questionId: question.id })}
+                              loading={isSubmittingSecondChance}
+                              loadingLabel="Conferindo..."
+                            >
+                              Enviar segunda chance
+                            </Button>
+                          </section>
+                        ) : null}
 
-                          {secondChanceQuestion && isSecondChanceOpen && !answer.second_chance_answered_at ? (
-                            <div className="rounded-xl border border-dashed border-border p-4 space-y-3">
-                              <div>
-                                <p className="text-sm font-semibold">Segunda oportunidade</p>
-                                <p className="text-sm text-muted-foreground">Tente aplicar a correção em uma nova questão parecida.</p>
-                              </div>
-                              <p className="whitespace-pre-wrap text-sm font-medium leading-6">{secondChanceQuestion.prompt}</p>
-                              <QuestionAnswerFields
-                                question={secondChanceQuestion}
-                                draft={secondChanceDrafts[question.id]}
-                                onChange={(patch) => setSecondChanceDrafts((current) => ({ ...current, [question.id]: { ...current[question.id], ...patch } }))}
-                              />
-                              <Button
-                                variant="outline"
-                                onClick={() => secondChanceMutation.mutate({ homeworkId: selectedHomework.id, questionId: question.id })}
-                                disabled={isSubmittingSecondChance}
-                              >
-                                {isSubmittingSecondChance ? "Conferindo..." : "Enviar segunda chance"}
-                              </Button>
-                            </div>
-                          ) : null}
+                        {secondChanceFailed ? (
+                          <Alert tone="danger" role="alert" title="Não conseguimos abrir a segunda chance.">
+                            Tente de novo em instantes.
+                          </Alert>
+                        ) : null}
 
-                          {answer.second_chance_answered_at ? (
-                            <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
-                              <AnswerBlock
-                                title="Sua resposta na segunda chance"
-                                question={secondChanceQuestion || question}
-                                answerText={answer.second_chance_answer_text}
-                                selectedOptionIndex={answer.second_chance_selected_option_index}
-                              />
-                              <FeedbackCard
-                                isCorrect={answer.second_chance_is_correct}
-                                feedback={answer.second_chance_feedback}
-                                explanation={answer.second_chance_explanation}
-                                expectedAnswer={answer.second_chance_expected_answer}
-                              />
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
+                        {answer.second_chance_answered_at ? (
+                          <div className="space-y-3 border-t border-line pt-4">
+                            <AnswerBlock
+                              title="Sua resposta na segunda chance"
+                              question={secondChanceQuestion || question}
+                              answerText={answer.second_chance_answer_text}
+                              selectedOptionIndex={answer.second_chance_selected_option_index}
+                            />
+                            <FeedbackCard
+                              isCorrect={answer.second_chance_is_correct}
+                              feedback={answer.second_chance_feedback}
+                              explanation={answer.second_chance_explanation}
+                              expectedAnswer={answer.second_chance_expected_answer}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    )
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <QuestionAnswerFields
+                        name={`answer-${question.id}`}
+                        label="Sua resposta"
                         question={question}
                         draft={draftAnswers[question.id] || answer}
                         onChange={(patch) => setDraftAnswers((current) => ({ ...current, [question.id]: { ...current[question.id], ...patch } }))}
                       />
                       {answer?.teacher_feedback ? (
-                        <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Feedback: {answer.teacher_feedback}</p>
+                        <StudyBlock kind="example" title="Feedback do professor">
+                          <p className="whitespace-pre-wrap">{answer.teacher_feedback}</p>
+                        </StudyBlock>
                       ) : null}
                     </div>
                   )}
-                </div>
-              );
-            })}
-          </div>
+                </Card>
+              </li>
+            );
+          })}
+        </ol>
 
-          {!selectedHomework.auto_correction_enabled ? (
-            <Button onClick={() => manualSubmitMutation.mutate(selectedHomework)} disabled={manualSubmitMutation.isPending}>
-              <Send className="mr-2 h-4 w-4" /> {manualSubmitMutation.isPending ? "Enviando..." : "Enviar atividade"}
+        {!isAuto ? (
+          <div className="space-y-3">
+            {manualSubmitMutation.isError ? (
+              <Alert tone="danger" role="alert" title="Não enviamos sua atividade.">
+                Suas respostas continuam na tela. Tente enviar de novo.
+              </Alert>
+            ) : null}
+            <Button
+              size="lg"
+              fullWidth
+              onClick={() => manualSubmitMutation.mutate(selectedHomework)}
+              loading={manualSubmitMutation.isPending}
+              loadingLabel="Enviando..."
+            >
+              <Send aria-hidden="true" /> Enviar atividade
             </Button>
-          ) : null}
-
-          {uiStatus === "corrected" && selectedHomework.teacher_feedback ? (
-            <div className="rounded-lg border border-border bg-muted/50 p-4">
-              <p className="text-sm font-semibold">Feedback geral do professor</p>
-              <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{selectedHomework.teacher_feedback}</p>
-            </div>
-          ) : null}
-        </section>
+          </div>
+        ) : null}
       </div>
     );
   }
 
+  const lateCount = homeworkItems.filter((item) => getHomeworkStatus(item) === "late").length;
+  const correctedCount = homeworkItems.filter((item) => getHomeworkStatus(item) === "corrected").length;
+  const clearFilters = () => {
+    setStatusFilter("all");
+    setCategoryFilter("all");
+  };
+
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryTile label="Pendentes" value={pendingCount} icon={Clock} />
-        <SummaryTile label="Atrasadas" value={homeworkItems.filter((item) => getHomeworkStatus(item) === "late").length} icon={CalendarClock} />
-        <SummaryTile label="Corrigidas" value={homeworkItems.filter((item) => getHomeworkStatus(item) === "corrected").length} icon={CheckCircle2} />
-      </div>
-
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {(["all", "pending", "in_progress", "late", "corrected"] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`rounded-lg px-3 py-2 text-sm font-medium sidebar-transition ${statusFilter === status ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
-            >
-              {status === "all" ? "Todas" : statusCopy[status]}
-            </button>
-          ))}
-        </div>
-        <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-          <option value="all">Todas as categorias</option>
-          {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-      </div>
+      <ScreenTitle
+        title="Pratique o que viu em aula"
+        description="Responda, envie e acompanhe a correção do professor."
+      />
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando lições...</p>
-      ) : filteredHomework.length === 0 ? (
-        <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">Nenhuma lição encontrada com esses filtros.</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {filteredHomework.map((homework) => {
-            const uiStatus = getHomeworkStatus(homework);
-            return (
-              <button key={homework.id} onClick={() => void openHomework(homework)} className="text-left rounded-xl border border-border bg-card p-5 shadow-sm sidebar-transition hover:shadow-md" disabled={openingHomeworkId === homework.id}>
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      <span className={`rounded-md border px-2 py-1 text-xs font-medium ${statusStyles[uiStatus]}`}>{statusCopy[uiStatus]}</span>
-                      {homework.auto_correction_enabled ? <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700">Auto</span> : null}
-                      {isDueSoon(homework.due_date) && <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">Vence em breve</span>}
-                    </div>
-                    <h3 className="font-semibold">{homework.title}</h3>
-                  </div>
-                  <BookOpen className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="line-clamp-2 text-sm text-muted-foreground">{homework.description || "Sem descrição."}</p>
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                  <span>{homework.teacher_name || "Professor"}</span>
-                  <span>{formatDate(homework.due_date)}</span>
-                  {homework.classification && <span className="inline-flex items-center gap-1"><Tag size={13} /> {homework.classification}</span>}
-                </div>
-                <span className="mt-4 inline-flex rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground">
-                  {uiStatus === "in_progress" ? "Continuar homework" : uiStatus === "pending" || uiStatus === "late" ? "Começar homework" : "Ver homework"}
-                </span>
-                {openingHomeworkId === homework.id ? <p className="mt-3 text-xs text-muted-foreground">Carregando atividade...</p> : null}
-              </button>
-            );
-          })}
+        <div className="space-y-3">
+          {[0, 1, 2].map((item) => <SkeletonCard key={item} label="Carregando atividades" lines={3} />)}
         </div>
+      ) : isError && homeworkItems.length === 0 ? (
+        <Alert
+          tone="danger"
+          role="alert"
+          title="Não carregamos suas atividades."
+          action={(
+            <Button variant="outline" size="sm" onClick={() => void refetch()} loading={isRefetching} loadingLabel="Tentando...">
+              Tentar novamente
+            </Button>
+          )}
+        >
+          Verifique sua conexão e tente novamente.
+        </Alert>
+      ) : homeworkItems.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={ClipboardList}
+            title="Nenhuma atividade por enquanto"
+            description="Quando seu professor passar uma atividade, ela aparece aqui."
+            action={<Button asChild variant="secondary"><Link to={APP_PATHS.lessons}>Ver minhas aulas</Link></Button>}
+          />
+        </Card>
+      ) : (
+        <>
+          <Card as="section" padding="none" aria-label="Resumo das atividades">
+            <dl className="grid grid-cols-3 divide-x divide-line">
+              {([
+                ["Pendentes", pendingCount],
+                ["Atrasadas", lateCount],
+                ["Corrigidas", correctedCount],
+              ] as const).map(([label, value]) => (
+                <div key={label} className="flex min-w-0 flex-col-reverse items-center px-2 py-4 text-center">
+                  <dt className="text-caption text-ink-secondary">{label}</dt>
+                  <dd className="text-h3 text-ink">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+
+          <section aria-label="Filtros" className="space-y-3">
+            <div role="group" aria-label="Filtrar por situação" className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+              {(["all", "pending", "in_progress", "late", "corrected"] as const).map((status) => (
+                <Chip key={status} selected={statusFilter === status} onClick={() => setStatusFilter(status)}>
+                  {status === "all" ? "Todas" : statusCopy[status]}
+                </Chip>
+              ))}
+            </div>
+            {categories.length ? (
+              <div>
+                <label htmlFor="homework-category-filter" className="mb-1.5 block text-body font-medium text-ink">Categoria</label>
+                <select
+                  id="homework-category-filter"
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  className={inputClasses}
+                >
+                  <option value="all">Todas as categorias</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </div>
+            ) : null}
+          </section>
+
+          {filteredHomework.length === 0 ? (
+            <Card>
+              <EmptyState
+                compact
+                icon={ClipboardList}
+                title="Nenhuma atividade com esses filtros"
+                description="Escolha outra situação ou categoria."
+                action={<Button variant="secondary" size="sm" onClick={clearFilters}>Limpar filtros</Button>}
+              />
+            </Card>
+          ) : (
+            <ul className="grid gap-3 md:grid-cols-2" aria-label="Atividades">
+              {filteredHomework.map((homework) => {
+                const uiStatus = getHomeworkStatus(homework);
+                const isOpening = openingHomeworkId === homework.id;
+                const isActionable = uiStatus === "pending" || uiStatus === "in_progress" || uiStatus === "late";
+                return (
+                  <li key={homework.id} className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void openHomework(homework)}
+                      disabled={isOpening}
+                      aria-busy={isOpening || undefined}
+                      className={cn(cardVariants({ interactive: true, padding: "md" }), "flex w-full flex-1 flex-col text-left")}
+                    >
+                      <span className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status={uiStatus} />
+                        {homework.auto_correction_enabled ? <AutoCorrectionBadge /> : null}
+                      </span>
+                      <span className="mt-3 block text-h4 text-ink">{homework.title}</span>
+                      {homework.description ? (
+                        <span className="mt-1 line-clamp-2 text-body text-ink-secondary">{homework.description}</span>
+                      ) : null}
+                      <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-muted">
+                        <span>{homework.teacher_name || "Professor"}</span>
+                        {homework.classification ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Tag size={14} strokeWidth={iconStroke} aria-hidden="true" /> {homework.classification}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="mt-1 block">
+                        <DueDate homework={homework} status={uiStatus} />
+                      </span>
+                      <span className="mt-auto block pt-4">
+                        <span className={cn(buttonVariants({ variant: isActionable ? "primary" : "secondary", size: "sm" }), "w-full sm:w-auto")}>
+                          {isOpening ? (
+                            <><Loader2 className="motion-safe:animate-spin" aria-hidden="true" /> Carregando atividade...</>
+                          ) : actionCopy[uiStatus]}
+                        </span>
+                      </span>
+                    </button>
+                    {openFailedHomework?.id === homework.id ? (
+                      <Alert
+                        tone="danger"
+                        role="alert"
+                        title="Não abrimos esta atividade."
+                        action={(
+                          <Button variant="outline" size="sm" onClick={() => void openHomework(homework)}>
+                            Tentar novamente
+                          </Button>
+                        )}
+                      >
+                        Verifique sua conexão e tente novamente.
+                      </Alert>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
 };
 
-const SummaryTile = ({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Clock }) => (
-  <div className="rounded-xl border border-border bg-card p-4">
-    <div className="flex items-center justify-between">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <Icon className="h-4 w-4 text-muted-foreground" />
-    </div>
-    <p className="mt-2 text-2xl font-bold">{value}</p>
-  </div>
-);
-
 const ReportCard = ({ report }: { report: HomeworkReport }) => (
-  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-3">
-    <div className="flex flex-wrap items-center gap-3">
-      <p className="text-sm font-semibold text-emerald-900">Mini relatório</p>
-      <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-700">Acerto geral: {report.accuracy}%</span>
+  <Card as="section" padding="md" aria-labelledby="homework-report-title" className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 id="homework-report-title" className="text-h4 text-ink">Mini relatório</h2>
+      <Badge tone="success">Acerto geral: {report.accuracy}%</Badge>
     </div>
-    <p className="text-sm text-emerald-950">{report.summary}</p>
-    <div className="grid gap-3 sm:grid-cols-3">
-      <MetricCard label="Acertos na 1ª tentativa" value={`${report.first_try_correct}/${report.total_questions}`} />
-      <MetricCard label="Recuperadas na 2ª chance" value={String(report.second_chance_correct)} />
-      <MetricCard label="Ainda precisam revisão" value={String(report.incorrect_after_second_chance)} />
-    </div>
+    <p className="text-body-lg text-ink">{report.summary}</p>
+    <dl className="divide-y divide-line border-y border-line">
+      <MetricRow label="Acertos na 1ª tentativa" value={`${report.first_try_correct}/${report.total_questions}`} />
+      <MetricRow label="Recuperadas na 2ª chance" value={String(report.second_chance_correct)} />
+      <MetricRow label="Ainda precisam de revisão" value={String(report.incorrect_after_second_chance)} />
+    </dl>
     {report.attention_points?.length ? (
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Pontos de atenção</p>
-        <ul className="mt-2 space-y-1 text-sm text-emerald-950">
-          {report.attention_points.map((point, index) => <li key={`${point}-${index}`}>• {point}</li>)}
+      <StudyBlock kind="correction" title="Pontos de atenção">
+        <ul className="list-disc space-y-1 pl-5">
+          {report.attention_points.map((point, index) => <li key={`${point}-${index}`}>{point}</li>)}
         </ul>
-      </div>
+      </StudyBlock>
     ) : null}
-  </div>
+  </Card>
 );
 
-const MetricCard = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-lg border border-emerald-200 bg-white p-3">
-    <p className="text-xs text-emerald-700">{label}</p>
-    <p className="mt-1 text-lg font-semibold text-emerald-950">{value}</p>
+const MetricRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex items-center justify-between gap-3 py-3">
+    <dt className="text-body text-ink-secondary">{label}</dt>
+    <dd className="text-body font-semibold text-ink">{value}</dd>
   </div>
 );
 
@@ -673,33 +894,52 @@ const QuestionAnswerFields = ({
   question,
   draft,
   onChange,
+  name,
+  label,
 }: {
   question: { type: QuestionType; options: string[] };
   draft?: DraftAnswer | HomeworkAnswer | null;
   onChange: (patch: DraftAnswer) => void;
+  name: string;
+  label: string;
 }) => {
   if (question.type === "multiple_choice") {
     return (
-      <div className="space-y-2">
-        {question.options.map((option, optionIndex) => (
-          <label key={`${option}-${optionIndex}`} className="flex items-start gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted/50">
-            <input
-              type="radio"
-              checked={draft?.selected_option_index === optionIndex}
-              onChange={() => onChange({ selected_option_index: optionIndex })}
-            />
-            <span className="whitespace-pre-wrap leading-6">{option}</span>
-          </label>
-        ))}
-      </div>
+      <fieldset className="min-w-0 space-y-2">
+        <legend className="sr-only">{label}</legend>
+        {question.options.map((option, optionIndex) => {
+          const checked = draft?.selected_option_index === optionIndex;
+          return (
+            <label
+              key={`${option}-${optionIndex}`}
+              className={cn(
+                "flex min-h-12 cursor-pointer items-start gap-3 rounded-md border px-4 py-3 text-body-lg text-ink transition-colors duration-150 ease-standard",
+                checked ? "border-primary bg-primary-subtle" : "border-line bg-surface hover:bg-surface-muted",
+              )}
+            >
+              <input
+                type="radio"
+                name={name}
+                checked={checked}
+                onChange={() => onChange({ selected_option_index: optionIndex })}
+                className="mt-0.5 size-5 shrink-0 accent-primary"
+              />
+              <span className="min-w-0 whitespace-pre-wrap">{option}</span>
+            </label>
+          );
+        })}
+      </fieldset>
     );
   }
 
   return (
-    <Textarea
+    <textarea
+      aria-label={label}
+      rows={4}
       value={draft?.answer_text || ""}
       onChange={(event) => onChange({ answer_text: event.target.value })}
       placeholder="Digite sua resposta..."
+      className={cn(inputClasses, "min-h-32 resize-y py-3 leading-7")}
     />
   );
 };
@@ -715,9 +955,9 @@ const AnswerBlock = ({
   answerText?: string | null;
   selectedOptionIndex?: number | null;
 }) => (
-  <div className="rounded-lg border border-border bg-muted/30 p-3">
-    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-    <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+  <div className="rounded-lg bg-surface-muted px-4 py-3">
+    <p className="text-label text-ink">{title}</p>
+    <p className="mt-1 whitespace-pre-wrap text-body-lg text-ink">
       {question.type === "multiple_choice"
         ? selectedOptionIndex === null || selectedOptionIndex === undefined
           ? "Sem opção selecionada."
@@ -739,20 +979,26 @@ const FeedbackCard = ({
   expectedAnswer?: string;
 }) => {
   const isPositive = isCorrect === true;
+  const showExpected = !isPositive && Boolean(expectedAnswer);
 
   return (
-    <div className={`rounded-xl border p-4 ${isPositive ? "border-emerald-200 bg-emerald-50/80" : "border-amber-200 bg-amber-50/80"}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${isPositive ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
-          {isPositive ? "Acertou" : "Precisa ajustar"}
-        </span>
-      </div>
-      {feedback ? <p className="mt-2 text-sm font-medium">{feedback}</p> : null}
-      {explanation ? <p className="mt-2 text-sm text-muted-foreground">{explanation}</p> : null}
-      {!isPositive && expectedAnswer ? (
-        <p className="mt-2 text-sm">
-          <span className="font-semibold">Resposta esperada:</span> {expectedAnswer}
-        </p>
+    <div className="space-y-3">
+      <Alert tone={isPositive ? "success" : "warning"} title={isPositive ? "Acertou" : "Precisa ajustar"}>
+        {feedback || showExpected ? (
+          <div className="space-y-2">
+            {feedback ? <p className="whitespace-pre-wrap text-body-lg">{feedback}</p> : null}
+            {showExpected ? (
+              <p className="whitespace-pre-wrap text-body-lg">
+                <span className="font-semibold">Resposta esperada:</span> {expectedAnswer}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </Alert>
+      {explanation ? (
+        <StudyBlock kind="tip" title="Explicação">
+          <p className="whitespace-pre-wrap">{explanation}</p>
+        </StudyBlock>
       ) : null}
     </div>
   );

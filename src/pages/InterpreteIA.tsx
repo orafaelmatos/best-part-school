@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { Headphones, Languages, Loader2, Mic, BookOpen } from "lucide-react";
+import { BookOpen, Check, ChevronDown, Headphones, History, Languages, Mic, Plus } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Button } from "@/components/ui/button";
+import { Alert, Badge, Button, Card, Chip, EmptyState, IconTile, ListGroup, ListItem, ProgressBar, ScreenTitle, SectionHeader, SkeletonCard, StudyBlock, cardVariants, inputClasses } from "@/components/student/ui";
 import InterpreterAudio from "@/components/InterpreterAudio";
 import InterpreterTurnCard from "@/components/InterpreterTurnCard";
 import InterpreterReportCard from "@/components/InterpreterReportCard";
@@ -29,7 +29,26 @@ const topics = [
   { id: "custom", label: "Cenário personalizado", description: "Defina o evento que quer interpretar." },
 ];
 
+const modes = [
+  ["consecutive", "Interpretação consecutiva", "Ouça um trecho e interprete. O personagem espera sua resposta."],
+  ["guided", "Treinamento guiado", "Repita o áudio e consulte dicas adaptadas ao seu nível."],
+  ["simultaneous", "Interpretação simultânea", "Avançado: interprete enquanto o original continua. Pause e retome os dois juntos."],
+] as const;
+
 const defaultSettings: InterpreterSettings = { direction: "en_pt", interpretation_mode: "consecutive", session_style: "journey", duration_minutes: 5, prepare_vocabulary: false, realistic: false };
+
+const legendClass = "mb-3 text-h4 text-ink";
+const fieldLabelClass = "block text-body font-medium text-ink";
+
+/** Selectable option card (situation, interpretation type). The accessible name is label + description. */
+const OptionCard = ({ selected, label, description, onClick }: { selected: boolean; label: string; description: string; onClick: () => void }) => (
+  <button type="button" aria-pressed={selected} onClick={onClick}
+    className={cn(cardVariants({ variant: selected ? "highlight" : "default", padding: "md", interactive: true }), "relative min-h-16 w-full pr-12 text-left", selected && "border-primary")}>
+    <span className="block text-body font-semibold text-ink">{label}</span>
+    <span className={cn("mt-1 block text-body", selected ? "text-ink" : "text-ink-secondary")}>{description}</span>
+    {selected ? <Check size={20} className="absolute right-4 top-4 text-primary" aria-hidden="true" /> : null}
+  </button>
+);
 
 const InterpreterExperience = ({ session }: { session?: InterpreterSession }) => {
   const { user } = useAuth();
@@ -69,58 +88,184 @@ const InterpreterExperience = ({ session }: { session?: InterpreterSession }) =>
   const retry = (id: string) => { void action("retry", { message_id: id }).catch(() => undefined); };
   const create = () => { void perform("/ai-study/sessions/", { mode: "listening", scenario_key: topic, scenario_label: topic === "custom" ? custom.trim() : selected.label, level, interpreter_settings: settings }).catch(() => undefined); };
   const setSetting = <K extends keyof InterpreterSettings>(key: K, value: InterpreterSettings[K]) => setSettings((previous) => ({ ...previous, [key]: value }));
+  const simultaneousSetup = settings.interpretation_mode === "simultaneous";
+  const currentStep = current?.metadata?.interpretation_turn?.step_index;
+  const history = session?.messages.filter((m) => m.metadata?.interpretation_turn && m.id !== current?.id) ?? [];
 
-  return <DashboardLayout><main className="mx-auto w-full max-w-6xl space-y-6 pb-8">
-    <header className="flex flex-wrap items-start justify-between gap-4">
-      <div><p className="flex items-center gap-2 text-sm font-semibold text-amber-700"><Languages className="h-4 w-4" />Intérprete IA</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{session ? session.title : "Dê voz à mensagem em outro idioma"}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">{session ? state?.plan.situation : "Ouça pessoas em situações reais, compreenda a mensagem e interprete pelo microfone. O foco é preservar o significado."}</p>
-      </div>
-      {session ? <Button variant="outline" onClick={() => navigate(APP_PATHS.interpreter)} disabled={busy || activityBusy}>Novo treino</Button> : null}
-    </header>
-    {error ? <p role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">{error}</p> : null}
+  return <DashboardLayout><div className="mx-auto w-full max-w-3xl space-y-8 pb-8">
+    <ScreenTitle eyebrow={<Badge tone="ai" icon={<Languages aria-hidden="true" />} className="mb-1">Intérprete IA</Badge>}
+      title={session ? session.title : "Dê voz à mensagem em outro idioma"}
+      description={session ? state?.plan.situation : "Ouça pessoas em situações reais, compreenda a mensagem e interprete pelo microfone. O foco é preservar o significado."} />
+    {error ? <Alert tone="danger" role="alert" title={error} /> : null}
+
     {!session ? <>
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-        <div className="space-y-6 rounded-3xl border border-border bg-card p-4 sm:p-6">
-          <fieldset><legend className="mb-3 text-base font-semibold">1. Escolha a situação</legend><div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {topics.map((item) => <button type="button" key={item.id} aria-pressed={topic === item.id} onClick={() => setTopic(item.id)} className={cn("rounded-2xl border p-3 text-left transition", topic === item.id ? "border-amber-400 bg-amber-50 text-slate-900" : "border-border hover:bg-muted")}><span className="text-sm font-semibold">{item.label}</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">{item.description}</span></button>)}
-          </div></fieldset>
-          {topic === "custom" ? <label className="block text-sm font-medium">Descreva a situação<input value={custom} maxLength={120} onChange={(e) => setCustom(e.target.value)} placeholder="Ex.: uma pesquisadora apresenta seu projeto em um evento" className="mt-2 w-full rounded-xl border border-input bg-background p-3 font-normal" /></label> : null}
-          <fieldset><legend className="mb-3 text-base font-semibold">2. Direção da interpretação</legend><div className="flex flex-wrap gap-2">{(Object.entries(directionNames) as Array<[InterpreterSettings["direction"], string]>).map(([id, label]) => <Button key={id} variant={settings.direction === id ? "default" : "outline"} aria-pressed={settings.direction === id} onClick={() => setSetting("direction", id)}>{label}</Button>)}</div><p className="mt-2 text-xs text-muted-foreground">No modo alternado, você interpreta as falas dos dois personagens, cada uma para o outro idioma.</p></fieldset>
-          <fieldset><legend className="mb-3 text-base font-semibold">3. Tipo de interpretação</legend><div className="grid gap-3 sm:grid-cols-2">
-            {([["consecutive", "Interpretação consecutiva", "Ouça um trecho e interprete. O personagem espera sua resposta."], ["guided", "Treinamento guiado", "Repita o áudio e consulte dicas adaptadas ao seu nível."], ["simultaneous", "Interpretação simultânea", "Avançado: interprete enquanto o original continua. Pause e retome os dois juntos."]] as const).map(([id, label, description]) => <button type="button" key={id} aria-pressed={settings.interpretation_mode === id} onClick={() => setSettings((previous) => ({ ...previous, interpretation_mode: id, ...(id === "simultaneous" ? { segment_duration_seconds: previous.segment_duration_seconds ?? 60, playback_speed: previous.playback_speed ?? 1 } : {}) }))} className={cn("rounded-2xl border p-4 text-left", settings.interpretation_mode === id ? "border-amber-400 bg-amber-50 text-slate-900" : "border-border hover:bg-muted")}><span className="text-sm font-semibold">{label}</span><span className="mt-2 block text-xs leading-relaxed text-muted-foreground">{description}</span></button>)}
-          </div></fieldset>
-          {settings.interpretation_mode === "simultaneous" ? <div className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/30 p-4">
-            <label className="block text-sm font-medium">Duração aproximada de cada fala<select aria-label="Duração da fala simultânea" className="mt-2 block w-full rounded-xl border border-input bg-background p-2" value={settings.segment_duration_seconds ?? 60} onChange={(e) => setSetting("segment_duration_seconds", Number(e.target.value))}>{[30, 60, 90, 120].map((seconds) => <option key={seconds} value={seconds}>{seconds} segundos</option>)}</select></label>
-            <label className="block text-sm font-medium">Velocidade inicial<select aria-label="Velocidade inicial da simultânea" className="mt-2 block w-full rounded-xl border border-input bg-background p-2" value={settings.playback_speed ?? 1} onChange={(e) => setSetting("playback_speed", Number(e.target.value))}>{[0.6, 0.75, 0.8, 0.9, 1, 1.25].map((speed) => <option key={speed} value={speed}>{speed}x</option>)}</select></label>
-            <p className="text-xs leading-relaxed text-muted-foreground">A duração orienta o tamanho da fala; o tempo real depende da voz e da velocidade. Use fones para ouvir o original enquanto interpreta. Você poderá revisar os dois áudios juntos.</p>
-          </div> : null}
-          <fieldset><legend className="mb-3 text-base font-semibold">4. Nível CEFR</legend><div className="flex flex-wrap gap-2">{["A1", "A2", "B1", "B2", "C1", "C2"].map((value) => <Button key={value} variant={level === value ? "default" : "outline"} aria-pressed={level === value} onClick={() => setLevel(value)}>{value}</Button>)}</div>
-            <p className="mt-3 text-sm text-muted-foreground">{level.startsWith("A") ? "Frases curtas, vocabulário cotidiano, áudio lento e mais apoio." : level.startsWith("B") ? "Trechos mais longos, construções variadas e dicas pontuais." : "Trechos longos, expressões idiomáticas, vocabulário especializado e ritmo natural."}</p>
-          </fieldset>
-          <fieldset><legend className="mb-3 text-base font-semibold">5. Formato da sessão</legend><div className="flex flex-wrap gap-2"><Button variant={settings.session_style === "journey" ? "default" : "outline"} aria-pressed={settings.session_style === "journey"} onClick={() => setSetting("session_style", "journey")}>Jornada de cinco etapas</Button><Button variant={settings.session_style === "free" ? "default" : "outline"} aria-pressed={settings.session_style === "free"} onClick={() => setSetting("session_style", "free")}>Interpretação livre</Button></div>
-            {settings.session_style === "free" ? <label className="mt-4 block text-sm">Duração aproximada<select className="ml-3 rounded-xl border border-input bg-background p-2" value={settings.duration_minutes} onChange={(e) => setSetting("duration_minutes", Number(e.target.value))}>{[2, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutos</option>)}</select><span className="mt-2 block text-xs text-muted-foreground">O tempo varia conforme o ritmo das suas respostas. As etapas não são anunciadas durante a conversa.</span></label> : null}
-          </fieldset>
-          <div className="space-y-3 border-t border-border pt-4"><label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={settings.prepare_vocabulary} onChange={(e) => setSetting("prepare_vocabulary", e.target.checked)} /><span><span className="font-medium">Preparar vocabulário</span><span className="mt-1 block text-xs text-muted-foreground">Conheça expressões, exemplos e traduções antes de interpretar. Opcional.</span></span></label>
-            <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1" checked={settings.realistic} onChange={(e) => setSetting("realistic", e.target.checked)} /><span><span className="font-medium">Simulação real</span><span className="mt-1 block text-xs text-muted-foreground">Transcrição e dicas ficam ocultas até você responder.</span></span></label></div>
-          <Button className="w-full" size="lg" disabled={busy || (topic === "custom" && !custom.trim())} onClick={create}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}{busy ? "Preparando cenário..." : "Iniciar interpretação"}</Button>
-        </div>
-        <aside className="space-y-4 self-start rounded-3xl border border-border bg-card p-5 lg:sticky lg:top-6"><Headphones className="h-8 w-8 text-amber-600" /><h2 className="font-semibold">Seu treino de interpretação</h2><p className="text-sm">{topic === "custom" ? custom || "Seu cenário" : selected.label} · {level}</p><p className="text-sm text-muted-foreground">{directionNames[settings.direction]} · {interpretationModeNames[settings.interpretation_mode]}</p><ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground"><li>{settings.interpretation_mode === "simultaneous" ? "Inicie o áudio e o microfone juntos." : "Ouça a fala do personagem."}</li><li>{settings.interpretation_mode === "simultaneous" ? "Interprete enquanto o personagem fala." : "Grave sua interpretação no outro idioma."}</li><li>Ouça sua gravação e envie para receber feedback.</li><li>Continue a situação até o encerramento.</li></ol></aside>
+      <div className="space-y-8">
+        <fieldset className="min-w-0"><legend className={legendClass}>1. Escolha a situação</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {topics.map((item) => <OptionCard key={item.id} selected={topic === item.id} label={item.label} description={item.description} onClick={() => setTopic(item.id)} />)}
+          </div>
+          {topic === "custom" ? <label className={cn(fieldLabelClass, "mt-4")}>Descreva a situação
+            <input value={custom} maxLength={120} onChange={(e) => setCustom(e.target.value)} placeholder="Ex.: uma pesquisadora apresenta seu projeto em um evento" className={cn(inputClasses, "mt-2 font-normal")} />
+          </label> : null}
+        </fieldset>
+
+        <fieldset className="min-w-0"><legend className={legendClass}>2. Direção da interpretação</legend>
+          <div className="flex flex-wrap gap-2">
+            {(Object.entries(directionNames) as Array<[InterpreterSettings["direction"], string]>).map(([id, label]) => <Chip key={id} selected={settings.direction === id} onClick={() => setSetting("direction", id)}>{label}</Chip>)}
+          </div>
+          <p className="mt-2 text-body text-ink-secondary">No modo alternado, você interpreta as falas dos dois personagens, cada uma para o outro idioma.</p>
+        </fieldset>
+
+        <fieldset className="min-w-0"><legend className={legendClass}>3. Tipo de interpretação</legend>
+          <div className="grid grid-cols-1 gap-3">
+            {modes.map(([id, label, description]) => <OptionCard key={id} selected={settings.interpretation_mode === id} label={label} description={description}
+              onClick={() => setSettings((previous) => ({ ...previous, interpretation_mode: id, ...(id === "simultaneous" ? { segment_duration_seconds: previous.segment_duration_seconds ?? 60, playback_speed: previous.playback_speed ?? 1 } : {}) }))} />)}
+          </div>
+          {simultaneousSetup ? <Card variant="muted" padding="md" className="mt-3 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className={fieldLabelClass}>Duração aproximada de cada fala
+                <select aria-label="Duração da fala simultânea" className={cn(inputClasses, "mt-2 font-normal")} value={settings.segment_duration_seconds ?? 60} onChange={(e) => setSetting("segment_duration_seconds", Number(e.target.value))}>
+                  {[30, 60, 90, 120].map((seconds) => <option key={seconds} value={seconds}>{seconds} segundos</option>)}
+                </select>
+              </label>
+              <label className={fieldLabelClass}>Velocidade inicial
+                <select aria-label="Velocidade inicial da simultânea" className={cn(inputClasses, "mt-2 font-normal")} value={settings.playback_speed ?? 1} onChange={(e) => setSetting("playback_speed", Number(e.target.value))}>
+                  {[0.6, 0.75, 0.8, 0.9, 1, 1.25].map((speed) => <option key={speed} value={speed}>{speed}x</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="text-body text-ink">A duração orienta o tamanho da fala; o tempo real depende da voz e da velocidade. Use fones para ouvir o original enquanto interpreta. Você poderá revisar os dois áudios juntos.</p>
+          </Card> : null}
+        </fieldset>
+
+        <fieldset className="min-w-0"><legend className={legendClass}>4. Nível CEFR</legend>
+          <div className="flex flex-wrap gap-2">{["A1", "A2", "B1", "B2", "C1", "C2"].map((value) => <Chip key={value} selected={level === value} className="min-w-14 justify-center" onClick={() => setLevel(value)}>{value}</Chip>)}</div>
+          <p className="mt-3 text-body text-ink-secondary">{level.startsWith("A") ? "Frases curtas, vocabulário cotidiano, áudio lento e mais apoio." : level.startsWith("B") ? "Trechos mais longos, construções variadas e dicas pontuais." : "Trechos longos, expressões idiomáticas, vocabulário especializado e ritmo natural."}</p>
+        </fieldset>
+
+        <fieldset className="min-w-0"><legend className={legendClass}>5. Formato da sessão</legend>
+          <div className="flex flex-wrap gap-2">
+            <Chip selected={settings.session_style === "journey"} onClick={() => setSetting("session_style", "journey")}>Jornada de cinco etapas</Chip>
+            <Chip selected={settings.session_style === "free"} onClick={() => setSetting("session_style", "free")}>Interpretação livre</Chip>
+          </div>
+          {settings.session_style === "free" ? <label className={cn(fieldLabelClass, "mt-4")}>Duração aproximada
+            <select className={cn(inputClasses, "mt-2 font-normal sm:max-w-xs")} value={settings.duration_minutes} onChange={(e) => setSetting("duration_minutes", Number(e.target.value))}>
+              {[2, 5, 10, 15].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutos</option>)}
+            </select>
+            <span className="mt-2 block text-body font-normal text-ink-secondary">O tempo varia conforme o ritmo das suas respostas. As etapas não são anunciadas durante a conversa.</span>
+          </label> : null}
+        </fieldset>
+
+        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+          <li><label className="flex min-h-16 cursor-pointer items-start gap-3 px-4 py-3">
+            <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={settings.prepare_vocabulary} onChange={(e) => setSetting("prepare_vocabulary", e.target.checked)} />
+            <span className="min-w-0"><span className="block text-body font-medium text-ink">Preparar vocabulário</span><span className="mt-0.5 block text-body text-ink-secondary">Conheça expressões, exemplos e traduções antes de interpretar. Opcional.</span></span>
+          </label></li>
+          <li><label className="flex min-h-16 cursor-pointer items-start gap-3 px-4 py-3">
+            <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={settings.realistic} onChange={(e) => setSetting("realistic", e.target.checked)} />
+            <span className="min-w-0"><span className="block text-body font-medium text-ink">Simulação real</span><span className="mt-0.5 block text-body text-ink-secondary">Transcrição e dicas ficam ocultas até você responder.</span></span>
+          </label></li>
+        </ul>
+
+        <Card as="section" aria-label="Resumo do treino" className="space-y-4">
+          <div className="flex items-start gap-3">
+            <IconTile icon={Headphones} />
+            <div className="min-w-0">
+              <h2 className="text-h4 text-ink">Seu treino de interpretação</h2>
+              <p className="mt-1 text-body text-ink">{topic === "custom" ? custom || "Seu cenário" : selected.label} · {level}</p>
+              <p className="text-body text-ink-secondary">{directionNames[settings.direction]} · {interpretationModeNames[settings.interpretation_mode]}</p>
+            </div>
+          </div>
+          <ol className="list-decimal space-y-1 pl-5 text-body text-ink-secondary marker:text-ink-muted">
+            <li>{simultaneousSetup ? "Inicie o áudio e o microfone juntos." : "Ouça a fala do personagem."}</li>
+            <li>{simultaneousSetup ? "Interprete enquanto o personagem fala." : "Grave sua interpretação no outro idioma."}</li>
+            <li>Ouça sua gravação e envie para receber feedback.</li>
+            <li>Continue a situação até o encerramento.</li>
+          </ol>
+          <Button size="lg" fullWidth disabled={topic === "custom" && !custom.trim()} loading={busy} loadingLabel="Preparando cenário…" onClick={create}>
+            <Mic aria-hidden="true" />Iniciar interpretação
+          </Button>
+        </Card>
       </div>
-      <section aria-label="Últimas sessões" className="space-y-3"><h2 className="text-lg font-semibold">Últimas sessões</h2>{sessions.isLoading ? <p role="status" className="text-sm">Carregando sessões...</p> : sessions.isError ? <Button variant="outline" onClick={() => void sessions.refetch()}>Tentar carregar sessões novamente</Button> : sessions.data?.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{sessions.data.slice(0, 9).map((item) => <button key={item.id} className="rounded-2xl border border-border bg-card p-4 text-left hover:bg-muted" onClick={() => navigate(buildInterpreterSessionPath(item.id))}><span className="block text-sm font-semibold">{item.title}</span><span className="mt-1 block text-xs text-muted-foreground">{item.guided_state?.interpreter ? "Simulação de interpretação" : "Prática de listening anterior"} · {formatDateTime(item.last_interaction_at)}</span></button>)}</div> : <p className="text-sm text-muted-foreground">Suas sessões ficarão salvas aqui.</p>}</section>
+
+      <section aria-label="Últimas sessões">
+        <SectionHeader title="Últimas sessões" />
+        {sessions.isLoading ? <SkeletonCard label="Carregando sessões" />
+          : sessions.isError ? <Alert tone="danger" role="alert" title="Não carregamos suas sessões." action={<Button size="sm" variant="outline" onClick={() => void sessions.refetch()}>Tentar carregar sessões novamente</Button>}>Verifique sua conexão e tente de novo.</Alert>
+            : sessions.data?.length ? <ListGroup>{sessions.data.slice(0, 9).map((item) => <ListItem key={item.id}
+              leading={<IconTile icon={item.guided_state?.interpreter ? Languages : Headphones} tone="neutral" size="sm" />}
+              title={item.title} description={`${item.guided_state?.interpreter ? "Simulação de interpretação" : "Prática de listening anterior"} · ${formatDateTime(item.last_interaction_at)}`}
+              onClick={() => navigate(buildInterpreterSessionPath(item.id))} />)}</ListGroup>
+              : <div className={cardVariants({ variant: "dashed", padding: "none" })}><EmptyState compact icon={History} title="Nenhuma sessão ainda" description="Suas sessões ficarão salvas aqui." /></div>}
+      </section>
     </> : state ? <>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4"><p className="text-sm">{directionNames[state.settings.direction]} · {state.level} · {interpretationModeNames[state.settings.interpretation_mode]}</p>{!readOnly && state.status !== "completed" ? <Button variant="outline" disabled={busy || activityBusy || state.status === "reviewing"} onClick={() => void action("finish").catch(() => undefined)}>Encerrar sessão e ver relatório</Button> : null}</div>
-      {readOnly ? <p className="text-sm text-muted-foreground">Visualização do professor. As respostas e o relatório são os mesmos apresentados ao aluno.</p> : null}
-      {state.settings.session_style === "journey" ? <ol aria-label="Etapas da jornada" className="grid grid-cols-1 gap-2 sm:grid-cols-5">{state.plan.steps.map((step, index) => <li key={index} className={cn("rounded-xl border p-3 text-xs", current?.metadata?.interpretation_turn?.step_index === index ? "border-amber-400 bg-amber-50 text-amber-950" : "border-border bg-card text-muted-foreground")}>{index + 1}. {step.title}</li>)}</ol> : null}
-      {state.status === "ready" ? <section className="space-y-5 rounded-3xl border border-border bg-card p-4 sm:p-6"><h2 className="flex items-center gap-2 text-xl font-semibold"><BookOpen className="h-5 w-5" />Preparar vocabulário</h2><p className="text-sm text-muted-foreground">Estas expressões podem aparecer na situação. A preparação é opcional.</p><div className="grid gap-4 sm:grid-cols-2">{state.plan.vocabulary.map((item, index) => <article key={index} className="space-y-3 rounded-2xl border border-border p-4"><h3 className="font-semibold">{item.expression} <span className="font-normal text-muted-foreground">— {item.translation}</span></h3><p lang="en" className="text-sm">{item.example}</p><p lang="pt-BR" className="text-sm text-muted-foreground">{item.example_translation}</p><InterpreterAudio sessionId={session.id} part="vocabulary" vocabularyIndex={index} label={`Ouvir ${item.expression}`} /><InterpreterAudio sessionId={session.id} part="example" vocabularyIndex={index} label="Ouvir exemplo" /></article>)}</div>{!readOnly ? <Button disabled={busy} onClick={() => void action("next").catch(() => undefined)}>{busy ? "Preparando primeira fala..." : "Começar a interpretar"}</Button> : null}</section> : null}
-      {state.status !== "ready" && current ? <div className="space-y-4"><InterpreterTurnCard key={current.id} sessionId={session.id} message={current} state={state} answer={answerFor(current.id)} feedback={currentFeedback} busy={busy} readOnly={readOnly || state.status === "completed"}
-        onAnswer={(data) => action("answer", data)} onRetry={() => retry(current.id)} onActivityChange={setActivityBusy} />
-        {currentFeedback && !readOnly && state.status !== "completed" ? <Button size="lg" disabled={busy} onClick={() => void action("next").catch(() => undefined)}>{busy ? "Preparando próxima fala..." : "Próxima fala"}</Button> : null}
+      <Card padding="md" className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <Badge tone="neutral">{directionNames[state.settings.direction]}</Badge>
+          <Badge tone="neutral">{state.level}</Badge>
+          <Badge tone="neutral">{interpretationModeNames[state.settings.interpretation_mode]}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onClick={() => navigate(APP_PATHS.interpreter)} disabled={busy || activityBusy}><Plus aria-hidden="true" />Novo treino</Button>
+          {!readOnly && state.status !== "completed" ? <Button size="sm" variant="outline" className="h-auto whitespace-normal py-2" disabled={busy || activityBusy || state.status === "reviewing"} onClick={() => void action("finish").catch(() => undefined)}>Encerrar sessão e ver relatório</Button> : null}
+        </div>
+      </Card>
+      {readOnly ? <Alert tone="info" title="Visualização do professor">As respostas e o relatório são os mesmos apresentados ao aluno.</Alert> : null}
+
+      {state.settings.session_style === "journey" ? <Card as="section" padding="md" aria-label="Jornada" className="space-y-3">
+        {currentStep !== undefined ? <>
+          <p className="text-body font-medium text-ink">Etapa {currentStep + 1} de {state.plan.steps.length}</p>
+          <ProgressBar value={currentStep + 1} max={state.plan.steps.length} label="Etapas da jornada concluídas ou em andamento" />
+        </> : null}
+        <ol aria-label="Etapas da jornada" className="grid grid-cols-1 gap-2 sm:grid-cols-5">
+          {state.plan.steps.map((step, index) => {
+            const active = currentStep === index;
+            return <li key={index} aria-current={active ? "step" : undefined} className={cn("flex items-start gap-2 rounded-md p-2 text-body sm:flex-col", active ? "bg-primary-subtle font-medium text-ink" : "text-ink-secondary")}>
+              <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-label", active ? "bg-primary text-primary-foreground" : "bg-surface-muted text-ink")} aria-hidden="true">{index + 1}</span>
+              <span className="min-w-0"><span className="sr-only">{index + 1}. </span>{step.title}</span>
+            </li>;
+          })}
+        </ol>
+      </Card> : null}
+
+      {state.status === "ready" ? <section className="space-y-4">
+        <div className="flex items-start gap-3">
+          <IconTile icon={BookOpen} tone="ai" />
+          <SectionHeader className="mb-0" title="Preparar vocabulário" description="Estas expressões podem aparecer na situação. A preparação é opcional." />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">{state.plan.vocabulary.map((item, index) => <Card as="article" key={index} padding="md" className="min-w-0 space-y-3">
+          <h3 className="text-h4 text-ink"><span lang="en">{item.expression}</span> <span className="font-normal text-ink-secondary">— {item.translation}</span></h3>
+          <StudyBlock kind="example" title="Exemplo">
+            <p lang="en">{item.example}</p>
+            <p lang="pt-BR" className="mt-1 text-body text-ink">{item.example_translation}</p>
+          </StudyBlock>
+          <div className="flex flex-col gap-2">
+            <InterpreterAudio sessionId={session.id} part="vocabulary" vocabularyIndex={index} label={`Ouvir ${item.expression}`} />
+            <InterpreterAudio sessionId={session.id} part="example" vocabularyIndex={index} label="Ouvir exemplo" />
+          </div>
+        </Card>)}</div>
+        {!readOnly ? <Button size="lg" fullWidth loading={busy} loadingLabel="Preparando primeira fala…" onClick={() => void action("next").catch(() => undefined)}>Começar a interpretar</Button> : null}
+      </section> : null}
+
+      {state.status !== "ready" && current ? <div className="space-y-4">
+        <InterpreterTurnCard key={current.id} sessionId={session.id} message={current} state={state} answer={answerFor(current.id)} feedback={currentFeedback} busy={busy} readOnly={readOnly || state.status === "completed"}
+          onAnswer={(data) => action("answer", data)} onRetry={() => retry(current.id)} onActivityChange={setActivityBusy} />
+        {currentFeedback && !readOnly && state.status !== "completed" ? <Button size="lg" fullWidth loading={busy} loadingLabel="Preparando próxima fala…" onClick={() => void action("next").catch(() => undefined)}>Próxima fala</Button> : null}
       </div> : null}
+
       {state.status === "completed" && state.report ? <InterpreterReportCard report={state.report} disabled={busy} onRetry={readOnly ? undefined : retry} /> : null}
-      {session.messages.some((m) => m.metadata?.interpretation_turn && m.id !== current?.id) ? <details className="rounded-3xl border border-border bg-card p-4"><summary className="cursor-pointer font-semibold">Histórico das interpretações</summary><div className="mt-4 space-y-4">{session.messages.filter((m) => m.metadata?.interpretation_turn && m.id !== current?.id).map((message) => <InterpreterTurnCard key={message.id} sessionId={session.id} message={message} state={state} answer={answerFor(message.id)} feedback={feedbackFor(message.id)} busy={busy} readOnly onAnswer={async () => undefined} onRetry={() => undefined} />)}</div></details> : null}
+
+      {history.length ? <details className="group space-y-4">
+        <summary className={cardVariants({ padding: "md", interactive: true, className: "flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden" })}>
+          <IconTile icon={History} tone="neutral" size="sm" />
+          <span className="min-w-0 flex-1 text-body font-semibold text-ink">Histórico das interpretações</span>
+          <Badge tone="neutral">{history.length}</Badge>
+          <ChevronDown size={20} className="shrink-0 text-ink-muted transition-transform duration-200 ease-standard group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        {history.map((message) => <InterpreterTurnCard key={message.id} sessionId={session.id} message={message} state={state} answer={answerFor(message.id)} feedback={feedbackFor(message.id)} busy={busy} readOnly onAnswer={async () => undefined} onRetry={() => undefined} />)}
+      </details> : null}
     </> : null}
-  </main></DashboardLayout>;
+  </div></DashboardLayout>;
 };
 
 const InterpreteIA = () => {
@@ -129,7 +274,8 @@ const InterpreteIA = () => {
   if (!sessionId) return <InterpreterExperience key="setup" />;
   if (query.data && !query.data.guided_state?.interpreter) return <LegacyInterpreteIA />;
   if (query.data) return <InterpreterExperience key={sessionId} session={query.data} />;
-  return <DashboardLayout><div className="rounded-3xl border border-border bg-card p-8">{query.isLoading ? <p role="status">Carregando sessão...</p> : <div role="alert"><p>Não foi possível abrir esta sessão.</p><Button className="mt-4" variant="outline" onClick={() => void query.refetch()}>Tentar novamente</Button></div>}</div></DashboardLayout>;
+  return <DashboardLayout>{query.isLoading ? <SkeletonCard label="Carregando sessão" lines={3} />
+    : <Alert tone="danger" role="alert" title="Não foi possível abrir esta sessão." action={<Button size="sm" variant="outline" onClick={() => void query.refetch()}>Tentar novamente</Button>}>Verifique sua conexão e tente de novo.</Alert>}</DashboardLayout>;
 };
 
 export default InterpreteIA;

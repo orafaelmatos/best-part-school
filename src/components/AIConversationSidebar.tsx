@@ -1,15 +1,13 @@
-import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Ellipsis,
   Headphones,
-  Loader2,
   MessageSquare,
   MessageSquarePlus,
   Pencil,
   Pin,
-  Search,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Alert, Button, EmptyState, IconButton, SearchBar, SegmentedControl, Skeleton, inputClasses } from "@/components/student/ui";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import {
@@ -30,6 +29,8 @@ import {
   buildNewModePath,
   buildSessionPath,
   fetchAiStudySessions,
+  formatDateTime,
+  modeLabel,
   SessionSummary,
 } from "@/lib/aiStudy";
 import { APP_PATHS } from "@/lib/routes";
@@ -48,20 +49,21 @@ type WorkspaceConfig = {
   createLabel: string;
 };
 
+// Labels match the shell switch ("Conversar e escrever" / "Listening").
 const WORKSPACES: WorkspaceConfig[] = [
   {
     id: "practice",
-    label: "Praticar com IA",
+    label: "Conversar e escrever",
     basePath: APP_PATHS.aiPractice,
     newPath: buildNewModePath(),
     modes: ["review", "speaking", "writing"],
     icon: MessageSquare,
     emptyMessage: "Nenhuma conversa salva ainda.",
-    createLabel: "Novo chat",
+    createLabel: "Nova conversa",
   },
   {
     id: "interpreter",
-    label: "Interprete IA",
+    label: "Listening",
     basePath: APP_PATHS.interpreter,
     newPath: APP_PATHS.interpreter,
     modes: ["listening"],
@@ -100,93 +102,89 @@ const ConversationSidebarItem = ({
   onCancelRename: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
-}) => (
-  <div
-    className={cn(
-      "group flex items-center gap-1 rounded-[18px] pr-1 transition",
-      active
-        ? "bg-white/12 text-white ring-1 ring-white/12 shadow-[0_22px_40px_-30px_rgba(15,23,42,0.95)]"
-        : "hover:bg-white/7",
-    )}
-  >
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left"
-    >
-      {session.is_pinned ? (
-        <Pin className={cn("h-3.5 w-3.5 shrink-0", active ? "text-white/85" : "text-slate-400")} />
-      ) : (
-        <WorkspaceIcon className={cn("h-3.5 w-3.5 shrink-0", active ? "text-white/80" : "text-slate-400")} />
-      )}
+}) => {
+  const id = useId();
+  const title = session.title || "Nova conversa";
+  const ItemIcon = session.is_pinned ? Pin : WorkspaceIcon;
 
+  return (
+    <li className={cn("flex items-center gap-1 pr-2 transition-colors duration-150 ease-standard", active ? "bg-primary-subtle" : "bg-surface")}>
       {isRenaming ? (
-        <input
-          autoFocus
-          value={renameValue}
-          onBlur={onRenameSubmit}
-          onChange={(event) => onRenameChange(event.target.value)}
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onRenameSubmit();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onCancelRename();
-            }
-          }}
-          className={cn(
-            "w-full rounded-xl border bg-transparent px-2 py-1.5 text-sm outline-none",
-            active ? "border-white/15 text-white placeholder:text-white/45" : "border-white/10 text-slate-100",
-          )}
-          placeholder="Renomear conversa"
-        />
-      ) : (
-        <span className={cn("min-w-0 flex-1 truncate text-sm", active ? "text-white" : "text-slate-100/90")}>
-          {session.title || "Nova conversa"}
-        </span>
-      )}
-    </button>
-
-    {!isRenaming ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Abrir opcoes de ${session.title || "Nova conversa"}`}
+        <div className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-4">
+          <ItemIcon size={20} className="shrink-0 text-ink-muted" aria-hidden="true" />
+          <input
+            autoFocus
+            aria-label="Novo nome da conversa"
+            value={renameValue}
+            onBlur={onRenameSubmit}
+            onChange={(event) => onRenameChange(event.target.value)}
             onClick={(event) => event.stopPropagation()}
-            className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition",
-              active
-                ? "text-white/75 hover:bg-white/10 hover:text-white"
-                : "text-slate-300/60 hover:bg-white/10 hover:text-white",
-            )}
-          >
-            <Ellipsis className="h-4 w-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44 rounded-xl border-slate-200/80">
-          <DropdownMenuItem onSelect={onStartRename}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Renomear conversa
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onTogglePin}>
-            <Pin className="mr-2 h-4 w-4" />
-            {session.is_pinned ? "Desafixar conversa" : "Fixar conversa"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={onDelete}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            Deletar conversa
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null}
-  </div>
-);
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onRenameSubmit();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onCancelRename();
+              }
+            }}
+            className={inputClasses}
+            placeholder="Renomear conversa"
+          />
+        </div>
+      ) : (
+        // The accessible name is the title alone; mode and date are the description.
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-current={active ? "true" : undefined}
+          aria-labelledby={`${id}-title`}
+          aria-describedby={`${id}-meta`}
+          className="flex min-h-16 min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+        >
+          <ItemIcon size={20} className={cn("shrink-0", active ? "text-primary" : "text-ink-muted")} aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span id={`${id}-title`} className={cn("block truncate text-body font-medium", active ? "text-primary-dark" : "text-ink")}>{title}</span>
+            <span id={`${id}-meta`} className={cn("mt-0.5 block truncate text-caption", active ? "text-ink" : "text-ink-secondary")}>
+              {modeLabel[session.mode]}{session.last_interaction_at ? ` · ${formatDateTime(session.last_interaction_at)}` : ""}
+            </span>
+          </span>
+        </button>
+      )}
+
+      {!isRenaming ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <IconButton
+              variant="ghost"
+              aria-label={`Abrir opções de ${title}`}
+              icon={<Ellipsis aria-hidden="true" />}
+              onClick={(event) => event.stopPropagation()}
+              className="size-11 shrink-0 text-ink-secondary"
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 rounded-lg border-line bg-surface p-1 text-ink shadow-overlay">
+            <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body" onSelect={onStartRename}>
+              <Pencil size={16} aria-hidden="true" />
+              Renomear conversa
+            </DropdownMenuItem>
+            <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body" onSelect={onTogglePin}>
+              <Pin size={16} aria-hidden="true" />
+              {session.is_pinned ? "Desafixar conversa" : "Fixar conversa"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-line" />
+            <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body text-danger focus:text-danger" onSelect={onDelete}>
+              <Trash2 size={16} aria-hidden="true" />
+              Excluir conversa
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </li>
+  );
+};
 
 const AIConversationSidebar = () => {
   const location = useLocation();
@@ -250,7 +248,7 @@ const AIConversationSidebar = () => {
       await refreshSessions(session.id);
     } catch {
       toast({
-        title: "Nao foi possivel renomear",
+        title: "Não foi possível renomear",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -265,7 +263,7 @@ const AIConversationSidebar = () => {
       await refreshSessions(session.id);
     } catch {
       toast({
-        title: "Nao foi possivel atualizar a conversa",
+        title: "Não foi possível atualizar a conversa",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -293,140 +291,106 @@ const AIConversationSidebar = () => {
       }
     } catch {
       toast({
-        title: "Nao foi possivel deletar",
-        description: "A conversa nao foi removida.",
+        title: "Não foi possível excluir",
+        description: "A conversa não foi removida.",
         variant: "destructive",
       });
     }
   };
 
+  const renderItems = (items: SessionSummary[]) => (
+    <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+      {items.map((session) => (
+        <ConversationSidebarItem
+          key={session.id}
+          active={session.id === sessionId}
+          isRenaming={renamingSessionId === session.id}
+          onCancelRename={() => {
+            setRenamingSessionId(null);
+            setRenameValue("");
+          }}
+          onDelete={() => void handleDelete(session)}
+          onRenameChange={setRenameValue}
+          onRenameSubmit={() => void handleRenameSubmit(session)}
+          onSelect={() => handleSelectSession(session.id)}
+          onStartRename={() => handleStartRename(session)}
+          onTogglePin={() => void handleTogglePin(session)}
+          renameValue={renameValue}
+          session={session}
+          workspaceIcon={activeWorkspace.icon}
+        />
+      ))}
+    </ul>
+  );
+
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/5 p-4 shadow-[0_20px_40px_-32px_rgba(15,23,42,0.95)]">
-      <div className="mb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-          Suas práticas
-        </p>
-      </div>
+    <div className="space-y-4 pb-2 text-ink">
+      <SegmentedControl<WorkspaceId>
+        label="Tipo de prática"
+        value={activeWorkspace.id}
+        items={WORKSPACES.map((workspace) => ({ value: workspace.id, label: workspace.label }))}
+        onChange={(value) => {
+          const workspace = WORKSPACES.find((item) => item.id === value);
+          if (workspace && workspace.id !== activeWorkspace.id) {
+            startTransition(() => { void navigate(workspace.basePath); });
+          }
+        }}
+      />
 
-      <div className="space-y-2">
-        {WORKSPACES.map((workspace) => {
-          const isActive = workspace.id === activeWorkspace.id;
-          const WorkspaceIcon = workspace.icon;
+      <Button type="button" variant="secondary" fullWidth onClick={() => navigate(activeWorkspace.newPath)}>
+        <MessageSquarePlus aria-hidden="true" />
+        {activeWorkspace.createLabel}
+      </Button>
 
-          return (
-            <div key={workspace.id} className="space-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isActive) {
-                    startTransition(() => { void navigate(workspace.basePath); });
-                  }
-                }}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-[20px] border px-3 py-3 text-left text-sm font-medium transition",
-                  isActive
-                    ? "border-white/12 bg-[linear-gradient(135deg,#4f7cff,#2d63f5)] text-white shadow-[0_22px_40px_-26px_rgba(45,99,245,0.95)]"
-                    : "border-white/10 bg-white/6 text-slate-100/90 hover:bg-white/10",
-                )}
-              >
-                <WorkspaceIcon className="h-[18px] w-[18px] shrink-0" />
-                <span className="truncate">{workspace.label}</span>
-              </button>
+      <SearchBar
+        label="Buscar conversa"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Buscar conversa"
+      />
 
-              {isActive ? (
-                <div className="ml-4 space-y-3 border-l border-white/10 pl-4">
-                  <button
-                    type="button"
-                    onClick={() => navigate(workspace.newPath)}
-                    className="inline-flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/8 px-3 py-2.5 text-sm font-medium text-slate-100 transition hover:bg-white/12"
-                  >
-                    <MessageSquarePlus className="h-4 w-4" />
-                    {workspace.createLabel}
-                  </button>
-
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Buscar conversa"
-                      className="w-full rounded-2xl border border-white/10 bg-transparent py-2.5 pl-10 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-sky-300/40 focus:ring-2 focus:ring-sky-300/15"
-                    />
-                  </div>
-
-                  {sessionsQuery.isLoading ? (
-                    <div className="flex items-center gap-2 rounded-xl px-2 py-2 text-sm text-slate-300/80">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Carregando conversas...
-                    </div>
-                  ) : sessions.length ? (
-                    <div className="space-y-3 pb-1">
-                      {pinnedSessions.length ? (
-                        <div className="space-y-1.5">
-                          <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Fixadas</p>
-                          {pinnedSessions.map((session) => (
-                            <ConversationSidebarItem
-                              key={session.id}
-                              active={session.id === sessionId}
-                              isRenaming={renamingSessionId === session.id}
-                              onCancelRename={() => {
-                                setRenamingSessionId(null);
-                                setRenameValue("");
-                              }}
-                              onDelete={() => void handleDelete(session)}
-                              onRenameChange={setRenameValue}
-                              onRenameSubmit={() => void handleRenameSubmit(session)}
-                              onSelect={() => handleSelectSession(session.id)}
-                              onStartRename={() => handleStartRename(session)}
-                              onTogglePin={() => void handleTogglePin(session)}
-                              renameValue={renameValue}
-                              session={session}
-                              workspaceIcon={WorkspaceIcon}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {otherSessions.length ? (
-                        <div className="space-y-1.5">
-                          {pinnedSessions.length ? (
-                            <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Conversas</p>
-                          ) : null}
-                          {otherSessions.map((session) => (
-                            <ConversationSidebarItem
-                              key={session.id}
-                              active={session.id === sessionId}
-                              isRenaming={renamingSessionId === session.id}
-                              onCancelRename={() => {
-                                setRenamingSessionId(null);
-                                setRenameValue("");
-                              }}
-                              onDelete={() => void handleDelete(session)}
-                              onRenameChange={setRenameValue}
-                              onRenameSubmit={() => void handleRenameSubmit(session)}
-                              onSelect={() => handleSelectSession(session.id)}
-                              onStartRename={() => handleStartRename(session)}
-                              onTogglePin={() => void handleTogglePin(session)}
-                              renameValue={renameValue}
-                              session={session}
-                              workspaceIcon={WorkspaceIcon}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-white/14 bg-white/6 px-3 py-3 text-sm text-slate-300/80">
-                      {workspace.emptyMessage}
-                    </div>
-                  )}
-                </div>
-              ) : null}
+      {sessionsQuery.isLoading ? (
+        <div role="status" aria-label="Carregando conversas" className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+          {[0, 1, 2].map((index) => (
+            <div key={index} className="flex min-h-16 items-center gap-3 px-4">
+              <Skeleton className="size-5 rounded-full" />
+              <div className="flex-1 space-y-2"><Skeleton className="h-3.5 w-3/5" /><Skeleton className="h-3 w-2/5" /></div>
             </div>
-          );
-        })}
-      </div>
-    </section>
+          ))}
+        </div>
+      ) : sessionsQuery.isError ? (
+        <Alert
+          tone="danger"
+          role="alert"
+          title="Não carregamos suas conversas."
+          action={<Button type="button" size="sm" variant="outline" onClick={() => void sessionsQuery.refetch()}>Tentar novamente</Button>}
+        >
+          Confira sua conexão e tente de novo.
+        </Alert>
+      ) : sessions.length ? (
+        <div className="space-y-4">
+          {pinnedSessions.length ? (
+            <section aria-labelledby="ai-history-pinned" className="space-y-2">
+              <h3 id="ai-history-pinned" className="text-label text-ink-secondary">Fixadas</h3>
+              {renderItems(pinnedSessions)}
+            </section>
+          ) : null}
+          {otherSessions.length ? (
+            <section aria-labelledby={pinnedSessions.length ? "ai-history-others" : undefined} className="space-y-2">
+              {pinnedSessions.length ? <h3 id="ai-history-others" className="text-label text-ink-secondary">Conversas</h3> : null}
+              {renderItems(otherSessions)}
+            </section>
+          ) : null}
+        </div>
+      ) : (
+        <EmptyState
+          compact
+          icon={activeWorkspace.icon}
+          title={search ? "Nenhuma conversa encontrada" : activeWorkspace.emptyMessage}
+          description={search ? "Tente buscar por outro nome." : "Comece uma prática e ela aparece aqui."}
+        />
+      )}
+    </div>
   );
 };
 

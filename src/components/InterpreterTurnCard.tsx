@@ -1,6 +1,7 @@
 import AIContentReportButton from "@/components/AIContentReportButton";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, EyeOff, Headphones, Languages, Lightbulb, ListChecks, Mic, MinusCircle, PenLine, RotateCcw, Send, Sparkles } from "lucide-react";
+import { Alert, Badge, Button, Card, ChatBubble, Chip, IconTile, StudyBlock, inputClasses } from "@/components/student/ui";
 import MicRecorder, { type RecordingState } from "@/components/MicRecorder";
 import InterpreterAudio from "@/components/InterpreterAudio";
 import SimultaneousRecorder from "@/components/SimultaneousRecorder";
@@ -9,6 +10,7 @@ import { InterpreterMetrics } from "@/components/InterpreterReportCard";
 import { absoluteMediaUrl } from "@/lib/config";
 import { audioRequestId, recordingExtension } from "@/lib/speakingAudio";
 import { languageNames, type InterpreterMessage, type InterpreterState, type InterpretationFeedback, type SimultaneousTiming } from "@/lib/interpreter";
+import { cn } from "@/lib/utils";
 
 type Props = {
   sessionId: string;
@@ -22,6 +24,12 @@ type Props = {
   onRetry: () => void;
   onActivityChange?: (busy: boolean) => void;
 };
+
+const disclosureClass = "inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-body font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden";
+const statusLabels = { preserved: "Preservada", omitted: "Omitida", altered: "Alterada" } as const;
+const statusTones = { preserved: "success", omitted: "warning", altered: "danger" } as const;
+const statusIcons = { preserved: CheckCircle2, omitted: MinusCircle, altered: AlertTriangle } as const;
+const responseModes = [["voice", "Interpretar por voz", Mic], ["text", "Escrever sozinho", PenLine], ["multiple_choice", "Com alternativas", ListChecks]] as const;
 
 const InterpreterTurnCard = ({ sessionId, message, state, answer, feedback, busy, readOnly, onAnswer, onRetry, onActivityChange }: Props) => {
   const turn = message.metadata!.interpretation_turn!;
@@ -43,6 +51,8 @@ const InterpreterTurnCard = ({ sessionId, message, state, answer, feedback, busy
   const canRespond = !readOnly && !answer;
   const assistance = !state.settings.realistic || Boolean(feedback);
   const target = languageNames[turn.target_language];
+  const sourceLang = turn.source_language === "pt" ? "pt-BR" : "en";
+  const targetLang = turn.target_language === "pt" ? "pt-BR" : "en";
   useEffect(() => { onActivityChange?.(recordingBusy); return () => onActivityChange?.(false); }, [recordingBusy, onActivityChange]);
 
   useEffect(() => {
@@ -74,28 +84,49 @@ const InterpreterTurnCard = ({ sessionId, message, state, answer, feedback, busy
     } finally { submitted.current = false; }
   };
 
-  return <article aria-label={`Trecho ${turn.index + 1}`} className="space-y-5 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-amber-700">{turn.review_of ? "Revisão" : `Trecho ${turn.index + 1}`} · {languageNames[turn.source_language]} → {target}</p>
-        <h2 className="mt-1 text-xl font-semibold">{turn.speaker}</h2>
-        {state.settings.session_style === "journey" ? <p className="mt-1 text-sm text-muted-foreground">{state.plan.steps[turn.step_index].title}</p> : null}
+  const suggestion = <StudyBlock kind="example" title="Uma interpretação sugerida"><p lang={targetLang} className="leading-7">{turn.suggested_interpretation}</p></StudyBlock>;
+
+  return <Card as="article" aria-label={`Trecho ${turn.index + 1}`} padding="md" className="min-w-0 space-y-5 sm:p-5">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-caption text-ink-secondary">{turn.review_of ? "Revisão" : `Trecho ${turn.index + 1}`} · {languageNames[turn.source_language]} → {target}</p>
+        <h2 className="mt-1 text-h3 text-ink">{turn.speaker}</h2>
+        {state.settings.session_style === "journey" ? <p className="mt-0.5 text-body text-ink-secondary">{state.plan.steps[turn.step_index].title}</p> : null}
       </div>
-      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-900">Você é o intérprete</span>
-    </div>
+      <Badge tone="neutral" icon={<Languages aria-hidden="true" />}>Você é o intérprete</Badge>
+    </header>
+
     {!simultaneous || !canRespond || responseMode !== "voice" ? <InterpreterAudio sessionId={sessionId} messageId={message.id} part="original" label="Ouvir fala original" initialUrl={turn.audio_url} speed={state.policy.speed}
       disabled={recordingBusy || busy} onPlayingChange={setPlaying} onEnded={() => setListened(true)} /> : null}
+
     {assistance ? <div className="space-y-3">
-      <Button type="button" variant="ghost" onClick={() => { setShowOriginal((value) => !value); if (!showOriginal) setListened(true); }}>{showOriginal ? "Ocultar transcrição original" : "Ver transcrição original"}</Button>
-      {showOriginal ? <p lang={turn.source_language === "pt" ? "pt-BR" : "en"} className="rounded-2xl bg-muted p-4 text-base leading-relaxed">{turn.transcript}</p> : null}
-      {state.settings.interpretation_mode === "guided" && !feedback ? state.policy.support === "full" ? <p className="rounded-2xl bg-amber-50 p-3 text-sm">Dica: {turn.hint}</p> : <details className="text-sm"><summary className="cursor-pointer">{state.policy.support === "minimal" ? "Consultar uma nuance do trecho" : "Preciso de uma dica"}</summary><p className="mt-2 text-muted-foreground">{turn.hint}</p></details> : null}
+      <Button type="button" variant="ghost" size="sm" className="-ml-2 px-2" aria-expanded={showOriginal} onClick={() => { setShowOriginal((value) => !value); if (!showOriginal) setListened(true); }}>
+        {showOriginal ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}{showOriginal ? "Ocultar transcrição original" : "Ver transcrição original"}
+      </Button>
+      {showOriginal ? <StudyBlock kind="translation" title="Transcrição original"><p lang={sourceLang} className="leading-7">{turn.transcript}</p></StudyBlock> : null}
+      {state.settings.interpretation_mode === "guided" && !feedback ? state.policy.support === "full"
+        ? <StudyBlock kind="tip" title="Apoio do tutor"><p>Dica: {turn.hint}</p></StudyBlock>
+        : <details className="group">
+          <summary className={disclosureClass}>
+            <Lightbulb size={16} aria-hidden="true" />{state.policy.support === "minimal" ? "Consultar uma nuance do trecho" : "Preciso de uma dica"}
+            <ChevronDown size={16} className="transition-transform duration-200 ease-standard group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <StudyBlock kind="tip" title="Dica" className="mt-2"><p>{turn.hint}</p></StudyBlock>
+        </details> : null}
     </div> : null}
-    {canRespond ? <div className="space-y-4 border-t border-border pt-4">
-      <div><h3 className="font-semibold">Sua vez! Interprete para o {target}.</h3><p className="mt-1 text-sm text-muted-foreground">Preserve o significado da mensagem. Você pode usar suas próprias palavras.</p></div>
-      <div className="flex flex-wrap gap-2" aria-label="Forma de resposta">
-        {([["voice", "Interpretar por voz"], ["text", "Escrever sozinho"], ["multiple_choice", "Com alternativas"]] as const).map(([mode, label]) => <Button key={mode} type="button" size="sm" variant={responseMode === mode ? "default" : "outline"} aria-pressed={responseMode === mode}
-          disabled={recordingBusy || busy} onClick={() => { setResponseMode(mode); setRequestId(""); }}>{label}</Button>)}
+
+    {canRespond ? <div className="space-y-4 border-t border-line pt-5">
+      <div>
+        <h3 className="text-h4 text-ink">Sua vez! Interprete para o {target}.</h3>
+        <p className="mt-1 text-body text-ink-secondary">Preserve o significado da mensagem. Você pode usar suas próprias palavras.</p>
       </div>
-      {!listened && !(simultaneous && responseMode === "voice") ? <p className="text-sm text-muted-foreground">Ouça a fala até o fim{assistance ? " ou consulte a transcrição" : ""} antes de responder.</p> : null}
+      <div role="group" className="flex flex-wrap gap-2" aria-label="Forma de resposta">
+        {responseModes.map(([mode, label, Icon]) => <Chip key={mode} selected={responseMode === mode} disabled={recordingBusy || busy} className="disabled:opacity-50"
+          onClick={() => { setResponseMode(mode); setRequestId(""); }}><Icon aria-hidden="true" />{label}</Chip>)}
+      </div>
+      {!listened && !(simultaneous && responseMode === "voice") ? <p className="flex items-start gap-2 text-body text-ink-secondary">
+        <Headphones size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />Ouça a fala até o fim{assistance ? " ou consulte a transcrição" : ""} antes de responder.
+      </p> : null}
       {responseMode === "voice" && simultaneous ? <>
         <SimultaneousRecorder sessionId={sessionId} messageId={message.id} initialUrl={turn.audio_url} speed={state.settings.playback_speed ?? state.policy.speed} disabled={busy}
           onBusyChange={setSimultaneousBusy} onReset={() => { setRecording(null); setRequestId(""); setListened(false); }}
@@ -107,31 +138,82 @@ const InterpreterTurnCard = ({ sessionId, message, state, answer, feedback, busy
           onRecordingComplete={(blob, seconds) => { setRecording({ blob, seconds }); setRecordingState("completed"); }}
           onUseText={() => { setResponseMode("text"); setRequestId(""); }} recordLabel="Gravar interpretação" stopLabel="Concluir gravação" completedLabel="Gravação pronta para ouvir e enviar"
           description="Grave a mensagem no idioma de destino. Você poderá ouvir sua interpretação antes de enviar." />
-        {preview ? <div><p className="mb-2 text-sm font-medium">Ouvir minha interpretação</p><audio aria-label="Ouvir minha interpretação" controls src={preview} className="w-full" /></div> : null}
-      </> : responseMode === "text" ? <label className="block text-sm font-medium">Sua interpretação em {target}<textarea aria-label={`Sua interpretação em ${target}`} lang={turn.target_language === "pt" ? "pt-BR" : "en"} value={text} maxLength={12000}
-        disabled={busy || !listened} onChange={(e) => { setText(e.target.value); setRequestId(""); }} rows={4} className="mt-2 w-full rounded-2xl border border-input bg-background p-3 font-normal" placeholder={`Transmita a mensagem em ${target}...`} /></label> : <fieldset disabled={busy || !listened} className="space-y-2"><legend className="mb-2 text-sm">Qual interpretação preserva o significado?</legend>
-        {turn.alternatives.map((value, index) => <label key={index} className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3 text-sm"><input type="radio" name={`option-${message.id}`} checked={option === index} onChange={() => { setOption(index); setRequestId(""); }} /><span>{value}</span></label>)}
+        {preview ? <div className="space-y-2 rounded-lg bg-surface-muted p-3">
+          <p className="flex items-center gap-2 text-body font-medium text-ink"><CheckCircle2 size={16} className="shrink-0 text-success" aria-hidden="true" />Ouvir minha interpretação</p>
+          <audio aria-label="Ouvir minha interpretação" controls src={preview} className="w-full min-w-0" />
+        </div> : null}
+      </> : responseMode === "text" ? <label className="block text-body font-medium text-ink">Sua interpretação em {target}
+        <textarea aria-label={`Sua interpretação em ${target}`} lang={targetLang} value={text} maxLength={12000}
+          disabled={busy || !listened} onChange={(e) => { setText(e.target.value); setRequestId(""); }} rows={4}
+          className={cn(inputClasses, "mt-2 block min-h-32 py-3 font-normal leading-7")} placeholder={`Transmita a mensagem em ${target}…`} />
+      </label> : <fieldset disabled={busy || !listened} className="min-w-0 space-y-2 disabled:opacity-60">
+        <legend className="mb-2 text-body font-medium text-ink">Qual interpretação preserva o significado?</legend>
+        {turn.alternatives.map((value, index) => <label key={index} className={cn(
+          "flex min-h-12 cursor-pointer items-start gap-3 rounded-lg border p-3 text-body-lg text-ink transition-colors duration-150 ease-standard focus-within:ring-2 focus-within:ring-primary",
+          option === index ? "border-primary bg-primary-subtle" : "border-line bg-surface hover:bg-surface-muted",
+        )}>
+          <input type="radio" className="mt-1 size-5 shrink-0 accent-primary" name={`option-${message.id}`} checked={option === index} onChange={() => { setOption(index); setRequestId(""); }} />
+          <span lang={targetLang} className="min-w-0">{value}</span>
+        </label>)}
       </fieldset>}
-      <Button type="button" disabled={busy || recordingBusy || playing || !listened || (responseMode === "voice" ? !recording : responseMode === "text" ? !text.trim() : option === null)} onClick={() => void submit().catch(() => undefined)}>{busy ? "Avaliando interpretação..." : "Enviar interpretação"}</Button>
+      <Button type="button" fullWidth className="h-auto whitespace-normal py-2" loading={busy} loadingLabel="Avaliando interpretação…"
+        disabled={busy || recordingBusy || playing || !listened || (responseMode === "voice" ? !recording : responseMode === "text" ? !text.trim() : option === null)}
+        onClick={() => void submit().catch(() => undefined)}>
+        <Send aria-hidden="true" />Enviar interpretação
+      </Button>
     </div> : null}
-    {answer ? <div className="space-y-3 border-t border-border pt-4"><h3 className="text-sm font-semibold">Sua interpretação</h3><p className="whitespace-pre-wrap text-sm leading-relaxed">{answer.text}</p>
-      {answer.audio_url ? <audio aria-label="Ouvir minha interpretação enviada" controls preload="none" src={absoluteMediaUrl(answer.audio_url) || undefined} className="w-full" /> : null}
+
+    {answer ? <div className="space-y-3 border-t border-line pt-5">
+      <h3 className="text-body font-semibold text-ink">Sua interpretação</h3>
+      {answer.text ? <ChatBubble from="student" className="whitespace-pre-wrap">{answer.text}</ChatBubble> : null}
+      {answer.audio_url ? <audio aria-label="Ouvir minha interpretação enviada" controls preload="none" src={absoluteMediaUrl(answer.audio_url) || undefined} className="w-full min-w-0" /> : null}
       {answer.audio_url && answer.metadata?.interpreter_answer?.simultaneous_timing && turn.audio_url ? <InterpreterComparisonPlayer originalUrl={turn.audio_url} recordingUrl={answer.audio_url} timing={answer.metadata.interpreter_answer.simultaneous_timing} /> : null}
     </div> : null}
-    {feedback ? <section aria-label="Feedback da interpretação" className="space-y-4 rounded-2xl bg-muted/50 p-4">
-      <h3 className="font-semibold">{feedback.summary}</h3>
-      {!feedback.target_language_observed ? <p className="text-sm text-destructive">A interpretação precisa estar em {target}.</p> : null}
-      {feedback.strengths.length ? <ul className="list-disc space-y-1 pl-5 text-sm">{feedback.strengths.map((item) => <li key={item}>{item}</li>)}</ul> : null}
-      {feedback.improvements.length ? <div><p className="text-sm font-semibold">Para a próxima tentativa</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm">{feedback.improvements.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}
-      <details className="text-sm"><summary className="cursor-pointer font-medium">Ver detalhes da avaliação</summary><div className="mt-3 space-y-3"><InterpreterMetrics value={feedback} />
-        {feedback.information.map((item) => <div key={item.unit_index}><p className="font-medium">{turn.key_information[item.unit_index]} — {({ preserved: "Preservada", omitted: "Omitida", altered: "Alterada" })[item.status]}</p><p className="text-muted-foreground">{item.explanation}</p></div>)}
-        <p className="text-xs text-muted-foreground">Fluidez, pronúncia e clareza da fala não avaliadas. {feedback.response_mode === "multiple_choice" ? "Esta resposta avalia apenas reconhecimento de significado." : "A avaliação considera o texto ou a transcrição da sua resposta."}</p>
-      </div></details>
-      <div><h3 className="mb-2 text-sm font-semibold">Uma interpretação sugerida</h3><p lang={turn.target_language === "pt" ? "pt-BR" : "en"} className="mb-3 text-sm leading-relaxed">{turn.suggested_interpretation}</p><InterpreterAudio sessionId={sessionId} messageId={message.id} part="suggested" label={`Ouvir interpretação sugerida em ${target}`} initialUrl={turn.suggested_audio_url} /></div>
-      {!readOnly ? <Button type="button" variant="outline" disabled={busy} onClick={onRetry}>Tentar novamente</Button> : null}
-    </section> : assistance && !canRespond ? <><Button variant="ghost" onClick={() => setShowSuggested((value) => !value)}>Ver interpretação sugerida</Button>{showSuggested ? <p className="text-sm">{turn.suggested_interpretation}</p> : null}</> : null}
+
+    {feedback ? <section aria-label="Feedback da interpretação" className="space-y-4 border-t border-line pt-5">
+      <div className="flex items-start gap-3">
+        <IconTile icon={Sparkles} tone="ai" size="sm" />
+        <div className="min-w-0">
+          <p className="text-caption text-ai">Avaliação do tutor de IA</p>
+          <h3 className="mt-0.5 text-body-lg font-semibold text-ink">{feedback.summary}</h3>
+        </div>
+      </div>
+      {!feedback.target_language_observed ? <Alert tone="danger" title={`A interpretação precisa estar em ${target}.`} /> : null}
+      {feedback.strengths.length ? <ul className="space-y-2 text-body-lg text-ink">{feedback.strengths.map((item) => <li key={item} className="flex items-start gap-2">
+        <CheckCircle2 size={20} className="mt-0.5 shrink-0 text-success" aria-hidden="true" /><span className="min-w-0"><span className="sr-only">Ponto forte: </span>{item}</span>
+      </li>)}</ul> : null}
+      {feedback.improvements.length ? <StudyBlock kind="correction" title="Para a próxima tentativa">
+        <ul className="list-disc space-y-1 pl-5">{feedback.improvements.map((item) => <li key={item}>{item}</li>)}</ul>
+      </StudyBlock> : null}
+      {suggestion}
+      <InterpreterAudio sessionId={sessionId} messageId={message.id} part="suggested" label={`Ouvir interpretação sugerida em ${target}`} initialUrl={turn.suggested_audio_url} />
+      <details className="group">
+        <summary className={disclosureClass}>Ver detalhes da avaliação<ChevronDown size={16} className="transition-transform duration-200 ease-standard group-open:rotate-180" aria-hidden="true" /></summary>
+        <div className="mt-3 space-y-4">
+          <InterpreterMetrics value={feedback} />
+          {feedback.information.length ? <ul className="divide-y divide-line rounded-lg border border-line">{feedback.information.map((item) => {
+            const StatusIcon = statusIcons[item.status];
+            return <li key={item.unit_index} className="space-y-2 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 text-body font-medium text-ink">{turn.key_information[item.unit_index]}</p>
+                <Badge tone={statusTones[item.status]} icon={<StatusIcon aria-hidden="true" />}>{statusLabels[item.status]}</Badge>
+              </div>
+              <p className="text-body text-ink-secondary">{item.explanation}</p>
+            </li>;
+          })}</ul> : null}
+          <p className="text-caption text-ink-muted">Fluidez, pronúncia e clareza da fala não avaliadas. {feedback.response_mode === "multiple_choice" ? "Esta resposta avalia apenas reconhecimento de significado." : "A avaliação considera o texto ou a transcrição da sua resposta."}</p>
+        </div>
+      </details>
+      {!readOnly ? <Button type="button" variant="outline" disabled={busy} onClick={onRetry}><RotateCcw aria-hidden="true" />Tentar novamente</Button> : null}
+    </section> : assistance && !canRespond ? <div className="space-y-3">
+      <Button type="button" variant="ghost" size="sm" className="-ml-2 px-2" aria-expanded={showSuggested} onClick={() => setShowSuggested((value) => !value)}>
+        {showSuggested ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}Ver interpretação sugerida
+      </Button>
+      {showSuggested ? suggestion : null}
+    </div> : null}
+
     <AIContentReportButton messageId={message.id} />
-  </article>;
+  </Card>;
 };
 
 export default InterpreterTurnCard;

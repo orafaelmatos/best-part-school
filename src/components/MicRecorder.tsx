@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Pause, Play, Square, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/student/ui";
+import { cn } from "@/lib/utils";
 import { microphoneError, preferredRecordingType, recordingSupportError } from "@/lib/speakingAudio";
 
 export type RecordingState = "idle" | "requesting" | "recording" | "paused" | "processing" | "uploading" | "completed" | "error";
@@ -182,35 +183,39 @@ const MicRecorder = ({ state, onStateChange, onRecordingComplete, disabled, maxD
     completed: completedLabel || "Resposta enviada", error: "Você pode tentar novamente ou usar texto",
   }[state];
 
+  const live = state === "recording";
   return (
-    <section aria-label="Resposta por voz" className="space-y-3 rounded-2xl border border-border bg-card p-3 shadow-sm sm:p-4">
+    <section aria-label="Resposta por voz" className="space-y-3 rounded-xl border border-line bg-surface p-4 text-ink">
       <div className="flex items-center justify-between gap-3">
-        <p role="status" className="flex items-center gap-2 text-sm font-medium">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4 text-primary" />}
+        <p role="status" className="flex min-w-0 items-center gap-2 text-body font-medium text-ink">
+          {busy ? <Loader2 size={20} className="shrink-0 animate-spin text-primary" aria-hidden="true" />
+            : <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full", live ? "bg-danger-soft text-danger" : "bg-primary-subtle text-primary")} aria-hidden="true">
+              <Mic size={16} className={live ? "motion-safe:animate-pulse" : undefined} />
+            </span>}
           {status}
         </p>
-        <span aria-label="Duração da gravação" className="text-sm tabular-nums text-muted-foreground">
+        <span aria-label="Duração da gravação" className="shrink-0 text-body tabular-nums text-ink-secondary">
           {Math.floor(elapsed / 60)}:{Math.floor(elapsed % 60).toString().padStart(2, "0")}
         </span>
       </div>
-      {unsupported || error || errorMessage ? <p role="alert" className="text-sm text-destructive">{unsupported || errorMessage || error}</p> : null}
+      {unsupported || error || errorMessage ? <p role="alert" className="text-body text-danger">{unsupported || errorMessage || error}</p> : null}
       <div className="flex flex-wrap gap-2">
         {(["idle", "completed", "error"] as RecordingState[]).includes(state) && !unsupported ? (
-          <Button type="button" onClick={() => void start()} disabled={disabled}><Mic className="h-4 w-4" />{state === "error" ? "Gravar novamente" : recordLabel || "Gravar resposta"}</Button>
+          <Button type="button" size="sm" onClick={() => void start()} disabled={disabled}><Mic aria-hidden="true" />{state === "error" ? "Gravar novamente" : recordLabel || "Gravar resposta"}</Button>
         ) : null}
         {state === "error" && lastRecordingRef.current ? (
-          <Button type="button" variant="outline" disabled={disabled} onClick={() => {
+          <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => {
             setError("");
             void deliver(lastRecordingRef.current!, generationRef.current);
           }}>Enviar áudio novamente</Button>
         ) : null}
-        {state === "recording" ? <Button type="button" variant="outline" onClick={pause}><Pause />Pausar</Button> : null}
-        {state === "paused" ? <Button type="button" variant="outline" onClick={resume}><Play />Continuar gravação</Button> : null}
-        {state === "recording" || state === "paused" ? <Button type="button" onClick={() => recorderRef.current?.stop()}><Square />{stopLabel || "Enviar áudio"}</Button> : null}
-        {state === "recording" || state === "paused" || state === "requesting" ? <Button type="button" variant="ghost" onClick={cancel}><Trash2 />Cancelar gravação</Button> : null}
-        {onUseText ? <Button type="button" variant="ghost" aria-label="Responder por texto" onClick={() => { if (!busy || state === "requesting") cancel(); onUseText(); }}><span className="sm:hidden">Usar texto</span><span className="hidden sm:inline">Responder por texto</span></Button> : null}
+        {state === "recording" ? <Button type="button" size="sm" variant="outline" onClick={pause}><Pause aria-hidden="true" />Pausar</Button> : null}
+        {state === "paused" ? <Button type="button" size="sm" variant="outline" onClick={resume}><Play aria-hidden="true" />Continuar gravação</Button> : null}
+        {state === "recording" || state === "paused" ? <Button type="button" size="sm" onClick={() => recorderRef.current?.stop()}><Square aria-hidden="true" />{stopLabel || "Enviar áudio"}</Button> : null}
+        {state === "recording" || state === "paused" || state === "requesting" ? <Button type="button" size="sm" variant="ghost" onClick={cancel}><Trash2 aria-hidden="true" />Cancelar gravação</Button> : null}
+        {onUseText ? <Button type="button" size="sm" variant="ghost" aria-label="Responder por texto" onClick={() => { if (!busy || state === "requesting") cancel(); onUseText(); }}><span className="sm:hidden">Usar texto</span><span className="hidden sm:inline">Responder por texto</span></Button> : null}
       </div>
-      <p className="text-xs text-muted-foreground">{description || "Feedback sobre a transcrição; pronúncia não avaliada."}</p>
+      <p className="text-caption text-ink-secondary">{description || "Feedback sobre a transcrição; pronúncia não avaliada."}</p>
     </section>
   );
 };

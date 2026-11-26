@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { ChevronDown, Languages } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Button } from "@/components/ui/button";
+import { Alert, Badge, Button, EmptyState, IconTile, SkeletonCard, cardVariants } from "@/components/student/ui";
 import InterpreterReportCard from "@/components/InterpreterReportCard";
 import { api } from "@/lib/api";
 import { buildInterpreterSessionPath, formatDateTime, type SessionSummary } from "@/lib/aiStudy";
@@ -16,9 +17,36 @@ const InterpreterStudentProgress = ({ studentId }: { studentId: string }) => {
   });
   if (!canRead) return null;
   const sessions = query.data?.filter((session) => Boolean(session.guided_state?.interpreter));
-  return <section aria-label="Acompanhamento de interpretação" className="space-y-4 rounded-3xl border border-border bg-card p-5">
-    <h2 className="text-xl font-semibold">Intérprete IA</h2><p className="text-sm text-muted-foreground">Interpretações, informações preservadas e dificuldades registradas nas sessões do aluno.</p>
-    {query.isLoading ? <p role="status">Carregando interpretações...</p> : query.isError ? <div role="alert"><p>Não foi possível consultar as sessões.</p><Button variant="outline" onClick={() => void query.refetch()}>Tentar novamente</Button></div> : !sessions?.length ? <p className="text-sm text-muted-foreground">Ainda não há sessões de interpretação registradas.</p> : sessions.map((session) => <details key={session.id} className="rounded-2xl border border-border p-4"><summary className="cursor-pointer text-sm font-medium">{session.title} · {session.guided_state?.level} · {session.status === "completed" ? "Encerrada" : "Em andamento"}<span className="mt-1 block text-xs font-normal text-muted-foreground">{formatDateTime(session.last_interaction_at)}</span></summary><div className="mt-4 space-y-3">{session.guided_state!.interpreter!.report ? <InterpreterReportCard report={session.guided_state!.interpreter!.report!} /> : <p className="text-sm">Aguardando a primeira interpretação.</p>}<Button variant="outline" asChild><Link to={buildInterpreterSessionPath(session.id)}>Ver falas e gravações</Link></Button></div></details>)}
+  return <section aria-label="Acompanhamento de interpretação" className="min-w-0 space-y-4">
+    <div className="flex items-start gap-3">
+      <IconTile icon={Languages} tone="ai" />
+      <div className="min-w-0">
+        <h2 className="text-h3 text-ink">Intérprete IA</h2>
+        <p className="mt-1 text-body text-ink-secondary">Interpretações, informações preservadas e dificuldades registradas nas sessões do aluno.</p>
+      </div>
+    </div>
+    {query.isLoading ? <SkeletonCard label="Carregando interpretações" />
+      : query.isError ? <Alert tone="danger" role="alert" title="Não foi possível consultar as sessões." action={<Button size="sm" variant="outline" onClick={() => void query.refetch()}>Tentar novamente</Button>} />
+        : !sessions?.length ? <div className={cardVariants({ variant: "dashed", padding: "none" })}><EmptyState compact icon={Languages} title="Ainda não há sessões de interpretação registradas." /></div>
+          : <div className="space-y-3">{sessions.map((session) => {
+            const completed = session.status === "completed";
+            const report = session.guided_state!.interpreter!.report;
+            return <details key={session.id} className="group space-y-3">
+              <summary className={cardVariants({ padding: "md", interactive: true, className: "flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden" })}>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-body font-medium text-ink">{session.title}</span>
+                  <span className="mt-1 flex flex-wrap items-center gap-2 text-caption text-ink-muted">
+                    {session.guided_state?.level ? <Badge tone="neutral">{session.guided_state.level}</Badge> : null}
+                    <Badge tone={completed ? "success" : "primary"}>{completed ? "Encerrada" : "Em andamento"}</Badge>
+                    <span>{formatDateTime(session.last_interaction_at)}</span>
+                  </span>
+                </span>
+                <ChevronDown size={20} className="shrink-0 text-ink-muted transition-transform duration-200 ease-standard group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              {report ? <InterpreterReportCard report={report} /> : <p className="px-1 text-body text-ink-secondary">Aguardando a primeira interpretação.</p>}
+              <Button variant="outline" asChild><Link to={buildInterpreterSessionPath(session.id)}>Ver falas e gravações</Link></Button>
+            </details>;
+          })}</div>}
   </section>;
 };
 export default InterpreterStudentProgress;

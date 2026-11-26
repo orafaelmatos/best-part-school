@@ -1,0 +1,64 @@
+/*
+ * Best Part School design tokens (student app).
+ * Source of truth for values: docs/design-system/colors.md and layout.md.
+ * Colors are RGB channels so Tailwind opacity modifiers work (bg-primary/10).
+ * Hex values are listed next to each token for readability.
+ */
+:root {
+  /* Brand */
+  --ds-primary: 37 99 235;          /* #2563EB */
+  --ds-primary-dark: 30 64 175;     /* #1E40AF */
+  --ds-primary-deep: 23 37 84;      /* #172554 */
+  --ds-primary-medium: 59 130 246;  /* #3B82F6 */
+  --ds-primary-soft: 147 197 253;   /* #93C5FD */
+  --ds-primary-light: 219 234 254;  /* #DBEAFE */
+  --ds-primary-subtle: 239 246 255; /* #EFF6FF */
+  --ds-on-primary: 255 255 255;     /* #FFFFFF */
+
+  /* Neutrals */
+  --ds-canvas: 245 248 255;         /* #F5F8FF  Background */
+  --ds-surface: 255 255 255;        /* #FFFFFF  Surface */
+  --ds-surface-muted: 241 245 249;  /* #F1F5F9  Surface Muted */
+  --ds-ink: 17 24 39;               /* #111827  Text Primary */
+  --ds-ink-secondary: 107 114 128;  /* #6B7280  Text Secondary */
+  --ds-ink-muted: 100 116 139;      /* #64748B  Text Muted */
+  --ds-line: 229 231 235;           /* #E5E7EB  Border */
+  --ds-disabled: 203 213 225;       /* #CBD5E1  Disabled */
+
+  /* Feedback */
+  --ds-success: 21 128 61;          /* #15803D */
+  --ds-success-soft: 220 252 231;   /* #DCFCE7 */
+  --ds-warning: 180 83 9;           /* #B45309 */
+  --ds-warning-soft: 254 243 199;   /* #FEF3C7 */
+  --ds-danger: 220 38 38;           /* #DC2626 */
+  --ds-danger-soft: 254 226 226;    /* #FEE2E2 */
+  --ds-info: 37 99 235;             /* #2563EB */
+  --ds-info-soft: 219 234 254;      /* #DBEAFE */
+
+  /* AI identity: use only on AI features */
+  --ds-ai: 79 70 229;               /* #4F46E5 */
+  --ds-ai-soft: 238 242 255;        /* #EEF2FF */
+  --ds-ai-accent: 129 140 248;      /* #818CF8 */
+
+  /* Radius */
+  --ds-radius-xs: 6px;
+  --ds-radius-sm: 8px;
+  --ds-radius-md: 12px;
+  --ds-radius-lg: 16px;
+  --ds-radius-xl: 20px;
+  --ds-radius-2xl: 24px;
+
+  /* Elevation: level 0 is flat (border or background contrast) */
+  --ds-shadow-1: 0 1px 2px rgb(17 24 39 / 0.04), 0 2px 8px -2px rgb(17 24 39 / 0.06);
+  --ds-shadow-2: 0 4px 12px -2px rgb(17 24 39 / 0.08), 0 16px 32px -12px rgb(17 24 39 / 0.14);
+
+  /* Layout */
+  --ds-screen-gutter: 20px;
+  --ds-bottom-nav-height: 72px;      /* bar height without the safe area */
+
+  /* Motion */
+  --ds-duration-fast: 150ms;
+  --ds-duration-base: 200ms;
+  --ds-duration-slow: 300ms;
+  --ds-ease: cubic-bezier(0.2, 0, 0, 1);
+}

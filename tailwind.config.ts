@@ -1,6 +1,9 @@
 import tailwindAnimate from "tailwindcss-animate";
 import type { Config } from "tailwindcss";
 
+// Design system color from src/design-system/tokens.css, with opacity support.
+const ds = (token: string) => `rgb(var(--ds-${token}) / <alpha-value>)`;
+
 export default {
   darkMode: ["class"],
   content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
@@ -26,7 +29,22 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          // Design system shades (docs/design-system/colors.md).
+          dark: ds("primary-dark"),
+          deep: ds("primary-deep"),
+          medium: ds("primary-medium"),
+          soft: ds("primary-soft"),
+          light: ds("primary-light"),
+          subtle: ds("primary-subtle"),
         },
+        canvas: ds("canvas"),
+        surface: { DEFAULT: ds("surface"), muted: ds("surface-muted") },
+        ink: { DEFAULT: ds("ink"), secondary: ds("ink-secondary"), muted: ds("ink-muted") },
+        line: ds("line"),
+        disabled: ds("disabled"),
+        danger: { DEFAULT: ds("danger"), soft: ds("danger-soft") },
+        info: { DEFAULT: ds("info"), soft: ds("info-soft") },
+        ai: { DEFAULT: ds("ai"), soft: ds("ai-soft"), accent: ds("ai-accent") },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
@@ -54,10 +72,12 @@ export default {
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+          soft: ds("success-soft"),
         },
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+          soft: ds("warning-soft"),
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
@@ -70,10 +90,37 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
         },
       },
+      // Values come from CSS variables: staff keep the previous scale (src/index.css),
+      // the student theme uses the design system scale (src/design-system/theme.css).
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xs: "var(--radius-xs)",
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-xl)",
+        "2xl": "var(--radius-2xl)",
+      },
+      fontSize: {
+        display: ["2.25rem", { lineHeight: "2.75rem", fontWeight: "700", letterSpacing: "-0.02em" }],
+        h1: ["2rem", { lineHeight: "2.5rem", fontWeight: "700", letterSpacing: "-0.02em" }],
+        h2: ["1.5rem", { lineHeight: "2rem", fontWeight: "700", letterSpacing: "-0.01em" }],
+        h3: ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
+        h4: ["1.125rem", { lineHeight: "1.625rem", fontWeight: "600" }],
+        "body-lg": ["1rem", { lineHeight: "1.5rem" }],
+        body: ["0.875rem", { lineHeight: "1.375rem" }],
+        caption: ["0.75rem", { lineHeight: "1.125rem" }],
+        label: ["0.75rem", { lineHeight: "1rem", fontWeight: "600" }],
+        button: ["1rem", { lineHeight: "1.5rem", fontWeight: "600" }],
+      },
+      spacing: {
+        gutter: "var(--ds-screen-gutter)",
+      },
+      boxShadow: {
+        raised: "var(--ds-shadow-1)",
+        overlay: "var(--ds-shadow-2)",
+      },
+      transitionTimingFunction: {
+        standard: "var(--ds-ease)",
       },
       keyframes: {
         "accordion-down": {

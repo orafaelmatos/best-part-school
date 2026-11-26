@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import { Loader2, Pause, Play, Volume2 } from "lucide-react";
+import { Loader2, Pause, Volume2 } from "lucide-react";
+import { Button, IconButton } from "@/components/student/ui";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { resolveVocabularyAudioUrl } from "@/lib/vocabularyAudio";
 
 type Props = {
@@ -13,6 +15,8 @@ type Props = {
   label?: string;
   onGenerated?: (audioUrl: string) => void;
   requestAudio?: () => Promise<string>;
+  /** Renders a 48px icon-only button; the label becomes its aria-label. */
+  iconOnly?: boolean;
 };
 
 const VocabularyAudioButton = ({
@@ -24,6 +28,7 @@ const VocabularyAudioButton = ({
   label = "Ouvir pronúncia",
   onGenerated,
   requestAudio,
+  iconOnly = false,
 }: Props) => {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -161,6 +166,14 @@ const VocabularyAudioButton = ({
     await playAudioElement(audio);
   };
 
+  const icon = isLoading ? (
+    <Loader2 className="motion-safe:animate-spin" aria-hidden="true" />
+  ) : isPlaying ? (
+    <Pause aria-hidden="true" />
+  ) : (
+    <Volume2 aria-hidden="true" />
+  );
+
   return (
     <>
       {resolvedAudioUrl && (
@@ -184,25 +197,33 @@ const VocabularyAudioButton = ({
           onEnded={() => setIsPlaying(false)}
         />
       )}
-      <button
-        type="button"
-        onClick={toggleAudio}
-        disabled={isLoading}
-        aria-busy={isLoading}
-        className={`inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted ${className}`}
-      >
-        {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : isPlaying ? (
-          <Pause className="h-4 w-4" />
-        ) : (
-          <Volume2 className="h-4 w-4" />
-        )}
-        <span>{isPlaying ? "Pausar áudio" : label}</span>
-        {!isLoading && !isPlaying && <Play className="h-3.5 w-3.5 text-muted-foreground" />}
-      </button>
+      {iconOnly ? (
+        <IconButton
+          type="button"
+          variant="outline"
+          onClick={toggleAudio}
+          disabled={isLoading}
+          aria-busy={isLoading}
+          aria-label={isPlaying ? "Pausar áudio" : label}
+          className={cn("rounded-full", className)}
+          icon={icon}
+        />
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={toggleAudio}
+          disabled={isLoading}
+          aria-busy={isLoading}
+          className={cn("rounded-full font-medium", className)}
+        >
+          {icon}
+          <span>{isPlaying ? "Pausar áudio" : label}</span>
+        </Button>
+      )}
       {isLoading ? <span role="status" className="sr-only">Carregando áudio...</span> : null}
-      {error ? <p role="alert" className="text-xs text-muted-foreground">{error}</p> : null}
+      {error ? <p role="alert" className="text-caption text-ink">{error}</p> : null}
     </>
   );
 };

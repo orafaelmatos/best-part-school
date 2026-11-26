@@ -14,7 +14,29 @@ import { WritingActivityCard, WritingCorrectionCard, WritingHelpCard } from "@/c
 import WritingReportCard from "@/components/WritingReportCard";
 import type { WritingActivity, WritingCorrection, WritingHelp, WritingReport } from "@/lib/writing";
 import type { SpeakingReport } from "@/lib/aiStudy";
-import { Button } from "@/components/ui/button";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  ChatBubble,
+  EmptyState,
+  IconButton,
+  IconTile,
+  ScreenTitle,
+  SkeletonCard,
+  StudyBlock,
+  TypingIndicator,
+  cardVariants,
+  inputClasses,
+} from "@/components/student/ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { audioRequestError, audioRequestId, recordingExtension, recordingSupportError } from "@/lib/speakingAudio";
 import LessonReviewReportCard from "@/components/LessonReviewReportCard";
 import { reviewActivityChoices, reviewActivityIcons } from "@/lib/lessonReview";
@@ -50,17 +72,18 @@ import { APP_PATHS } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  ArrowRight,
   ArrowLeft,
-  BookPlus,
   BookOpen,
-  CalendarDays,
-  Clock3,
-  GraduationCap,
+  BookPlus,
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  Info,
+  Languages,
   Loader2,
+  MessageSquare,
   Mic,
   Pencil,
-  Search,
   Send,
   Sparkles,
   Trash2,
@@ -269,59 +292,36 @@ const mergeSummaryIntoDetail = (detail: SessionDetail, summary: SessionSummary):
   ...summary,
 });
 
-const modeDescription: Record<PracticeMode, string> = {
-  review: "Revise o que você já estudou.",
-  speaking: "Pratique sua fala em inglês.",
-  writing: "Aprenda a construir frases e evolua sua escrita com uma aula guiada.",
-};
-
 const composerPlaceholderByMode: Record<PracticeMode, string> = {
   review: "Peça revisão de vocabulário, gramática ou exercícios desta aula.",
   speaking: "Responda em inglês ou envie um áudio para o próximo desafio guiado.",
   writing: "Escreva sua resposta em inglês para o próximo desafio guiado.",
 };
 
-const modeCardMeta: Record<
-  PracticeMode,
-  {
-    icon: LucideIcon;
-    eyebrow: string;
-    accent: string;
-    surface: string;
-    iconWrap: string;
-    badge: string;
-    ctaLabel: string;
-  }
-> = {
+const PRACTICE_MODES: PracticeMode[] = ["review", "speaking", "writing"];
+
+// What the student does in each mode. Shown on the mode cards and on the start screen.
+const modeCardMeta: Record<PracticeMode, { icon: LucideIcon; eyebrow: string; description: string; intro: string; startLabel: string }> = {
   review: {
     icon: BookOpen,
-    eyebrow: "Com aula de apoio",
-    accent: "text-sky-700",
-    surface:
-      "border-sky-200/80 bg-[linear-gradient(145deg,rgba(240,249,255,0.98),rgba(255,255,255,0.96)_44%,rgba(236,253,245,0.9))] shadow-[0_28px_65px_-45px_rgba(14,116,144,0.45)]",
-    iconWrap: "bg-sky-500/12 text-sky-700 ring-sky-300/55",
-    badge: "Ideal para revisar conteúdo estudado",
-    ctaLabel: "Selecionar revisão",
+    eyebrow: "Com uma aula sua",
+    description: "Escolha uma aula e faça atividades de gramática, vocabulário, listening e speaking sobre ela.",
+    intro: "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado.",
+    startLabel: "Escolher aula",
   },
   speaking: {
     icon: Mic,
-    eyebrow: "Treino guiado",
-    accent: "text-amber-700",
-    surface:
-      "border-amber-200/80 bg-[linear-gradient(145deg,rgba(255,247,237,0.98),rgba(255,255,255,0.96)_40%,rgba(254,243,199,0.82))] shadow-[0_28px_65px_-45px_rgba(180,83,9,0.38)]",
-    iconWrap: "bg-amber-500/12 text-amber-700 ring-amber-300/55",
-    badge: "Mais indicado para pronúncia e fluidez",
-    ctaLabel: "Selecionar speaking",
+    eyebrow: "Conversa guiada",
+    description: "Converse em inglês por voz ou por texto e receba correções de cada resposta.",
+    intro: "Aprenda frases, pratique e converse. Você pode responder por voz ou por texto.",
+    startLabel: "Iniciar speaking",
   },
   writing: {
     icon: Pencil,
     eyebrow: "Escrita passo a passo",
-    accent: "text-emerald-700",
-    surface:
-      "border-emerald-200/80 bg-[linear-gradient(145deg,rgba(236,253,245,0.98),rgba(255,255,255,0.96)_38%,rgba(220,252,231,0.88))] shadow-[0_28px_65px_-45px_rgba(5,150,105,0.32)]",
-    iconWrap: "bg-emerald-500/12 text-emerald-700 ring-emerald-300/55",
-    badge: "Ótimo para escrita com feedback pedagógico",
-    ctaLabel: "Selecionar writing",
+    description: "Aprenda uma estrutura, veja um exemplo e escreva frases com correções explicadas.",
+    intro: "Escolha um cenário, seu nível e como quer praticar. Aprenda uma estrutura, veja um exemplo e escreva uma resposta por vez.",
+    startLabel: "Iniciar writing",
   },
 };
 
@@ -335,83 +335,29 @@ const ModeCard = ({
   onClick: () => void;
 }) => {
   const meta = modeCardMeta[mode];
-  const Icon = meta.icon;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "group relative flex h-full flex-col overflow-hidden rounded-[30px] border p-5 text-left transition-all duration-200 hover:-translate-y-1",
-        meta.surface,
-        recommended && "ring-2 ring-amber-300/75",
-      )}
-    >
-      <div className="absolute right-0 top-0 h-28 w-28 rounded-full bg-white/40 blur-3xl transition duration-200 group-hover:scale-110" />
-
-      <div className="relative flex h-full flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-3">
-            <span
-              className={cn(
-                "flex h-12 w-12 items-center justify-center rounded-[18px] ring-1 shadow-[0_16px_34px_-24px_rgba(15,23,42,0.35)]",
-                meta.iconWrap,
-              )}
-            >
-              <Icon className="h-5 w-5" />
-            </span>
-            <div>
-              <p className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", meta.accent)}>{meta.eyebrow}</p>
-              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{modeLabel[mode]}</p>
-            </div>
-          </div>
-          {recommended ? (
-            <span className="rounded-full border border-amber-300/70 bg-amber-100/85 px-3 py-1 text-[11px] font-semibold text-amber-800 shadow-[0_14px_30px_-22px_rgba(180,83,9,0.5)]">
-              Recomendado
-            </span>
-          ) : null}
-        </div>
-
-        <p className="relative mt-4 flex-1 text-base leading-7 text-slate-700">{modeDescription[mode]}</p>
-
-        <div className="relative mt-5 flex items-center justify-between gap-3 rounded-[20px] bg-slate-900 px-4 py-3 text-sm text-white shadow-[0_20px_40px_-28px_rgba(15,23,42,0.55)] transition group-hover:translate-y-0.5">
-          <span className="font-semibold">{meta.ctaLabel}</span>
-          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-        </div>
-      </div>
-    </button>
-  );
-};
-
-const MobileModeButton = ({
-  mode,
-  recommended,
-  onClick,
-}: {
-  mode: PracticeMode;
-  recommended?: boolean;
-  onClick: () => void;
-}) => {
-  const meta = modeCardMeta[mode];
-  const Icon = meta.icon;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "relative flex min-h-[6.5rem] flex-col items-center justify-center gap-2 rounded-[22px] border bg-white/95 px-2 py-3 text-center shadow-[0_14px_32px_-28px_rgba(15,23,42,0.3)]",
-        recommended ? "border-amber-300 ring-2 ring-amber-200/80" : "border-slate-200",
-      )}
-    >
-      <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl ring-1", meta.iconWrap)}>
-        <Icon className="h-5 w-5" />
-      </span>
-      <span className="text-sm font-semibold leading-5 text-slate-950">{modeLabel[mode]}</span>
-      {recommended ? (
-        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-400" aria-label="Recomendado" />
-      ) : null}
-    </button>
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          cardVariants({ variant: recommended ? "highlight" : "default", padding: "md", interactive: true }),
+          "flex w-full items-start gap-3 text-left",
+        )}
+      >
+        <IconTile icon={meta.icon} tone="ai" />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-h4 text-ink">{modeLabel[mode]}</span>
+            {recommended ? <Badge tone="primary">Recomendado</Badge> : null}
+          </span>
+          <span className={cn("mt-0.5 block text-caption", recommended ? "text-ink" : "text-ink-secondary")}>{meta.eyebrow}</span>
+          <span className={cn("mt-2 block text-body", recommended ? "text-ink" : "text-ink-secondary")}>{meta.description}</span>
+        </span>
+        <ChevronRight size={20} className="mt-2.5 shrink-0 text-ink-muted" aria-hidden="true" />
+      </button>
+    </li>
   );
 };
 
@@ -427,65 +373,50 @@ const LessonCard = ({
   loading?: boolean;
   actionLabel: string;
   onAction: () => void;
-}) => (
-  <article className="flex h-full flex-col rounded-[22px] border border-border bg-card/95 p-4 shadow-sm md:rounded-[26px] md:p-5">
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="truncate text-base font-semibold text-foreground md:text-lg">{lesson.title}</p>
-        <div className="mt-2 hidden flex-wrap gap-2 md:flex">
-          {lesson.is_recent && <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-700">Mais recente</span>}
-          {lesson.is_recommended_review && <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700">Revisão recomendada</span>}
-          {recommended && <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-[11px] font-medium text-sky-700">Professor recomendou esta aula</span>}
-          {lesson.has_pending_activities && <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-medium text-rose-700">Atividades pendentes</span>}
+}) => {
+  const words = lesson.learned_words_count ?? lesson.vocabulary_count ?? 0;
+  const details = [
+    `${words} ${words === 1 ? "palavra" : "palavras"}`,
+    `${lesson.flashcard_count ?? 0} flashcards`,
+    lesson.last_studied_at ? `Último estudo: ${formatShortDate(lesson.last_studied_at)}` : "Ainda não praticada com IA",
+  ];
+  const hasBadges = recommended || lesson.is_recent || lesson.is_recommended_review || lesson.has_pending_activities;
+  // Highlight cards use a soft background: small text stays ink there for AA contrast.
+  const secondaryText = recommended ? "text-ink" : "text-ink-secondary";
+
+  return (
+    <li className={cn(cardVariants({ variant: recommended ? "highlight" : "default", padding: "md" }), "flex flex-col gap-3")}>
+      <div className="flex items-start gap-3">
+        <IconTile icon={BookOpen} />
+        <div className="min-w-0 flex-1">
+          <p className={cn("text-caption", secondaryText)}>
+            {formatLongDate(lesson.date)}{lesson.level ? ` · ${lesson.level}` : ""}
+          </p>
+          <h3 className="text-body font-semibold text-ink">{lesson.title}</h3>
+          <p className={cn("text-caption", secondaryText)}>{lesson.teacher_name || "Professor não informado"}</p>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground md:hidden">{formatShortDate(lesson.date)}</p>
       </div>
-      <div className="rounded-2xl bg-muted p-3 text-muted-foreground">
-        <BookOpen className="h-5 w-5" />
-      </div>
-    </div>
 
-    <div className="mt-5 hidden gap-3 text-sm text-muted-foreground md:grid md:grid-cols-2">
-      <div className="flex items-center gap-2">
-        <CalendarDays className="h-4 w-4" />
-        <span>{formatLongDate(lesson.date)}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <GraduationCap className="h-4 w-4" />
-        <span>{lesson.teacher_name || "Professor não informado"}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-4 w-4" />
-        <span>{lesson.learned_words_count ?? lesson.vocabulary_count ?? 0} palavras</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <Clock3 className="h-4 w-4" />
-        <span>
-          {lesson.last_studied_at ? `Último estudo: ${formatShortDate(lesson.last_studied_at)}` : "Ainda não praticada com IA"}
-        </span>
-      </div>
-    </div>
+      {hasBadges ? (
+        <div className="flex flex-wrap gap-1.5">
+          {recommended ? <Badge tone="primary">Professor recomendou esta aula</Badge> : null}
+          {lesson.is_recent ? <Badge tone="success">Mais recente</Badge> : null}
+          {lesson.is_recommended_review ? <Badge tone="warning">Revisão recomendada</Badge> : null}
+          {lesson.has_pending_activities ? <Badge tone="danger">Atividades pendentes</Badge> : null}
+        </div>
+      ) : null}
 
-    <p className="mt-5 hidden flex-1 text-sm leading-6 text-foreground/80 md:block">{lesson.summary_short || "Sem resumo salvo para esta aula."}</p>
+      {lesson.summary_short ? <p className={cn("line-clamp-3 text-body", secondaryText)}>{lesson.summary_short}</p> : null}
 
-    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-3 py-3 text-sm md:mt-5 md:px-4">
-      <div className="hidden md:block">
-        <p className="font-medium text-foreground">{lesson.flashcard_count ?? 0} flashcards</p>
-        <p className="text-xs text-muted-foreground">{lesson.level}</p>
+      <div className="flex flex-col gap-3 border-t border-line pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className={cn("min-w-0 text-caption", secondaryText)}>{details.join(" · ")}</p>
+        <Button type="button" size="sm" variant={recommended ? "primary" : "secondary"} loading={loading} onClick={onAction} className="w-full shrink-0 sm:w-auto">
+          {actionLabel}
+        </Button>
       </div>
-      <p className="text-xs font-medium text-muted-foreground md:hidden">{lesson.level || "Sem nivel"}</p>
-      <button
-        type="button"
-        onClick={onAction}
-        disabled={loading}
-        className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-      >
-        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        {actionLabel}
-      </button>
-    </div>
-  </article>
-);
+    </li>
+  );
+};
 
 const GuidedChoices = ({
   choices,
@@ -505,58 +436,60 @@ const GuidedChoices = ({
   if (!choices.length) return null;
   const isGrid = layout === "grid";
 
-  const renderChoices = (items: GuidedChoice[]) => (
-      <div className={cn("gap-2", isGrid ? "grid sm:grid-cols-2" : "flex flex-wrap")}>
-        {items.map((choice) => {
-          const Icon = choice.action_type === "review_activity" ? reviewActivityIcons[choice.value as keyof typeof reviewActivityIcons] : undefined;
-          return (
-            <button
-              key={choice.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => onSelect(choice)}
-              className={cn(
-                "text-left transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2",
-                isGrid
-                  ? "rounded-2xl border border-slate-200 bg-slate-50/90 p-3 hover:border-slate-300 hover:bg-white"
-                  : choice.variant === "primary"
-                    ? "rounded-full bg-slate-900 px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
-                    : choice.variant === "outline"
-                      ? "rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      : "rounded-full bg-slate-100 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200",
-              )}
-            >
-              {isGrid ? (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    {Icon ? <span className="rounded-xl bg-sky-100 p-2 text-sky-700"><Icon className="h-4 w-4" aria-hidden="true" /></span> : choice.emoji ? <span className="text-base">{choice.emoji}</span> : null}
-                    <span className="font-semibold text-foreground">{choice.label}</span>
-                  </div>
-                  {choice.description ? <p className="text-xs leading-5 text-muted-foreground">{choice.description}</p> : null}
-                </div>
-              ) : (
-                <span className="inline-flex items-center gap-2">
-                  {choice.emoji ? <span>{choice.emoji}</span> : null}
-                  <span>{choice.label}</span>
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+  // Choice emoji from the API are not shown: the student app uses icons only.
+  const renderChoices = (items: GuidedChoice[]) => isGrid ? (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {items.map((choice) => {
+        const Icon = choice.action_type === "review_activity" ? reviewActivityIcons[choice.value as keyof typeof reviewActivityIcons] : undefined;
+        return (
+          <button
+            key={choice.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(choice)}
+            className={cn(cardVariants({ padding: "none", interactive: true }), "flex min-h-16 w-full items-start gap-3 p-3 text-left disabled:pointer-events-none disabled:opacity-50")}
+          >
+            {Icon ? <IconTile icon={Icon} tone="ai" size="sm" /> : null}
+            <span className="min-w-0 flex-1">
+              <span className="block text-body font-medium text-ink">{choice.label}</span>
+              {choice.description ? <span className="mt-0.5 block text-caption text-ink-secondary">{choice.description}</span> : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="flex flex-wrap gap-2">
+      {items.map((choice) => (
+        <Button
+          key={choice.id}
+          type="button"
+          size="sm"
+          variant={choice.variant === "primary" ? "primary" : choice.variant === "outline" ? "outline" : "secondary"}
+          disabled={disabled}
+          onClick={() => onSelect(choice)}
+          className="h-auto whitespace-normal py-2 text-left"
+        >
+          {choice.label}
+        </Button>
+      ))}
+    </div>
   );
   const primary = choices.filter((choice) => ["continue", "resume_simulation"].includes(choice.value));
   const extra = choices.filter((choice) => !primary.includes(choice));
   return (
-    <div className="mt-3 space-y-3">
+    <div className="w-full space-y-3">
       {progressive ? <>
         {renderChoices(primary)}
-        {extra.length ? <details className="rounded-xl border border-border bg-muted/30 p-3">
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Ajudas e opções</summary>
-          <div className="mt-3">{renderChoices(extra)}</div>
+        {extra.length ? <details className="group rounded-lg border border-line bg-surface">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-4 text-body font-medium text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+            Ajudas e opções
+            <ChevronDown size={16} className="shrink-0 text-ink-muted transition-transform duration-150 ease-standard group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="px-4 pb-4 pt-1">{renderChoices(extra)}</div>
         </details> : null}
       </> : renderChoices(choices)}
-      {helperText ? <p className="text-xs leading-5 text-muted-foreground">{helperText}</p> : null}
+      {helperText ? <p className="text-caption text-ink-secondary">{helperText}</p> : null}
     </div>
   );
 };
@@ -564,6 +497,14 @@ const GuidedChoices = ({
 const GuidedSessionOverview = ({ state, mode }: { state: GuidedState; mode: PracticeMode }) => {
   return mode === "speaking" ? <SpeakingSessionOverview state={state} /> : null;
 };
+
+/** Small AI mark used above structured tutor content (activities, corrections, reports). */
+const TutorLabel = ({ children = "Tutor de IA" }: { children?: React.ReactNode }) => (
+  <p className="mb-2 flex items-center gap-1.5 text-label text-ai">
+    <Sparkles size={14} aria-hidden="true" />
+    {children}
+  </p>
+);
 
 const MessageBubble = ({
   message,
@@ -588,6 +529,7 @@ const MessageBubble = ({
 }) => {
   const isUser = message.role === "user";
   const audioMeta = message.audio_detail;
+  const metadata = message.metadata;
   const speakerLabel =
     message.content_type === "audio"
       ? "Sua gravação"
@@ -595,119 +537,113 @@ const MessageBubble = ({
         ? "Você"
         : message.content_type === "feedback"
           ? "Análise da IA"
-          : "Assistente IA";
+          : "Tutor de IA";
+  const isWriting = Boolean(metadata?.writing_activity || metadata?.writing_correction || metadata?.writing_report);
+  const isStructured = !isUser && !message.audio_url && Boolean(
+    isWriting || metadata?.speaking_report || metadata?.speaking_activity || metadata?.speaking_help || metadata?.speaking_turn,
+  );
+  const translatableProps = !isUser && onTextSelection ? {
+    onMouseUp: (event: React.MouseEvent<HTMLDivElement>) => onTextSelection(event.currentTarget),
+    onTouchEnd: (event: React.TouchEvent<HTMLDivElement>) => onTextSelection(event.currentTarget),
+  } : {};
+
+  const textContent = (
+    <div
+      data-writing-focus={isWriting ? true : undefined}
+      className={isWriting ? "outline-none" : undefined}
+      data-translatable-message={!isUser || undefined}
+      {...translatableProps}
+    >
+      {metadata?.writing_report ? <WritingReportCard report={metadata.writing_report} />
+        : metadata?.writing_activity || metadata?.writing_correction ? <div className="space-y-5">
+          {metadata.writing_correction ? <WritingCorrectionCard correction={metadata.writing_correction} /> : null}
+          {metadata.writing_help ? <WritingHelpCard help={metadata.writing_help} /> : null}
+          {metadata.writing_activity ? <WritingActivityCard activity={metadata.writing_activity} /> : <p className="whitespace-pre-line text-body-lg text-ink">{message.text}</p>}
+        </div> : metadata?.speaking_report ? <div className="space-y-4">
+          {!message.feedback_detail && metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-body-lg text-ink">{metadata.speaking_turn.feedback}</p> : null}
+          {message.feedback_detail ? <details className="group rounded-lg border border-line bg-surface">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-4 text-body font-medium text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+              Ver resumo da situação
+              <ChevronDown size={16} className="shrink-0 text-ink-muted transition-transform duration-150 ease-standard group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="px-4 pb-4 pt-1"><SpeakingReportCard report={metadata.speaking_report} /></div>
+          </details>
+            : <SpeakingReportCard report={metadata.speaking_report} />}
+        </div> : metadata?.speaking_activity ? (
+          <SpeakingVocabularyActivity activity={metadata.speaking_activity}
+            sessionId={sessionId} messageId={message.id} instruction={message.text}
+            interactive={isInteractive} disabled={choiceDisabled} onRecord={onRecord} />
+        ) : metadata?.speaking_help ? <SpeakingHelpCard help={metadata.speaking_help} />
+          : metadata?.speaking_turn ? <SpeakingTurnCard content={message.feedback_detail ? { ...metadata.speaking_turn, feedback: "" } : metadata.speaking_turn}
+            phase={metadata.pedagogical_phase} level={metadata.speaking_level}
+            sessionId={sessionId} messageId={message.id} assessmentSource={metadata.assessment_source} />
+            : <p data-speaking-focus={metadata?.speaking_simulation ? true : undefined} className="whitespace-pre-line">{message.text}</p>}
+    </div>
+  );
+
+  const audioContent = message.audio_url ? (
+    <div className="space-y-3">
+      <AudioPlayer src={absoluteMediaUrl(message.audio_url)} compact />
+      {message.text ? (
+        <div data-translatable-message={!isUser || undefined} {...translatableProps}>
+          <p className={cn("text-label", isUser ? "text-primary-foreground" : "text-ink-secondary")}>Transcrição</p>
+          <p className="mt-1 whitespace-pre-line">{message.text}</p>
+        </div>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
-    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
-      data-speaking-prompt={message.metadata?.speaking_prompt_id || message.id}
-      data-writing-current={isInteractive && (message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report) ? "true" : undefined}
-      data-speaking-current={isInteractive && (message.feedback_detail || message.metadata?.speaking_turn || message.metadata?.speaking_activity || message.metadata?.speaking_help || message.metadata?.speaking_simulation) ? "true" : undefined}>
-      <div className={cn("w-full max-w-[min(100%,58rem)] space-y-2.5", isUser ? "items-end" : "items-start")}>
-        <p
-          className={cn(
-            "px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
-            isUser ? "text-right" : "text-left",
-          )}
-        >
-          {speakerLabel}
-        </p>
-        {message.feedback_detail ? <PronunciationFeedback feedback={message.feedback_detail}
-          disabled={choiceDisabled} onRepeat={isInteractive ? onRepeat : undefined} onContinue={isInteractive ? onContinue : undefined}
-          onNextSituation={isInteractive && onChoiceSelect && message.metadata?.choices?.some((choice) => choice.value === "new_challenge")
-            ? () => onChoiceSelect(message.metadata!.choices!.find((choice) => choice.value === "new_challenge")!) : undefined} /> : null}
-        <div
-          className={cn(
-            "rounded-[28px] px-4 py-3.5 text-sm leading-6 shadow-sm",
-            isUser
-              ? "rounded-br-lg bg-slate-950 text-white"
-              : "rounded-bl-lg border border-slate-200/80 bg-white/95 text-card-foreground",
-          )}
-        >
-          {message.metadata?.review_audio_url && (
-            <div className="mb-3 rounded-2xl bg-sky-50 p-3">
-              <p className="mb-2 text-xs text-slate-600">Ouça o áudio gerado por IA e responda à pergunta abaixo.</p>
-              <AudioPlayer src={absoluteMediaUrl(message.metadata.review_audio_url)} compact />
-            </div>
-          )}
-          {message.audio_url ? (
-            <div className="space-y-3">
-              <div className={cn("rounded-2xl p-3", isUser ? "bg-white/10" : "bg-slate-50")}>
-                <AudioPlayer src={absoluteMediaUrl(message.audio_url)} compact />
-              </div>
-              {message.text ? (
-                <div
-                  data-translatable-message={!isUser || undefined}
-                  onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
-                  onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
-                >
-                  <p className={cn("text-[11px] font-semibold uppercase tracking-[0.18em]", isUser ? "text-white/70" : "text-muted-foreground")}>
-                    Transcrição
-                  </p>
-                  <p className="mt-2 whitespace-pre-line">{message.text}</p>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div
-              data-writing-focus={message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report ? true : undefined}
-              className={message.metadata?.writing_activity || message.metadata?.writing_correction || message.metadata?.writing_report ? "outline-none" : undefined}
-              data-translatable-message={!isUser || undefined}
-              onMouseUp={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
-              onTouchEnd={!isUser && onTextSelection ? (event) => onTextSelection(event.currentTarget) : undefined}
-            >
-              {message.metadata?.writing_report ? <WritingReportCard report={message.metadata.writing_report} />
-                : message.metadata?.writing_activity || message.metadata?.writing_correction ? <div className="space-y-5">
-                  {message.metadata.writing_correction ? <WritingCorrectionCard correction={message.metadata.writing_correction} /> : null}
-                  {message.metadata.writing_help ? <WritingHelpCard help={message.metadata.writing_help} /> : null}
-                  {message.metadata.writing_activity ? <WritingActivityCard activity={message.metadata.writing_activity} /> : <p className="whitespace-pre-line">{message.text}</p>}
-                </div> : message.metadata?.speaking_report ? <div className="space-y-4">
-                {!message.feedback_detail && message.metadata.speaking_turn?.feedback ? <p className="whitespace-pre-line text-sm">{message.metadata.speaking_turn.feedback}</p> : null}
-                {message.feedback_detail ? <details><summary className="cursor-pointer text-sm text-muted-foreground">Ver resumo da situação</summary>
-                  <div className="mt-3"><SpeakingReportCard report={message.metadata.speaking_report} /></div></details>
-                  : <SpeakingReportCard report={message.metadata.speaking_report} />}
-              </div> : message.metadata?.speaking_activity ? (
-                <SpeakingVocabularyActivity activity={message.metadata.speaking_activity}
-                  sessionId={sessionId} messageId={message.id} instruction={message.text}
-                  interactive={isInteractive} disabled={choiceDisabled} onRecord={onRecord} />
-              ) : message.metadata?.speaking_help ? <SpeakingHelpCard help={message.metadata.speaking_help} />
-                : message.metadata?.speaking_turn ? <SpeakingTurnCard content={message.feedback_detail ? { ...message.metadata.speaking_turn, feedback: "" } : message.metadata.speaking_turn}
-                  phase={message.metadata.pedagogical_phase} level={message.metadata.speaking_level}
-                  sessionId={sessionId} messageId={message.id} assessmentSource={message.metadata.assessment_source} />
-                : <p data-speaking-focus={message.metadata?.speaking_simulation ? true : undefined} className="whitespace-pre-line">{message.text}</p>}
-            </div>
-          )}
-          <div
-            className={cn(
-              "mt-3 flex items-center justify-between gap-4 text-[11px]",
-              isUser ? "text-white/70" : "text-muted-foreground",
-            )}
-          >
-            <span>{message.pending ? "Enviando..." : formatTime(message.created_at)}</span>
-            {audioMeta?.duration_seconds ? <span>{formatDuration(audioMeta.duration_seconds)}</span> : null}
-          </div>
+    <div className={cn("flex w-full min-w-0 flex-col gap-1.5", isUser ? "items-end" : "items-start")}
+      data-speaking-prompt={metadata?.speaking_prompt_id || message.id}
+      data-writing-current={isInteractive && isWriting ? "true" : undefined}
+      data-speaking-current={isInteractive && (message.feedback_detail || metadata?.speaking_turn || metadata?.speaking_activity || metadata?.speaking_help || metadata?.speaking_simulation) ? "true" : undefined}>
+      {message.feedback_detail ? <div className="w-full min-w-0"><PronunciationFeedback feedback={message.feedback_detail}
+        disabled={choiceDisabled} onRepeat={isInteractive ? onRepeat : undefined} onContinue={isInteractive ? onContinue : undefined}
+        onNextSituation={isInteractive && onChoiceSelect && metadata?.choices?.some((choice) => choice.value === "new_challenge")
+          ? () => onChoiceSelect(metadata!.choices!.find((choice) => choice.value === "new_challenge")!) : undefined} /></div> : null}
+
+      {isStructured ? (
+        <div className="w-full min-w-0">
+          <TutorLabel />
+          {textContent}
         </div>
+      ) : (
+        <ChatBubble from={isUser ? "student" : "ai"} label={speakerLabel} className={cn(message.pending && "opacity-80")}>
+          {metadata?.review_audio_url ? (
+            <div className="mb-3 space-y-2">
+              <p className="text-body text-ink-secondary">Ouça o áudio gerado por IA e responda à pergunta abaixo.</p>
+              <AudioPlayer src={absoluteMediaUrl(metadata.review_audio_url)} compact />
+            </div>
+          ) : null}
+          {audioContent ?? textContent}
+        </ChatBubble>
+      )}
 
-        {!isUser && !message.pending && <AIContentReportButton messageId={message.id} />}
-        {message.audio_url && audioMeta?.created_at ? (
-          <p className="px-1 text-[11px] text-muted-foreground">Áudio enviado em {formatDateTime(audioMeta.created_at)}</p>
-        ) : null}
-
-        {isInteractive && message.metadata?.speaking_simulation?.question ? (
-          <SpeakingSimulationReplay key={message.id} sessionId={sessionId} messageId={message.id}
-            question={message.metadata.speaking_simulation.question} />
-        ) : null}
-        {message.writing_feedback_detail ? <WritingFeedbackCard feedback={message.writing_feedback_detail} /> : null}
-        {isInteractive && message.metadata?.guided && message.metadata?.choices?.length && onChoiceSelect ? (
-          <GuidedChoices
-            choices={message.metadata.choices}
-            layout={message.metadata.choice_layout}
-            helperText={message.metadata.helper_text}
-            disabled={choiceDisabled}
-            onSelect={onChoiceSelect}
-            progressive={Boolean(message.metadata?.speaking_simulation)}
-          />
-        ) : null}
+      <div className={cn("flex flex-wrap items-center gap-x-2 text-caption text-ink-secondary", isUser ? "justify-end pr-1" : "pl-9")}>
+        <span>{message.pending ? "Enviando…" : formatTime(message.created_at)}</span>
+        {audioMeta?.duration_seconds ? <span>· {formatDuration(audioMeta.duration_seconds)}</span> : null}
+        {message.audio_url && audioMeta?.created_at ? <span>· Áudio enviado em {formatDateTime(audioMeta.created_at)}</span> : null}
+        {!isUser && !message.pending ? <AIContentReportButton messageId={message.id} /> : null}
       </div>
+
+      {isInteractive && metadata?.speaking_simulation?.question ? (
+        <div className="w-full min-w-0">
+          <SpeakingSimulationReplay key={message.id} sessionId={sessionId} messageId={message.id}
+            question={metadata.speaking_simulation.question} />
+        </div>
+      ) : null}
+      {message.writing_feedback_detail ? <div className="w-full min-w-0"><WritingFeedbackCard feedback={message.writing_feedback_detail} /></div> : null}
+      {isInteractive && metadata?.guided && metadata?.choices?.length && onChoiceSelect ? (
+        <GuidedChoices
+          choices={metadata.choices}
+          layout={metadata.choice_layout}
+          helperText={metadata.helper_text}
+          disabled={choiceDisabled}
+          onSelect={onChoiceSelect}
+          progressive={Boolean(metadata?.speaking_simulation)}
+        />
+      ) : null}
     </div>
   );
 };
@@ -1419,567 +1355,498 @@ const AssistenteIA = () => {
     setIsQuickCardDialogOpen(true);
   };
 
-  return (
-    <DashboardLayout>
-      <div
-        className={cn(
-          "space-y-6",
-          isConversationPage && "student-workspace h-[calc(100dvh_-_12rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] overflow-hidden space-y-0 lg:h-[calc(100dvh_-_4.5rem)]",
-          isConversationPage && activeMode === "speaking" && "min-h-[40rem]",
-        )}
-      >
-        <section
-          className={cn(
-            "relative flex flex-col overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98)_16%,rgba(255,255,255,0.98))] shadow-sm",
-            isConversationPage ? "h-full min-h-0" : "min-h-[calc(100vh_-_12rem)]",
-          )}
+  const isRecommendedMode = (mode: PracticeMode) => recommendation?.mode === mode;
+  const recommendingTeacher = recommendation?.teacher_name || "seu professor";
+
+  const renderModePicker = () => (
+    <div className="space-y-6">
+      <ScreenTitle title="Como quer praticar?" description="Escolha um modo e pratique inglês com o tutor de IA." />
+      {recommendation?.mode ? (
+        <Alert tone="info" title={`Recomendação de ${recommendingTeacher}: ${modeLabel[recommendation.mode]}`}>
+          {recommendation.note || undefined}
+        </Alert>
+      ) : null}
+      <ul className="grid gap-3" aria-label="Modos de prática">
+        {PRACTICE_MODES.map((mode) => (
+          <ModeCard key={mode} mode={mode} recommended={isRecommendedMode(mode)} onClick={() => handleSelectMode(mode)} />
+        ))}
+      </ul>
+    </div>
+  );
+
+  const renderLessonPicker = () => (
+    <div className="space-y-6">
+      <div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-ml-3 mb-2"
+          onClick={pickerMode === "change" ? closeLessonPicker : openNewConversationPicker}
         >
-            {isPickerVisible ? (
-              <div className="flex h-full flex-col">
-                <div className="flex-1 overflow-y-auto p-4">
-                  {!selectedPracticeMode && pickerMode !== "change" ? (
-                    <div className="space-y-6">
-                      <section className="relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.16),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] p-4 shadow-[0_28px_70px_-48px_rgba(15,23,42,0.34)] md:rounded-[30px] md:p-7">
-                        <div className="absolute right-[-2rem] top-[-2rem] h-36 w-36 rounded-full bg-sky-300/18 blur-3xl" />
-                        <div className="absolute bottom-[-2rem] left-[-1rem] h-32 w-32 rounded-full bg-emerald-300/16 blur-3xl" />
+          <ArrowLeft aria-hidden="true" />
+          {pickerMode === "change" ? "Voltar à conversa" : "Outros modos"}
+        </Button>
+        <ScreenTitle
+          title={pickerMode === "change" ? "Trocar a aula" : "Qual aula você quer revisar?"}
+          description="O tutor usa o conteúdo registrado da aula nas atividades."
+        />
+      </div>
+      {lessonsQuery.isLoading ? (
+        <div className="grid gap-3">
+          <SkeletonCard label="Carregando aulas" lines={3} />
+          <SkeletonCard label="Carregando aulas" lines={3} />
+        </div>
+      ) : lessonsQuery.isError ? (
+        <Alert
+          tone="danger"
+          role="alert"
+          title="Não carregamos suas aulas."
+          action={<Button type="button" size="sm" variant="outline" onClick={() => void lessonsQuery.refetch()}>Tentar novamente</Button>}
+        >
+          Confira sua conexão e tente novamente.
+        </Alert>
+      ) : filteredLessons.length === 0 ? (
+        <Card padding="none">
+          <EmptyState
+            compact
+            icon={BookOpen}
+            title="Nenhuma aula para revisar ainda"
+            description="Quando sua aula for registrada, ela aparece aqui. Enquanto isso, pratique speaking ou writing."
+            action={pickerMode === "change" ? undefined : <Button type="button" variant="secondary" onClick={openNewConversationPicker}>Ver outros modos</Button>}
+          />
+        </Card>
+      ) : (
+        <ul className="grid gap-3 lg:grid-cols-2" aria-label="Aulas disponíveis">
+          {filteredLessons.map((lesson) => (
+            <LessonCard
+              key={lesson.id}
+              lesson={lesson}
+              recommended={String(lesson.id) === String(recommendation?.lesson || "")}
+              loading={creatingLessonId === lesson.id}
+              actionLabel={pickerMode === "change" ? "Usar esta aula" : "Praticar esta aula"}
+              onAction={() =>
+                pickerMode === "change"
+                  ? void handleChangeLesson(lesson.id)
+                  : void handleCreateSession("review", lesson.id)
+              }
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 
-                        <div className="relative">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full border border-sky-200/80 bg-sky-100/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700">
-                                Praticar com IA
-                              </span>
-                              {recommendation?.mode ? (
-                                <span className="rounded-full border border-amber-200/80 bg-amber-100/80 px-3 py-1 text-[11px] font-semibold text-amber-800">
-                                  Recomendação ativa de {recommendation.teacher_name || "seu professor"}
-                                </span>
-                              ) : null}
-                            </div>
+  const renderModeStart = (mode: PracticeMode) => {
+    const meta = modeCardMeta[mode];
+    return (
+      <div className="space-y-4">
+        <Button type="button" variant="ghost" size="sm" className="-ml-3" onClick={openNewConversationPicker}>
+          <ArrowLeft aria-hidden="true" />
+          Outros modos
+        </Button>
+        <Card className="space-y-5">
+          <div className="flex items-start gap-4">
+            <IconTile icon={meta.icon} tone="ai" size="lg" />
+            <div className="min-w-0">
+              <p className="text-caption text-ink-secondary">{meta.eyebrow}</p>
+              <h1 className="text-h2 text-ink">{modeLabel[mode]}</h1>
+              {isRecommendedMode(mode) ? <Badge tone="primary" className="mt-2">Recomendado por {recommendingTeacher}</Badge> : null}
+            </div>
+          </div>
+          <p className="text-body-lg text-ink-secondary">{meta.intro}</p>
+          <Button
+            type="button"
+            size="lg"
+            fullWidth
+            loading={creatingLessonId === mode}
+            onClick={() => void handleCreateSession(mode, isRecommendedMode(mode) ? recommendation?.lesson || undefined : undefined)}
+          >
+            {meta.startLabel}
+          </Button>
+        </Card>
+      </div>
+    );
+  };
 
-                            <h2 className="mt-3 max-w-3xl text-2xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-                              Como quer praticar?
-                            </h2>
-                            <p className="mt-4 hidden max-w-2xl text-sm leading-7 text-slate-600 md:block sm:text-[15px]">
-                              Você pode revisar uma aula, treinar pronúncia ou enviar um texto para correção. Cada modo foi desenhado para combinar com o fluxo visual do portal e te colocar em prática mais rápido.
-                            </p>
+  const renderPicker = () =>
+    !selectedPracticeMode && pickerMode !== "change" ? renderModePicker()
+      : pickerMode === "change" || selectedPracticeMode === "review" ? renderLessonPicker()
+        : selectedPracticeMode ? renderModeStart(selectedPracticeMode)
+          : null;
 
-                            <div className="mt-5 hidden flex-wrap gap-3 text-sm text-slate-600 md:flex">
-                              <div className="rounded-full border border-white/80 bg-white/75 px-4 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.25)]">
-                                Troque de modo sempre que precisar
-                              </div>
-                              <div className="rounded-full border border-white/80 bg-white/75 px-4 py-2 shadow-[0_14px_28px_-24px_rgba(15,23,42,0.25)]">
-                                Continue de onde parou nas conversas salvas
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </section>
+  const renderConversation = (session: SessionDetail) => (
+    <>
+      <header className="shrink-0 space-y-3 border-b border-line pb-3">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <Badge tone="ai" icon={<Sparkles aria-hidden="true" />}>{modeLabel[session.mode]}</Badge>
+              {session.lesson_detail ? (
+                <Badge className="min-w-0 max-w-full"><span className="min-w-0 truncate">Aula atual: {session.lesson_detail.title}</span></Badge>
+              ) : null}
+            </div>
 
-                      <div className="grid grid-cols-3 gap-2 md:hidden">
-                        {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
-                          <MobileModeButton
-                            key={mode}
-                            mode={mode}
-                            recommended={recommendation?.mode === mode}
-                            onClick={() => handleSelectMode(mode)}
-                          />
-                        ))}
-                      </div>
-
-                      <div className="hidden gap-4 md:grid xl:grid-cols-3">
-                        {(["review", "speaking", "writing"] as PracticeMode[]).map((mode) => (
-                          <ModeCard
-                            key={mode}
-                            mode={mode}
-                            recommended={recommendation?.mode === mode}
-                            onClick={() => handleSelectMode(mode)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : pickerMode === "change" || selectedPracticeMode === "review" ? (
-                    lessonsQuery.isLoading ? (
-                      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Carregando aulas...
-                      </div>
-                    ) : filteredLessons.length === 0 ? (
-                      <div className="rounded-[24px] border border-dashed border-border bg-muted/40 p-6 text-sm text-muted-foreground">
-                        Nenhuma aula encontrada com esse filtro.
-                      </div>
-                    ) : (
-                      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-                        {filteredLessons.map((lesson) => (
-                          <LessonCard
-                            key={lesson.id}
-                            lesson={lesson}
-                            recommended={String(lesson.id) === String(recommendation?.lesson || "")}
-                            loading={creatingLessonId === lesson.id}
-                            actionLabel={pickerMode === "change" ? "Usar esta aula" : "Praticar esta aula"}
-                            onAction={() =>
-                              pickerMode === "change"
-                                ? void handleChangeLesson(lesson.id)
-                                : void handleCreateSession("review", lesson.id)
-                            }
-                          />
-                        ))}
-                      </div>
-                    )
-                  ) : selectedPracticeMode ? (
-                    <div className="mx-auto flex h-full w-full max-w-5xl flex-col justify-start md:justify-center">
-                      <div
-                        className={cn(
-                          "overflow-hidden rounded-[24px] border p-4 shadow-[0_28px_80px_-50px_rgba(15,23,42,0.4)] md:rounded-[32px] md:p-7",
-                          modeCardMeta[selectedPracticeMode].surface,
-                        )}
-                      >
-                        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)]">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-3">
-                              <span
-                                className={cn(
-                                  "flex h-12 w-12 items-center justify-center rounded-[18px] ring-1 shadow-[0_18px_38px_-24px_rgba(15,23,42,0.35)]",
-                                  modeCardMeta[selectedPracticeMode].iconWrap,
-                                )}
-                              >
-                                {selectedPracticeMode === "speaking" ? <Mic className="h-5 w-5" /> : <Pencil className="h-5 w-5" />}
-                              </span>
-                              <span className="rounded-full border border-white/80 bg-white/78 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">
-                                {modeCardMeta[selectedPracticeMode].eyebrow}
-                              </span>
-                              {recommendation?.mode === selectedPracticeMode ? (
-                                <span className="rounded-full border border-amber-200/80 bg-amber-100/80 px-3 py-1 text-[11px] font-semibold text-amber-800">
-                                  Recomendado por {recommendation.teacher_name || "seu professor"}
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <p className={cn("mt-4 text-xs font-semibold uppercase tracking-[0.24em] md:mt-5", modeCardMeta[selectedPracticeMode].accent)}>
-                              {modeLabel[selectedPracticeMode]}
-                            </p>
-                            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[2.15rem]">
-                              {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
-                            </h2>
-                            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700">
-                              {modeDescription[selectedPracticeMode]}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col gap-4 rounded-[28px] border border-white/80 bg-white/74 p-5 shadow-[0_22px_52px_-40px_rgba(15,23,42,0.28)] backdrop-blur">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Pronto para começar</p>
-                              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-                                {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => void handleCreateSession(selectedPracticeMode, recommendation?.mode === selectedPracticeMode ? recommendation.lesson || undefined : undefined)}
-                              disabled={creatingLessonId === selectedPracticeMode}
-                              className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-[0_18px_36px_-26px_rgba(15,23,42,0.35)] transition hover:-translate-y-0.5 disabled:opacity-50"
-                            >
-                              {creatingLessonId === selectedPracticeMode ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                              {selectedPracticeMode === "speaking" ? "Iniciar speaking" : "Iniciar writing"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : activeSession ? (
-              <>
-                <header className="border-b border-slate-200/80 bg-white/80 px-5 py-4 backdrop-blur">
-                  <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0">
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white">
-                          {modeLabel[activeSession.mode]}
-                        </span>
-                        {activeSession.lesson_detail ? (
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                            Aula atual: {activeSession.lesson_detail.title}
-                          </span>
-                        ) : null}
-                        {activeSession.mode === "review" ? (
-                          <button
-                            type="button"
-                            onClick={() => setIsChangingLesson(true)}
-                            className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-                          >
-                            Trocar aula
-                          </button>
-                        ) : null}
-                      </div>
-
-                      {isRenaming ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            value={renameValue}
-                            onChange={(event) => setRenameValue(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                void handleRename();
-                              }
-                            }}
-                            className="min-w-[280px] rounded-xl border border-border bg-background px-3 py-2 text-lg font-semibold outline-none transition focus:border-primary/30 focus:ring-2 focus:ring-primary/10"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void handleRename()}
-                            className="rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-                          >
-                            Salvar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsRenaming(false);
-                              setRenameValue(activeSession.title || "");
-                            }}
-                            className="rounded-xl border border-border px-3 py-2 text-sm font-medium"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <h2 className="truncate text-xl font-semibold tracking-tight text-foreground md:text-[30px]">{activeSession.title}</h2>
-                          <p className="mt-1 hidden text-sm text-muted-foreground md:block">
-                            {activeSession.message_count} mensagens · última interação em {formatDateTime(activeSession.last_interaction_at)}
-                          </p>
-                        </>
-                      )}
-
-                      {guidedState?.enabled && activeMode && activeMode !== "review" ? (
-                        <GuidedSessionOverview state={guidedState} mode={activeMode} />
-                      ) : null}
-                      {activeMode === "review" && guidedState?.review_activity && !reviewCompleted && (
-                        <p className="mt-2 text-xs text-slate-600" aria-live="polite">
-                          {guidedState.review_activity_label} · {guidedState.correct_count || 0} acertos · {guidedState.incorrect_count || 0} erros · Dificuldade {guidedState.difficulty || "1"}/5
-                        </p>
-                      )}
-                    </div>
-
-                    <details className="shrink-0" open={activeSession.mode === "review" ? true : undefined}>
-                      <summary className={cn("cursor-pointer rounded-full border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground", activeSession.mode === "review" && "hidden")}>Opções da sessão</summary>
-                      <div className={cn("flex flex-wrap gap-2", activeSession.mode !== "review" && "mt-2")}>
-                      {activeMode === "review" && (reviewCompleted ? (
-                        <button type="button" onClick={() => void handleCreateSession("review", activeSession.lesson || undefined)} disabled={isBusy || Boolean(creatingLessonId)}
-                          className="rounded-full bg-sky-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Nova revisão</button>
-                      ) : (
-                        <>
-                          {guidedState?.review_activity && <button type="button" disabled={isBusy} onClick={() => void handleGuidedChoice({ id: "menu", action_type: "review_control", value: "menu", label: "Escolher prática" })}
-                            className="rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 disabled:opacity-50">Escolher prática</button>}
-                          <button type="button" disabled={isBusy || recordingState === "recording" || recordingState === "paused"} onClick={() => void finishReview()}
-                            className="rounded-full bg-sky-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{isFinishing ? "Salvando relatório..." : "Finalizar revisão"}</button>
-                        </>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openQuickCardDialog({
-                            front: translationPopover?.text || "",
-                            back: translationPopover?.status === "ready" ? translationPopover.translation : "",
-                          })
-                        }
-                        className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
-                      >
-                        <BookPlus className="h-4 w-4" />
-                        <span className="md:hidden">Card</span>
-                        <span className="hidden md:inline">Card: adicionar nova palavra</span>
-                      </button>
-                      {!isRenaming ? (
-                        <button
-                          type="button"
-                          onClick={() => setIsRenaming(true)}
-                          aria-label="Renomear"
-                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white p-2 sm:px-4 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil className="h-4 w-4" />
-                          <span className="hidden sm:inline">Renomear</span>
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete()}
-                        aria-label="Excluir"
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white p-2 sm:px-4 text-sm font-medium text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span className="hidden sm:inline">Excluir</span>
-                      </button>
-                      </div>
-                    </details>
-                  </div>
-                </header>
-
-                <div ref={messageListRef} role="log" aria-label="Conversa com o professor" aria-live="polite" aria-relevant="additions text" className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-                  <div
-                    className={cn(
-                      "mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5",
-                      activeSession.messages.length ? "justify-end" : "",
-                    )}
-                  >
-                    {activeSession.messages.length ? (
-                      activeSession.messages.map((message) => (
-                        <MessageBubble
-                          key={message.id}
-                          message={message}
-                          sessionId={activeSession.id}
-                          onRecord={openVoiceResponse}
-                          onRepeat={repeatSpeaking}
-                          onContinue={openVoiceResponse}
-                          isInteractive={!reviewCompleted && message.id === latestInteractiveAssistantMessage?.id}
-                          onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
-                          choiceDisabled={isBusy || isCapturing}
-                          onTextSelection={handleTextSelection}
-                        />
-                      ))
-                    ) : (
-                      <div className="flex flex-1 items-center justify-center px-6 py-10">
-                        <div className="max-w-2xl text-center">
-                          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
-                            {activeSession.lesson_detail?.title || modeLabel[activeSession.mode]}
-                          </p>
-                          <p className="mt-4 text-xl font-semibold tracking-tight text-foreground md:text-3xl">
-                            {activeSession.mode === "review"
-                              ? "Vamos revisar sua aula? Escolha como você quer praticar hoje:"
-                              : activeSession.mode === "speaking"
-                                ? "Vamos praticar uma conversa em inglês"
-                                : "Vamos construir sua escrita em inglês"}
-                          </p>
-                          <p className="mt-3 hidden text-sm leading-6 text-muted-foreground md:block">
-                            {activeSession.mode === "review"
-                              ? "Peça correções, exercícios, revisão de vocabulário ou explicações de gramática com base no conteúdo já estudado."
-                              : activeSession.mode === "speaking"
-                                ? "Aprenda frases, pratique e converse. Você pode responder por voz ou por texto."
-                                : "Escolha um cenário, seu nível e como quer praticar. Aprenda uma estrutura, veja um exemplo e escreva uma resposta por vez."}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {activeMode === "review" && !guidedState?.enabled && !reviewCompleted && (
-                      <div className="rounded-3xl border border-sky-200 bg-white p-4 sm:p-6">
-                        {activeSession.messages.length > 0 && <p className="font-semibold">Vamos revisar sua aula? Escolha como você quer praticar hoje:</p>}
-                        <GuidedChoices choices={reviewActivityChoices} layout="grid" disabled={isBusy} onSelect={(choice) => void handleGuidedChoice(choice)}
-                          helperText="As atividades usam o conteúdo registrado da aula selecionada. Você também pode escrever uma dúvida abaixo." />
-                      </div>
-                    )}
-                    {activeSession.review_report && <LessonReviewReportCard report={activeSession.review_report} />}
-                  </div>
-                </div>
-
-                {translationPopover ? (
-                  <div
-                    data-translation-popover="true"
-                    data-testid="translation-popover"
-                    className="pointer-events-none fixed z-50 w-[min(calc(100vw_-_1.5rem),22rem)]"
-                    style={{
-                      top: translationPopover.top,
-                      left: translationPopover.left,
+            {isRenaming ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  aria-label="Nome da conversa"
+                  autoFocus
+                  value={renameValue}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleRename();
+                    }
+                  }}
+                  className={cn(inputClasses, "min-w-0 flex-1 basis-56")}
+                />
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" onClick={() => void handleRename()}>Salvar</Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setIsRenaming(false);
+                      setRenameValue(session.title || "");
                     }}
                   >
-                    <div className="pointer-events-auto overflow-hidden rounded-[24px] border border-slate-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(241,245,249,0.96))] shadow-[0_28px_60px_-34px_rgba(15,23,42,0.48)] ring-1 ring-slate-900/5 backdrop-blur">
-                      <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-sky-700">Tradução</p>
-                          <p className="mt-1 text-xs text-muted-foreground">Trecho selecionado</p>
-                        </div>
-                        {translationPopover.status === "loading" ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-                        ) : null}
-                      </div>
-                      <div className="space-y-3 px-4 py-4">
-                        <p className="line-clamp-3 text-xs leading-5 text-slate-500">“{translationPopover.text}”</p>
-                        <div className="rounded-[20px] bg-white/85 px-4 py-3 text-sm font-medium leading-6 text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-                          {translationPopover.status === "ready"
-                            ? translationPopover.translation
-                            : translationPopover.status === "error"
-                              ? "Nao foi possivel traduzir esse trecho agora."
-                              : "Traduzindo..."}
-                        </div>
-                      </div>
-                      <div className="border-t border-slate-200/70 px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            openQuickCardDialog({
-                              front: translationPopover.text,
-                              back: translationPopover.status === "ready" ? translationPopover.translation : "",
-                            });
-                            setTranslationPopover(null);
-                          }}
-                          disabled={translationPopover.status === "loading"}
-                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <BookPlus className="h-3.5 w-3.5" />
-                          Salvar como card
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <QuickAddVocabularyCardDialog
-                  open={isQuickCardDialogOpen}
-                  onOpenChange={setIsQuickCardDialogOpen}
-                  initialFront={quickCardDraft.front}
-                  initialBack={quickCardDraft.back}
-                  lessonId={activeSession?.lesson_detail?.id}
-                  sourceTag="Praticar com IA"
-                  onCreated={() => {
-                    setQuickCardDraft({ front: "", back: "" });
-                    setTranslationPopover(null);
-                  }}
-                />
-
-                <footer className="border-t border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.62),rgba(255,255,255,0.97))] px-4 py-3 backdrop-blur">
-                  <div className="mx-auto w-full max-w-6xl space-y-3">
-                    {activeMode === "speaking" && ["B2", "C1", "C2"].includes(guidedState?.level || "") ? <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      Idioma do feedback
-                      <select aria-label="Idioma do feedback" value={feedbackLanguage} onChange={(event) => setFeedbackLanguage(event.target.value)} className="rounded-lg border border-border bg-background p-2">
-                        <option value="pt-BR">Português</option><option value="en">English</option>
-                      </select>
-                    </label> : null}
-                    {retryPractice ? <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-                      <p className="text-xs font-semibold">{retryPractice.chunkIndex === undefined ? "Repita a frase" : `Repita o trecho ${retryPractice.chunkIndex + 1}`}</p>
-                      <p lang="en" className="mt-1 break-words text-sm">{retryPractice.target}</p>
-                      <Button type="button" size="sm" variant="ghost" disabled={isBusy || isCapturing} onClick={openVoiceResponse}>Voltar à conversa</Button>
-                    </div> : null}
-                    {canUseAudioInput && ((oralResponse && !useText) || showRecorder || recordingState !== "idle") ? (
-                      <div ref={recorderContainerRef}><MicRecorder
-                        key={`${activeSession.id}:${latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id || guidedState?.current_task || "voice"}:${retryPractice?.feedbackId || "conversation"}:${retryPractice?.chunkIndex ?? "full"}`}
-                        state={recordingState}
-                        onStateChange={setRecordingState}
-                        onRecordingComplete={uploadAudio}
-                        maxDurationSeconds={activeMode === "review" ? 120 : undefined}
-                        disabled={!activeSession || isBusy || reviewCompleted}
-                        errorMessage={audioError}
-                        onUseText={openTextResponse}
-                        description={activeMode === "review" ? "Grave uma resposta de até dois minutos ou responda por texto." : undefined}
-                      /></div>
-                    ) : null}
-
-                    {latestInteractiveAssistantMessage?.metadata?.helper_text &&
-                    !(latestInteractiveAssistantMessage.metadata.choices?.length ?? 0) ? (
-                      <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-3 text-sm leading-6 text-muted-foreground">
-                        {latestInteractiveAssistantMessage.metadata.helper_text}
-                      </div>
-                    ) : null}
-
-                    {showTextInput ? <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
-                      {oralResponse ? <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-muted-foreground">Resposta por texto</p>
-                        {!recordingSupportError() ? <Button type="button" size="sm" variant="ghost" onClick={openVoiceResponse}>Usar microfone</Button> : null}
-                      </div> : null}
-                      <div className="flex min-w-0 items-end gap-2 sm:gap-3">
-                        {canUseAudioInput && activeMode === "review" ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowRecorder((current) => !current)}
-                            disabled={!activeSession || isBusy || reviewCompleted}
-                            className={cn(
-                              "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition disabled:opacity-50",
-                              showRecorder || recordingState !== "idle"
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
-                            )}
-                            aria-label="Abrir microfone"
-                          >
-                            <Mic className="h-5 w-5" />
-                          </button>
-                        ) : null}
-
-                        <div className="student-composer-field flex min-h-[52px] min-w-0 flex-1 items-center rounded-[24px] bg-slate-50/80 px-1">
-                          <textarea
-                            ref={textInputRef}
-                            aria-label="Sua resposta por texto"
-                            value={input}
-                            onChange={(event) => setInput(event.target.value)}
-                            onKeyDown={handleComposerKeyDown}
-                            placeholder={reviewCompleted ? "Revisão finalizada. Inicie uma nova revisão para praticar mais." : composerPlaceholder}
-                            disabled={!activeSession || isBusy || isCapturing || reviewCompleted}
-                            rows={1}
-                            className="max-h-32 min-h-[48px] w-full min-w-0 flex-1 resize-none bg-transparent px-3 py-3 text-base outline-none placeholder:text-muted-foreground disabled:opacity-50"
-                          />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => void sendText()}
-                          disabled={!activeSession || !input.trim() || isBusy || isCapturing || reviewCompleted}
-                          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white transition hover:opacity-90 disabled:opacity-50"
-                          aria-label="Enviar mensagem"
-                        >
-                          {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                        </button>
-                      </div>
-                    </div> : null}
-                  </div>
-                </footer>
-              </>
-            ) : selectedSessionId && sessionDetailQuery.isLoading ? (
-              <div className="flex h-full items-center justify-center p-6">
-                <div className="flex items-center gap-2 rounded-2xl border border-border bg-muted/40 px-4 py-5 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Carregando conversa...
-                </div>
-              </div>
-            ) : selectedSessionId && sessionDetailQuery.isError ? (
-              <div className="flex h-full items-center justify-center p-6">
-                <div className="max-w-lg rounded-[28px] border border-dashed border-border bg-muted/40 px-8 py-10 text-center">
-                  <p className="text-lg font-semibold text-foreground">Conversa não encontrada</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Essa conversa não está mais disponível. Escolha outra no histórico ou comece uma nova.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate(APP_PATHS.aiPractice)}
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-                  >
-                    Voltar para o assistente
-                  </button>
+                    Cancelar
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center p-6">
-                <div className="max-w-lg rounded-[28px] border border-dashed border-border bg-muted/40 px-8 py-10 text-center">
-                  <p className="text-lg font-semibold text-foreground">
-                    {hasSavedSessions ? "Escolha uma conversa ou crie uma nova" : "Escolha um modo para começar"}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {hasSavedSessions
-                      ? "Abra uma conversa pelo histórico ou escolha um modo para começar uma nova prática."
-                      : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
-                  </p>
-                  <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={openNewConversationPicker}
-                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
-                    >
-                      <BookOpen className="h-4 w-4" />
-                      Escolher modo
-                    </button>
-                    {sessionsQuery.data?.[0] ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSelectSession(sessionsQuery.data[0].id)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted"
-                      >
-                        Abrir conversa mais recente
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+              <>
+                <h1 className="mt-1.5 truncate text-h4 text-ink">{session.title}</h1>
+                <p className="hidden text-caption text-ink-secondary md:block">
+                  {session.message_count} mensagens · última interação em {formatDateTime(session.last_interaction_at)}
+                </p>
+              </>
             )}
-          </section>
+
+            {activeMode === "review" && guidedState?.review_activity && !reviewCompleted && (
+              <p className="mt-1 text-caption text-ink-secondary" aria-live="polite">
+                {guidedState.review_activity_label} · {guidedState.correct_count || 0} acertos · {guidedState.incorrect_count || 0} erros · Dificuldade {guidedState.difficulty || "1"}/5
+              </p>
+            )}
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton variant="ghost" aria-label="Opções da conversa" icon={<Ellipsis aria-hidden="true" />} className="-mr-2 size-11 shrink-0 text-ink-secondary" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-64 rounded-lg border-line bg-surface p-1 text-ink shadow-overlay"
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              {session.mode === "review" ? (
+                <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body" onSelect={() => setIsChangingLesson(true)}>
+                  <BookOpen size={16} aria-hidden="true" />
+                  Trocar aula
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem
+                className="min-h-11 gap-2 rounded-md text-body"
+                onSelect={() =>
+                  openQuickCardDialog({
+                    front: translationPopover?.text || "",
+                    back: translationPopover?.status === "ready" ? translationPopover.translation : "",
+                  })
+                }
+              >
+                <BookPlus size={16} aria-hidden="true" />
+                Card: adicionar nova palavra
+              </DropdownMenuItem>
+              {!isRenaming ? (
+                <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body" onSelect={() => setIsRenaming(true)}>
+                  <Pencil size={16} aria-hidden="true" />
+                  Renomear
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSeparator className="bg-line" />
+              <DropdownMenuItem className="min-h-11 gap-2 rounded-md text-body text-danger focus:text-danger" onSelect={() => void handleDelete()}>
+                <Trash2 size={16} aria-hidden="true" />
+                Excluir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {guidedState?.enabled && activeMode && activeMode !== "review" ? (
+          <GuidedSessionOverview state={guidedState} mode={activeMode} />
+        ) : null}
+
+        {activeMode === "review" ? (
+          <div className="flex flex-wrap gap-2">
+            {reviewCompleted ? (
+              <Button type="button" size="sm" onClick={() => void handleCreateSession("review", session.lesson || undefined)} disabled={isBusy || Boolean(creatingLessonId)}>
+                Nova revisão
+              </Button>
+            ) : (
+              <>
+                {guidedState?.review_activity ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isBusy}
+                    onClick={() => void handleGuidedChoice({ id: "menu", action_type: "review_control", value: "menu", label: "Escolher prática" })}
+                  >
+                    Escolher prática
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={isBusy || recordingState === "recording" || recordingState === "paused"}
+                  onClick={() => void finishReview()}
+                >
+                  {isFinishing ? "Salvando relatório…" : "Finalizar revisão"}
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
+      </header>
+
+      <div ref={messageListRef} role="log" aria-label="Conversa com o tutor de IA" aria-live="polite" aria-relevant="additions text" className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-4">
+        <div className={cn("flex min-h-full w-full flex-col gap-5", session.messages.length ? "justify-end" : "")}>
+          {session.messages.length ? (
+            session.messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                sessionId={session.id}
+                onRecord={openVoiceResponse}
+                onRepeat={repeatSpeaking}
+                onContinue={openVoiceResponse}
+                isInteractive={!reviewCompleted && message.id === latestInteractiveAssistantMessage?.id}
+                onChoiceSelect={(choice) => void handleGuidedChoice(choice)}
+                choiceDisabled={isBusy || isCapturing}
+                onTextSelection={handleTextSelection}
+              />
+            ))
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center px-2 py-8 text-center">
+              <IconTile icon={Sparkles} tone="ai" size="lg" />
+              <p className="mt-4 text-caption text-ink-secondary">{session.lesson_detail?.title || modeLabel[session.mode]}</p>
+              <p className="mt-1 max-w-md text-h3 text-ink">
+                {session.mode === "review"
+                  ? "Vamos revisar sua aula? Escolha como você quer praticar hoje:"
+                  : session.mode === "speaking"
+                    ? "Vamos praticar uma conversa em inglês"
+                    : "Vamos construir sua escrita em inglês"}
+              </p>
+              <p className="mt-2 max-w-md text-body text-ink-secondary">
+                {session.mode === "review" || session.mode === "speaking" || session.mode === "writing"
+                  ? modeCardMeta[session.mode].intro
+                  : null}
+              </p>
+            </div>
+          )}
+          {activeMode === "review" && !guidedState?.enabled && !reviewCompleted && (
+            <div className="w-full space-y-3">
+              {session.messages.length > 0 && <p className="text-body-lg font-medium text-ink">Vamos revisar sua aula? Escolha como você quer praticar hoje:</p>}
+              <GuidedChoices choices={reviewActivityChoices} layout="grid" disabled={isBusy} onSelect={(choice) => void handleGuidedChoice(choice)}
+                helperText="As atividades usam o conteúdo registrado da aula selecionada. Você também pode escrever uma dúvida abaixo." />
+            </div>
+          )}
+          {isSending && recordingState === "idle" ? <div className="pl-9"><TypingIndicator /></div> : null}
+          {session.review_report && <LessonReviewReportCard report={session.review_report} />}
+        </div>
       </div>
+
+      {translationPopover ? (
+        <div
+          data-translation-popover="true"
+          data-testid="translation-popover"
+          className="pointer-events-none fixed z-50 w-[min(calc(100vw_-_1.5rem),22rem)]"
+          style={{
+            top: translationPopover.top,
+            left: translationPopover.left,
+          }}
+        >
+          <div className="pointer-events-auto space-y-3 rounded-xl border border-line bg-surface p-4 text-ink shadow-overlay">
+            <div className="flex items-center justify-between gap-3">
+              <p className="flex items-center gap-1.5 text-label text-ai">
+                <Languages size={14} aria-hidden="true" />
+                Tradução do trecho
+              </p>
+              {translationPopover.status === "loading" ? <Loader2 size={16} className="animate-spin text-ink-muted" aria-hidden="true" /> : null}
+            </div>
+            <p lang="en" className="line-clamp-3 text-body text-ink-secondary">“{translationPopover.text}”</p>
+            <p className="text-body-lg font-medium text-ink" aria-live="polite">
+              {translationPopover.status === "ready"
+                ? translationPopover.translation
+                : translationPopover.status === "error"
+                  ? "Não foi possível traduzir esse trecho agora."
+                  : "Traduzindo…"}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                openQuickCardDialog({
+                  front: translationPopover.text,
+                  back: translationPopover.status === "ready" ? translationPopover.translation : "",
+                });
+                setTranslationPopover(null);
+              }}
+              disabled={translationPopover.status === "loading"}
+            >
+              <BookPlus aria-hidden="true" />
+              Salvar como card
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <QuickAddVocabularyCardDialog
+        open={isQuickCardDialogOpen}
+        onOpenChange={setIsQuickCardDialogOpen}
+        initialFront={quickCardDraft.front}
+        initialBack={quickCardDraft.back}
+        lessonId={session.lesson_detail?.id}
+        sourceTag="Praticar com IA"
+        onCreated={() => {
+          setQuickCardDraft({ front: "", back: "" });
+          setTranslationPopover(null);
+        }}
+      />
+
+      <footer className="shrink-0 space-y-3 border-t border-line pt-3">
+        {activeMode === "speaking" && ["B2", "C1", "C2"].includes(guidedState?.level || "") ? <label className="flex flex-wrap items-center gap-2 text-body text-ink-secondary">
+          Idioma do feedback
+          <select aria-label="Idioma do feedback" value={feedbackLanguage} onChange={(event) => setFeedbackLanguage(event.target.value)} className={cn(inputClasses, "min-h-11 w-auto")}>
+            <option value="pt-BR">Português</option><option value="en">English</option>
+          </select>
+        </label> : null}
+        {retryPractice ? (
+          <StudyBlock kind="example" title={retryPractice.chunkIndex === undefined ? "Repita a frase" : `Repita o trecho ${retryPractice.chunkIndex + 1}`}>
+            <p lang="en" className="break-words">{retryPractice.target}</p>
+            <Button type="button" size="sm" variant="ghost" className="-ml-4 mt-1" disabled={isBusy || isCapturing} onClick={openVoiceResponse}>Voltar à conversa</Button>
+          </StudyBlock>
+        ) : null}
+        {canUseAudioInput && ((oralResponse && !useText) || showRecorder || recordingState !== "idle") ? (
+          <div ref={recorderContainerRef}><MicRecorder
+            key={`${session.id}:${latestInteractiveAssistantMessage?.metadata?.speaking_prompt_id || guidedState?.current_task || "voice"}:${retryPractice?.feedbackId || "conversation"}:${retryPractice?.chunkIndex ?? "full"}`}
+            state={recordingState}
+            onStateChange={setRecordingState}
+            onRecordingComplete={uploadAudio}
+            maxDurationSeconds={activeMode === "review" ? 120 : undefined}
+            disabled={!activeSession || isBusy || reviewCompleted}
+            errorMessage={audioError}
+            onUseText={openTextResponse}
+            description={activeMode === "review" ? "Grave uma resposta de até dois minutos ou responda por texto." : undefined}
+          /></div>
+        ) : null}
+
+        {latestInteractiveAssistantMessage?.metadata?.helper_text &&
+        !(latestInteractiveAssistantMessage.metadata.choices?.length ?? 0) ? (
+          <p className="flex gap-2 text-body text-ink-secondary">
+            <Info size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+            {latestInteractiveAssistantMessage.metadata.helper_text}
+          </p>
+        ) : null}
+
+        {showTextInput ? <div className="space-y-2">
+          {oralResponse ? <div className="flex items-center justify-between gap-2">
+            <p className="text-label text-ink-secondary">Resposta por texto</p>
+            {!recordingSupportError() ? <Button type="button" size="sm" variant="ghost" className="-mr-3" onClick={openVoiceResponse}><Mic aria-hidden="true" />Usar microfone</Button> : null}
+          </div> : null}
+          <div className="flex min-w-0 items-end gap-2">
+            {canUseAudioInput && activeMode === "review" ? (
+              <IconButton
+                variant={showRecorder || recordingState !== "idle" ? "secondary" : "outline"}
+                aria-label="Abrir microfone"
+                aria-pressed={showRecorder || recordingState !== "idle"}
+                icon={<Mic aria-hidden="true" />}
+                onClick={() => setShowRecorder((current) => !current)}
+                disabled={!activeSession || isBusy || reviewCompleted}
+              />
+            ) : null}
+
+            <div className="student-composer-field flex min-w-0 flex-1 items-center rounded-md border border-line bg-surface">
+              <textarea
+                ref={textInputRef}
+                aria-label="Sua resposta por texto"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
+                placeholder={reviewCompleted ? "Revisão finalizada. Inicie uma nova revisão para praticar mais." : composerPlaceholder}
+                disabled={!activeSession || isBusy || isCapturing || reviewCompleted}
+                rows={1}
+                className="max-h-32 min-h-12 w-full min-w-0 flex-1 resize-none rounded-md bg-transparent px-4 py-3 text-body-lg text-ink outline-none placeholder:text-ink-muted disabled:text-ink-muted"
+              />
+            </div>
+
+            <IconButton
+              variant="primary"
+              aria-label="Enviar mensagem"
+              icon={isSending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
+              onClick={() => void sendText()}
+              disabled={!activeSession || !input.trim() || isBusy || isCapturing || reviewCompleted}
+            />
+          </div>
+        </div> : null}
+      </footer>
+    </>
+  );
+
+  const content = isPickerVisible ? (
+    isConversationPage ? <div className="min-h-0 flex-1 overflow-y-auto">{renderPicker()}</div> : renderPicker()
+  ) : activeSession ? (
+    renderConversation(activeSession)
+  ) : selectedSessionId && sessionDetailQuery.isLoading ? (
+    <div className="space-y-3 py-4">
+      <SkeletonCard label="Carregando conversa" lines={2} />
+      <SkeletonCard label="Carregando conversa" lines={3} className="ml-auto w-4/5" />
+    </div>
+  ) : selectedSessionId && sessionDetailQuery.isError ? (
+    <div className="flex flex-1 items-center justify-center">
+      <EmptyState
+        icon={MessageSquare}
+        title="Conversa não encontrada"
+        description="Essa conversa não está mais disponível. Escolha outra no histórico ou comece uma nova."
+        action={<Button type="button" onClick={() => navigate(APP_PATHS.aiPractice)}>Voltar para o assistente</Button>}
+      />
+    </div>
+  ) : (
+    <div className="flex flex-1 items-center justify-center">
+      <EmptyState
+        icon={Sparkles}
+        title={hasSavedSessions ? "Escolha uma conversa ou crie uma nova" : "Escolha um modo para começar"}
+        description={hasSavedSessions
+          ? "Abra uma conversa pelo histórico ou escolha um modo para começar uma nova prática."
+          : "Comece por revisão de aula, speaking ou writing. O fluxo muda conforme o tipo de prática que você quer fazer."}
+        action={
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button type="button" onClick={openNewConversationPicker}>
+              <BookOpen aria-hidden="true" />
+              Escolher modo
+            </Button>
+            {sessionsQuery.data?.[0] ? (
+              <Button type="button" variant="outline" onClick={() => handleSelectSession(sessionsQuery.data[0].id)}>
+                Abrir conversa mais recente
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
+    </div>
+  );
+
+  return (
+    <DashboardLayout>
+      {isConversationPage ? (
+        // .student-workspace (student.css) sizes the chat between the shell header and the bottom navigation.
+        <div className="student-workspace flex min-h-0 flex-col">{content}</div>
+      ) : content}
     </DashboardLayout>
   );
 };

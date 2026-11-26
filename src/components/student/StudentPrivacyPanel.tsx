@@ -6,7 +6,8 @@ import { api, sessionBoundConfig } from "@/lib/api";
 import { getSessionGeneration } from "@/lib/session";
 import { LEGAL_PATHS, SUPPORT_EMAIL, supportMailto } from "@/lib/privacy";
 import { useAuth } from "@/contexts/AuthContext";
-import { Button } from "@/components/ui/button";
+import { ShieldCheck } from "lucide-react";
+import { Alert, Button, Card, IconTile, TextField } from "@/components/student/ui";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type ConsentStatus = { accepted: boolean; accepted_at: string | null };
@@ -36,26 +37,31 @@ export default function StudentPrivacyPanel() {
       setError(isAxiosError(cause) && cause.response?.status === 400 ? "Confira sua senha e digite EXCLUIR para confirmar." : "Não conseguimos excluir sua conta. Tente novamente ou fale com o suporte.");
     } finally { setBusy(false); }
   };
-  return <section className="student-card space-y-5 p-5" aria-labelledby="privacy-title">
-    <h2 id="privacy-title" className="text-sm font-bold">Privacidade e IA</h2>
-    <div className="space-y-3 text-sm leading-6 text-slate-600">
-      {consent.isPending ? <p>Carregando suas preferências...</p> : consent.isError ? <p>Não carregamos sua preferência. <button type="button" className="underline" onClick={() => void consent.refetch()}>Tentar novamente</button></p> : <>
-        <p>{consent.data.accepted ? "Você autorizou o envio de respostas, áudios e conteúdo selecionado das aulas à OpenAI para práticas de IA." : "O envio de dados à OpenAI não está autorizado. Você poderá escolher antes de iniciar uma prática de IA."}</p>
-        {consent.data.accepted && <Button variant="outline" disabled={busy} onClick={() => void revoke()}>Revogar autorização de IA</Button>}
-      </>}
-      <div className="flex flex-wrap gap-x-5 gap-y-2"><Link className="inline-flex min-h-11 items-center font-semibold text-primary underline" to={LEGAL_PATHS.privacy}>Política de privacidade</Link><Link className="inline-flex min-h-11 items-center font-semibold text-primary underline" to={LEGAL_PATHS.support}>Suporte</Link></div>
-      <p>Para recuperar seu acesso ou solicitar informações sobre seus dados, escreva para <a href={supportMailto()} className="break-all font-semibold text-primary underline">{SUPPORT_EMAIL}</a>.</p>
-      {error && !open && <p role="alert" className="text-destructive">{error}</p>}
-      <Button variant="outline" className="text-destructive" onClick={() => { setError(""); setPassword(""); setConfirmation(""); setOpen(true); }}>Excluir minha conta</Button>
+  return <Card as="section" className="space-y-4" aria-labelledby="privacy-title">
+    <div className="flex items-center gap-3">
+      <IconTile icon={ShieldCheck} />
+      <h2 id="privacy-title" className="text-h4 text-ink">Privacidade e IA</h2>
     </div>
-    <Dialog open={open} onOpenChange={(next) => { if (!busy) { setOpen(next); setPassword(""); setConfirmation(""); } }}><DialogContent>
-      <DialogHeader><DialogTitle>Excluir sua conta?</DialogTitle><DialogDescription>Esta ação é permanente. Seu acesso e os dados vinculados à sua conta serão removidos da aplicação, incluindo conversas e gravações de prática. A exclusão da conta não cancela contratos nem obrigações com a escola.</DialogDescription></DialogHeader>
-      <div className="space-y-4">
-        <label className="block text-sm font-medium">Sua senha atual<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-12 w-full rounded-lg border px-3 text-base" /></label>
-        <label className="block text-sm font-medium">Digite EXCLUIR<input autoComplete="off" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-2 h-12 w-full rounded-lg border px-3 text-base" /></label>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    <div className="space-y-4 text-body text-ink-secondary">
+      {consent.isPending ? <p role="status">Carregando suas preferências…</p> : consent.isError ? <p>Não carregamos sua preferência. <button type="button" className="inline-flex min-h-11 items-center font-semibold text-primary underline" onClick={() => void consent.refetch()}>Tentar novamente</button></p> : <>
+        <p>{consent.data.accepted ? "Você autorizou o envio de respostas, áudios e conteúdo selecionado das aulas à OpenAI para práticas de IA." : "O envio de dados à OpenAI não está autorizado. Você poderá escolher antes de iniciar uma prática de IA."}</p>
+        {consent.data.accepted && <Button variant="outline" size="sm" loading={busy} onClick={() => void revoke()}>Revogar autorização de IA</Button>}
+      </>}
+      <div className="flex flex-wrap gap-x-6"><Link className="inline-flex min-h-11 items-center font-semibold text-primary underline underline-offset-2" to={LEGAL_PATHS.privacy}>Política de privacidade</Link><Link className="inline-flex min-h-11 items-center font-semibold text-primary underline underline-offset-2" to={LEGAL_PATHS.support}>Suporte</Link></div>
+      <p>Para recuperar seu acesso ou solicitar informações sobre seus dados, escreva para <a href={supportMailto()} className="break-words font-semibold text-primary underline underline-offset-2">{SUPPORT_EMAIL}</a>.</p>
+      {error && !open && <Alert role="alert" tone="danger" title={error} />}
+      <div className="border-t border-line pt-4">
+        <Button variant="ghost" size="sm" className="-ml-4 text-danger hover:bg-danger-soft" onClick={() => { setError(""); setPassword(""); setConfirmation(""); setOpen(true); }}>Excluir minha conta</Button>
       </div>
-      <DialogFooter><Button variant="outline" disabled={busy} onClick={() => { setOpen(false); setPassword(""); }}>Manter minha conta</Button><Button variant="destructive" disabled={busy || !password || confirmation !== "EXCLUIR"} onClick={() => void deleteAccount()}>{busy ? "Excluindo..." : "Excluir definitivamente"}</Button></DialogFooter>
+    </div>
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) { setOpen(next); setPassword(""); setConfirmation(""); } }}><DialogContent className="rounded-2xl">
+      <DialogHeader><DialogTitle className="text-h3">Excluir sua conta?</DialogTitle><DialogDescription className="text-body text-ink-secondary">Esta ação é permanente. Seu acesso e os dados vinculados à sua conta serão removidos da aplicação, incluindo conversas e gravações de prática. A exclusão da conta não cancela contratos nem obrigações com a escola.</DialogDescription></DialogHeader>
+      <div className="space-y-4">
+        <TextField label="Sua senha atual" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <TextField label="Digite EXCLUIR" autoComplete="off" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} />
+        {error && <Alert role="alert" tone="danger" title={error} />}
+      </div>
+      <DialogFooter className="gap-2"><Button variant="outline" disabled={busy} onClick={() => { setOpen(false); setPassword(""); }}>Manter minha conta</Button><Button variant="destructive" loading={busy} loadingLabel="Excluindo…" disabled={!password || confirmation !== "EXCLUIR"} onClick={() => void deleteAccount()}>Excluir definitivamente</Button></DialogFooter>
     </DialogContent></Dialog>
-  </section>;
+  </Card>;
 }

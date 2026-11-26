@@ -329,9 +329,9 @@ export const buildNewModePath = (mode?: PracticeMode) => {
 export const buildInterpreterSessionPath = (sessionId: string) => APP_PATHS.interpreterSession(sessionId);
 
 export const modeLabel: Record<AIStudyMode, string> = {
-  review: "Revisar Aula",
+  review: "Revisar aula",
   speaking: "Speaking",
-  listening: "Interprete IA",
+  listening: "Intérprete IA",
   writing: "Writing",
 };
 
